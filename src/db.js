@@ -217,4 +217,30 @@ export const saveAIMessage = async (lessonId, role, content) => {
     .from("ai_messages")
     .insert({ lesson_id: lessonId, role, content, teacher_id: user.id });
   return { error };
+  // ─── QUESTION SETS ───────────────────────────────────────────────────────────
+export const getQuestionSets = async () => {
+  const { data, error } = await supabase
+    .from("question_sets")
+    .select("*")
+    .order("created_at", { ascending: false });
+  return { data, error };
+};
+
+export const upsertQuestionSet = async (set) => {
+  const { data: { user } } = await supabase.auth.getUser();
+  const { data, error } = await supabase
+    .from("question_sets")
+    .upsert({ ...set, teacher_id: user.id })
+    .select()
+    .single();
+  return { data, error };
+};
+
+export const deleteQuestionSet = async (id) => {
+  const { error } = await supabase
+    .from("question_sets")
+    .delete()
+    .eq("id", id);
+  return { error };
+};
 };
