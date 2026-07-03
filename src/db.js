@@ -217,6 +217,7 @@ export const saveAIMessage = async (lessonId, role, content) => {
     .from("ai_messages")
     .insert({ lesson_id: lessonId, role, content, teacher_id: user.id });
   return { error };
+  };
   // ─── QUESTION SETS ───────────────────────────────────────────────────────────
 export const getQuestionSets = async () => {
   const { data, error } = await supabase
