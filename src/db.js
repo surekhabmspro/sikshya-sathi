@@ -243,4 +243,3 @@ export const deleteQuestionSet = async (id) => {
     .eq("id", id);
   return { error };
 };
-};
