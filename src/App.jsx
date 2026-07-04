@@ -1262,6 +1262,346 @@ function AIAssistant({ lessons }) {
 }
 
 // ─── APP SHELL ────────────────────────────────────────────────────────────────
+// ─── ACTIVITIES LIBRARY ───────────────────────────────────────────────────────
+function ActivitiesLibrary() {
+  const [activities, setActivities] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [typeFilter, setTypeFilter] = useState("सबै");
+  const [form, setForm] = useState({ title: "", type: "game", competency: "", duration: "", description: "", chapter_title: "" });
+
+  const TYPES = [
+    { id: "game",         label: "खेल",              icon: Gamepad2      },
+    { id: "roleplay",     label: "भूमिका अभिनय",    icon: Users         },
+    { id: "project",      label: "प्रोजेक्ट",        icon: FolderKanban  },
+    { id: "map",          label: "नक्सा क्रियाकलाप", icon: MapIcon       },
+    { id: "debate",       label: "बहस",              icon: MessageSquare },
+    { id: "presentation", label: "प्रस्तुतीकरण",    icon: Presentation  },
+  ];
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const { data } = await db.getActivities();
+    setActivities(data || []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const save = async () => {
+    if (!form.title.trim()) return;
+    setSaving(true);
+    await db.upsertActivity({ ...form });
+    setSaving(false);
+    setShowForm(false);
+    setForm({ title: "", type: "game", competency: "", duration: "", description: "", chapter_title: "" });
+    load();
+  };
+
+  const filtered = typeFilter === "सबै" ? activities : activities.filter((a) => a.type === typeFilter);
+
+  return (
+    <div style={{ padding: "20px 20px 100px", maxWidth: 920, margin: "0 auto" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ fontSize: 22, fontWeight: 700, color: INK }}>क्रियाकलाप पुस्तकालय</div>
+        <button onClick={() => setShowForm(true)} style={{ display: "flex", alignItems: "center", gap: 6, background: ACCENT, color: "#fff", border: "none", borderRadius: 10, padding: "9px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}><Plus size={15} />नयाँ</button>
+      </div>
+
+      {showForm && (
+        <Card style={{ marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>नयाँ क्रियाकलाप</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <input placeholder="क्रियाकलापको नाम *" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} style={{ border: "1px solid #ECE6D8", borderRadius: 10, padding: "10px 12px", fontSize: 14, fontFamily: "Inter, sans-serif" }} />
+            <input placeholder="अध्याय" value={form.chapter_title} onChange={(e) => setForm({ ...form, chapter_title: e.target.value })} style={{ border: "1px solid #ECE6D8", borderRadius: 10, padding: "10px 12px", fontSize: 14, fontFamily: "Inter, sans-serif" }} />
+            <input placeholder="क्षमता (जस्तै: नागरिक चेतना)" value={form.competency} onChange={(e) => setForm({ ...form, competency: e.target.value })} style={{ border: "1px solid #ECE6D8", borderRadius: 10, padding: "10px 12px", fontSize: 14, fontFamily: "Inter, sans-serif" }} />
+            <input placeholder="समय (जस्तै: १५ मिनेट)" value={form.duration} onChange={(e) => setForm({ ...form, duration: e.target.value })} style={{ border: "1px solid #ECE6D8", borderRadius: 10, padding: "10px 12px", fontSize: 14, fontFamily: "Inter, sans-serif" }} />
+            <textarea placeholder="विवरण" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} style={{ border: "1px solid #ECE6D8", borderRadius: 10, padding: "10px 12px", fontSize: 14, fontFamily: "Inter, sans-serif", resize: "vertical" }} />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              {TYPES.map((t) => {
+                const Icon = t.icon;
+                return <button key={t.id} onClick={() => setForm({ ...form, type: t.id })} style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 12px", borderRadius: 10, border: `2px solid ${form.type === t.id ? ACCENT : "#ECE6D8"}`, background: form.type === t.id ? "#E4EFE6" : "#fff", color: form.type === t.id ? ACCENT : INK, fontWeight: 600, fontSize: 13, cursor: "pointer" }}><Icon size={15} />{t.label}</button>;
+              })}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setShowForm(false)} style={{ flex: 1, padding: "11px", borderRadius: 10, border: "1px solid #ECE6D8", background: "#fff", fontWeight: 600, cursor: "pointer" }}>रद्द</button>
+              <button onClick={save} disabled={saving} style={{ flex: 1, padding: "11px", borderRadius: 10, border: "none", background: ACCENT, color: "#fff", fontWeight: 700, cursor: "pointer" }}>{saving ? "..." : "सुरक्षित"}</button>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      <div style={{ display: "flex", gap: 8, overflowX: "auto", marginBottom: 16, paddingBottom: 4 }}>
+        <button onClick={() => setTypeFilter("सबै")} style={{ padding: "7px 14px", borderRadius: 999, background: typeFilter === "सबै" ? ACCENT : "#fff", color: typeFilter === "सबै" ? "#fff" : INK, fontWeight: 600, fontSize: 13, whiteSpace: "nowrap", cursor: "pointer", border: "1px solid " + (typeFilter === "सबै" ? ACCENT : "#ECE6D8") }}>सबै</button>
+        {TYPES.map((t) => {
+          const Icon = t.icon;
+          return <button key={t.id} onClick={() => setTypeFilter(t.id)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 999, background: typeFilter === t.id ? ACCENT : "#fff", color: typeFilter === t.id ? "#fff" : INK, fontWeight: 600, fontSize: 13, whiteSpace: "nowrap", cursor: "pointer", border: "1px solid " + (typeFilter === t.id ? ACCENT : "#ECE6D8") }}><Icon size={14} />{t.label}</button>;
+        })}
+      </div>
+
+      {loading ? <Spinner /> : filtered.length === 0 ? (
+        <div style={{ textAlign: "center", color: "#8A8275", padding: 40 }}>कुनै क्रियाकलाप छैन — माथिको बटनबाट थप्नुहोस्।</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {filtered.map((a) => {
+            const typeInfo = TYPES.find((t) => t.id === a.type) || TYPES[0];
+            const Icon = typeInfo.icon;
+            return (
+              <Card key={a.id}>
+                <div style={{ display: "flex", gap: 14 }}>
+                  <div style={{ width: 42, height: 42, borderRadius: 12, background: "#E4EFE6", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Icon size={20} color={ACCENT} /></div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <div style={{ fontWeight: 700, fontSize: 15, color: INK }}>{a.title}</div>
+                      {a.duration && <span style={{ fontSize: 12, color: "#8A8275", fontWeight: 600 }}>{a.duration}</span>}
+                    </div>
+                    {a.description && <div style={{ fontSize: 13.5, color: "#6B6557", lineHeight: 1.5, marginBottom: 8 }}>{a.description}</div>}
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {a.chapter_title && <span style={{ fontSize: 11, background: "#F4EFE3", color: "#7A6F3E", padding: "3px 8px", borderRadius: 6, fontWeight: 600 }}>{a.chapter_title}</span>}
+                      {a.competency && <span style={{ fontSize: 11, background: "#E4EFE6", color: ACCENT, padding: "3px 8px", borderRadius: 6, fontWeight: 600 }}>{a.competency}</span>}
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── RESOURCE CREATOR ─────────────────────────────────────────────────────────
+function ResourceCreator({ lessons }) {
+  const [active, setActive] = useState(null);
+  const lesson = lessons[0];
+
+  const TEMPLATES = [
+    {
+      id: "worksheet", title: "कार्यपत्र", icon: FileText, desc: "अभ्यास प्रश्नसहितको कार्यपत्र",
+      generate: (l) => l ? `कक्षा: ५\nविषय: सामाजिक अध्ययन\nपाठ: ${l.title}\n\n` +
+        `नाम: _________________ मिति: _________________\n\n` +
+        `१. छोटो उत्तर दिनुहोस्:\n${(l.key_questions || []).map((q, i) => `   ${i + 1}. ${q}\n   उत्तर: ___________________________\n`).join("\n")}\n` +
+        `२. शब्दावली अर्थ लेख्नुहोस्:\n${(l.vocabulary || []).map((v) => `   ${v}: ___________________________\n`).join("")}`
+        : "पहिले पाठ योजना थप्नुहोस्।"
+    },
+    {
+      id: "revision", title: "पुनरावलोकन पाना", icon: ClipboardList, desc: "परीक्षा अघि छिटो दोहोऱ्याउन",
+      generate: (l) => l ? `पुनरावलोकन पाना — ${l.title}\n${"=".repeat(40)}\n\n` +
+        `🎯 मुख्य उद्देश्यहरू:\n${(l.objectives || []).map((o, i) => `${i + 1}. ${o}`).join("\n")}\n\n` +
+        `📝 मुख्य शब्दावली:\n${(l.vocabulary || []).map((v) => `• ${v}`).join("\n")}\n\n` +
+        `❓ सम्भावित प्रश्नहरू:\n${(l.key_questions || []).map((q, i) => `${i + 1}. ${q}`).join("\n")}`
+        : "पहिले पाठ योजना थप्नुहोस्।"
+    },
+    {
+      id: "flashcard", title: "फ्ल्यासकार्ड", icon: Copy, desc: "शब्दावली सम्झनका लागि",
+      generate: (l) => l ? `फ्ल्यासकार्डहरू — ${l.title}\n${"=".repeat(40)}\n\n` +
+        (l.vocabulary || []).map((v, i) => `कार्ड ${i + 1}:\n[अगाडि] ${v}\n[पछाडि] (अर्थ यहाँ लेख्नुहोस्)\n`).join("\n")
+        : "पहिले पाठ योजना थप्नुहोस्।"
+    },
+    {
+      id: "mindmap", title: "अवधारणा नक्सा", icon: Brain, desc: "विचारहरूको सम्बन्ध देखाउन",
+      generate: (l) => l ? `अवधारणा नक्सा — ${l.title}\n${"=".repeat(40)}\n\n` +
+        `केन्द्रीय विषय: ${l.title}\n\n` +
+        `शाखाहरू:\n${(l.objectives || []).map((o) => `├── ${o}`).join("\n")}\n\n` +
+        `शब्दावली:\n${(l.vocabulary || []).map((v) => `  └── ${v}`).join("\n")}`
+        : "पहिले पाठ योजना थप्नुहोस्।"
+    },
+    {
+      id: "vocab", title: "शब्दावली सूची", icon: Tag, desc: "अध्यायका मुख्य शब्द र अर्थ",
+      generate: (l) => l ? `शब्दावली सूची — ${l.title}\n${"=".repeat(40)}\n\n` +
+        (l.vocabulary || []).map((v, i) => `${i + 1}. ${v}:\n   अर्थ: ___________________________\n   वाक्यमा प्रयोग: ___________________________\n`).join("\n")
+        : "पहिले पाठ योजना थप्नुहोस्।"
+    },
+    {
+      id: "practice", title: "अभ्यास प्रश्न", icon: PenSquare, desc: "थप अभ्यासका लागि",
+      generate: (l) => l ? `अभ्यास प्रश्नहरू — ${l.title}\n${"=".repeat(40)}\n\n` +
+        `क) छोटो उत्तर:\n${(l.key_questions || []).map((q, i) => `${i + 1}. ${q}`).join("\n")}\n\n` +
+        `ख) रिक्त स्थान:\n${(l.vocabulary || []).map((v, i) => `${i + 1}. ________ भनेको ${v} हो। (सत्य/असत्य)`).join("\n")}`
+        : "पहिले पाठ योजना थप्नुहोस्।"
+    },
+  ];
+
+  return (
+    <div style={{ padding: "20px 20px 100px", maxWidth: 920, margin: "0 auto" }}>
+      <div style={{ fontSize: 22, fontWeight: 700, color: INK, marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}>
+        <Wand2 size={22} color={ACCENT} />स्रोत सामग्री निर्माता
+      </div>
+      <div style={{ fontSize: 14, color: "#8A8275", marginBottom: 20 }}>
+        {lesson ? `"${lesson.title}" पाठका आधारमा प्रिन्ट गर्न मिल्ने सामग्री बनाउनुहोस्।` : "पहिले पाठ योजनामा एउटा पाठ थप्नुहोस्।"}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14 }}>
+        {TEMPLATES.map((t) => {
+          const Icon = t.icon;
+          return (
+            <Card key={t.id} onClick={() => setActive(t)}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: "#E4EFE6", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 10 }}><Icon size={20} color={ACCENT} /></div>
+              <div style={{ fontWeight: 700, color: INK, fontSize: 15, marginBottom: 4 }}>{t.title}</div>
+              <div style={{ fontSize: 13, color: "#8A8275", marginBottom: 10 }}>{t.desc}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5, color: ACCENT, fontWeight: 700 }}>बनाउनुहोस् <ChevronRight size={14} /></div>
+            </Card>
+          );
+        })}
+      </div>
+
+      {active && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(20,18,14,0.55)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setActive(null)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 18, padding: 24, maxWidth: 480, width: "100%", maxHeight: "85vh", overflowY: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div style={{ fontSize: 18, fontWeight: 700 }}>{active.title}</div>
+              <button onClick={() => setActive(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#8A8275" }}><X size={20} /></button>
+            </div>
+            <pre style={{ background: "#FAF7EE", border: "1px solid #ECE6D8", borderRadius: 12, padding: 16, fontSize: 13.5, color: INK, lineHeight: 1.7, whiteSpace: "pre-wrap", marginBottom: 16, fontFamily: "Inter, sans-serif" }}>
+              {active.generate(lesson)}
+            </pre>
+            <button onClick={() => window.print()} style={{ width: "100%", background: MARIGOLD, color: "#2A1E07", border: "none", borderRadius: 12, padding: "13px", fontWeight: 700, fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer" }}>
+              <Printer size={17} />प्रिन्ट गर्नुहोस्
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── DOCUMENT SEARCH ──────────────────────────────────────────────────────────
+function DocumentSearch({ lessons, homework }) {
+  const [query, setQuery] = useState("");
+  const [allQuestions, setAllQuestions] = useState([]);
+  const [allActivities, setAllActivities] = useState([]);
+  const [allMaterials, setAllMaterials] = useState([]);
+
+  useEffect(() => {
+    db.getQuestions().then(({ data }) => setAllQuestions(data || []));
+    db.getActivities().then(({ data }) => setAllActivities(data || []));
+    db.getMaterials().then(({ data }) => setAllMaterials(data || []));
+  }, []);
+
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+
+    const fromLessons = lessons.filter((l) =>
+      l.title?.toLowerCase().includes(q) ||
+      (l.objectives || []).some((o) => o.toLowerCase().includes(q)) ||
+      (l.vocabulary || []).some((v) => v.toLowerCase().includes(q))
+    ).map((l) => ({ kind: "पाठ योजना", title: l.title, sub: l.chapters?.title || l.chapter_title || "", icon: ClipboardList, color: ACCENT }));
+
+    const fromMaterials = allMaterials.filter((m) =>
+      m.name?.toLowerCase().includes(q)
+    ).map((m) => ({ kind: "सामग्री", title: m.name, sub: m.file_type?.toUpperCase() || "", icon: FileText, color: "#A23C2A" }));
+
+    const fromQuestions = allQuestions.filter((qq) =>
+      qq.text?.toLowerCase().includes(q)
+    ).map((qq) => ({ kind: "प्रश्न", title: qq.text, sub: qq.type + " · " + qq.difficulty, icon: HelpCircle, color: "#6B3FA0" }));
+
+    const fromActivities = allActivities.filter((a) =>
+      a.title?.toLowerCase().includes(q) || a.description?.toLowerCase().includes(q)
+    ).map((a) => ({ kind: "क्रियाकलाप", title: a.title, sub: a.chapter_title || "", icon: Gamepad2, color: "#1B7A4A" }));
+
+    const fromHomework = homework.filter((h) =>
+      h.title?.toLowerCase().includes(q)
+    ).map((h) => ({ kind: "गृहकार्य", title: h.title, sub: `${h.checked_count}/${h.total_students} जाँच भयो`, icon: ListChecks, color: "#9A5B12" }));
+
+    return [...fromLessons, ...fromMaterials, ...fromQuestions, ...fromActivities, ...fromHomework];
+  }, [query, lessons, allMaterials, allQuestions, allActivities, homework]);
+
+  return (
+    <div style={{ padding: "20px 20px 100px", maxWidth: 720, margin: "0 auto" }}>
+      <div style={{ fontSize: 22, fontWeight: 700, color: INK, marginBottom: 4 }}>सबैतिर खोज्नुहोस्</div>
+      <div style={{ fontSize: 14, color: "#8A8275", marginBottom: 18 }}>पाठ, सामग्री, प्रश्न, क्रियाकलाप र गृहकार्य — सबैभित्र एकैचोटि।</div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#fff", border: "1px solid #ECE6D8", borderRadius: 14, padding: "13px 16px", marginBottom: 18 }}>
+        <Search size={18} color="#A39B8B" />
+        <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="जे पनि खोज्नुहोस्..." style={{ border: "none", outline: "none", fontSize: 15.5, flex: 1, background: "transparent", color: INK, fontFamily: "Inter, sans-serif" }} />
+      </div>
+
+      {query.trim() === "" ? (
+        <div style={{ textAlign: "center", color: "#A39B8B", padding: "40px 0", fontSize: 14 }}>टाइप गर्न सुरु गर्नुहोस् — परिणाम तुरुन्तै देखिनेछ।</div>
+      ) : results.length === 0 ? (
+        <div style={{ textAlign: "center", color: "#8A8275", padding: "40px 0", fontSize: 14.5 }}>"{query}" सँग मिल्ने केही फेला परेन।</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: 13, color: "#8A8275", marginBottom: 4 }}>{results.length} परिणाम फेला पर्यो</div>
+          {results.map((r, i) => {
+            const Icon = r.icon;
+            return (
+              <Card key={i} style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                <div style={{ width: 38, height: 38, borderRadius: 10, background: r.color + "1A", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Icon size={18} color={r.color} /></div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 11, color: r.color, fontWeight: 700, marginBottom: 2 }}>{r.kind}</div>
+                  <div style={{ fontSize: 14.5, color: INK, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.title}</div>
+                  {r.sub && <div style={{ fontSize: 12.5, color: "#8A8275" }}>{r.sub}</div>}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── CALENDAR ─────────────────────────────────────────────────────────────────
+function CalendarView({ lessons, homework }) {
+  const today = new Date();
+  const formatDate = (d) => d?.toLocaleDateString("ne-NP", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+
+  const upcoming = [
+    ...lessons.slice(0, 5).map((l) => ({ type: "lesson", title: l.title, sub: l.chapters?.title || l.chapter_title || "", color: ACCENT, bg: "#E4EFE6", label: "पाठ" })),
+    ...homework.filter((h) => h.checked_count < h.total_students).slice(0, 3).map((h) => ({ type: "homework", title: h.title, sub: `${h.checked_count}/${h.total_students} जाँच भयो`, color: "#9A5B12", bg: "#FBEBD3", label: "गृहकार्य" })),
+  ];
+
+  return (
+    <div style={{ padding: "20px 20px 100px", maxWidth: 720, margin: "0 auto" }}>
+      <div style={{ fontSize: 22, fontWeight: 700, color: INK, marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}>
+        <CalendarDays size={22} color={ACCENT} />पात्रो
+      </div>
+      <div style={{ fontSize: 14, color: "#8A8275", marginBottom: 20 }}>पाठ तालिका, गृहकार्य र मूल्याङ्कनका अनुस्मारक।</div>
+
+      <Card style={{ marginBottom: 20, background: `linear-gradient(135deg, ${ACCENT}, #143329)`, border: "none" }}>
+        <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 13, marginBottom: 4 }}>आज</div>
+        <div style={{ color: "#fff", fontSize: 18, fontWeight: 700 }}>{formatDate(today)}</div>
+        <div style={{ color: MARIGOLD, fontSize: 14, marginTop: 8, fontWeight: 600 }}>
+          {lessons.length} पाठ · {homework.filter((h) => h.checked_count < h.total_students).length} गृहकार्य बाँकी
+        </div>
+      </Card>
+
+      <SectionLabel>आगामी पाठहरू</SectionLabel>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
+        {lessons.length === 0 ? (
+          <div style={{ color: "#8A8275", fontSize: 14 }}>कुनै पाठ योजना थपिएको छैन।</div>
+        ) : lessons.slice(0, 5).map((l) => (
+          <Card key={l.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 16px" }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: ACCENT, background: "#E4EFE6", padding: "4px 9px", borderRadius: 6, flexShrink: 0 }}>पाठ</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14.5, color: INK, fontWeight: 600 }}>{l.title}</div>
+              <div style={{ fontSize: 12.5, color: "#8A8275" }}>{l.chapters?.title || l.chapter_title || ""}</div>
+            </div>
+            <StatusPill status={l.status} />
+          </Card>
+        ))}
+      </div>
+
+      <SectionLabel>जाँच्नुपर्ने गृहकार्य</SectionLabel>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {homework.filter((h) => h.checked_count < h.total_students).length === 0 ? (
+          <div style={{ color: "#8A8275", fontSize: 14 }}>सबै गृहकार्य जाँच भयो! ✓</div>
+        ) : homework.filter((h) => h.checked_count < h.total_students).map((h) => (
+          <Card key={h.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 16px" }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#9A5B12", background: "#FBEBD3", padding: "4px 9px", borderRadius: 6, flexShrink: 0 }}>गृहकार्य</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14.5, color: INK, fontWeight: 600 }}>{h.title}</div>
+              <div style={{ fontSize: 12.5, color: "#8A8275" }}>{h.checked_count}/{h.total_students} जाँच भयो</div>
+            </div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -1316,10 +1656,14 @@ export default function App() {
     { id: "materials",  label: "सामग्री",  icon: BookOpen     },
   ];
   const navMore = [
-    { id: "homework",   label: "गृहकार्य",  icon: ListChecks   },
-    { id: "journal",    label: "डायरी",     icon: Heart        },
-    { id: "questions",  label: "प्रश्न बैंक", icon: HelpCircle  },
-    { id: "assessment", label: "मूल्याङ्कन", icon: NotebookPen  },
+    { id: "homework",   label: "गृहकार्य",    icon: ListChecks   },
+    { id: "journal",    label: "डायरी",       icon: Heart        },
+    { id: "questions",  label: "प्रश्न बैंक",  icon: HelpCircle   },
+    { id: "assessment", label: "मूल्याङ्कन",   icon: NotebookPen  },
+    { id: "activities", label: "क्रियाकलाप",   icon: Gamepad2     },
+    { id: "resources",  label: "स्रोत",        icon: Wand2        },
+    { id: "search",     label: "खोज",          icon: Search       },
+    { id: "calendar",   label: "पात्रो",        icon: CalendarDays },
   ];
   const allNav = [...nav, ...navMore];
 
@@ -1365,6 +1709,10 @@ export default function App() {
         {screen === "journal"    && <TeachingJournal />}
         {screen === "questions"  && <QuestionBank />}
         {screen === "assessment" && <AssessmentBuilder />}
+        {screen === "activities" && <ActivitiesLibrary />}
+        {screen === "resources"  && <ResourceCreator lessons={lessons} />}
+        {screen === "search"     && <DocumentSearch lessons={lessons} homework={homework} />}
+        {screen === "calendar"   && <CalendarView lessons={lessons} homework={homework} />}
       </div>
 
       {/* Bottom nav */}
@@ -1391,7 +1739,7 @@ export default function App() {
               <div style={{ fontSize: 17, fontWeight: 700 }}>थप विशेषताहरू</div>
               <button onClick={() => setShowMore(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#8A8275" }}><X size={20} /></button>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}>
               {navMore.map((n) => {
                 const Icon = n.icon;
                 return (
