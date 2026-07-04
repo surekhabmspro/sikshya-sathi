@@ -699,6 +699,319 @@ function HomeworkManager({ section, loading, homework, onRefresh }) {
 }
 
 // ─── TEACHING JOURNAL ─────────────────────────────────────────────────────────
+// ─── QUESTION BANK ────────────────────────────────────────────────────────────
+function QuestionBank() {
+  const [questions, setQuestions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [selected, setSelected] = useState([]);
+  const [showSet, setShowSet] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [query, setQuery] = useState("");
+  const [diffFilter, setDiffFilter] = useState("सबै");
+  const [form, setForm] = useState({ text: "", type: "छोटो उत्तर", difficulty: "सजिलो", bloom: "सम्झना", chapter_title: "", options: "", answer: "" });
+  const [error, setError] = useState("");
+
+  const TYPES = ["छोटो उत्तर","बहुविकल्पीय","सत्य/असत्य","खाली ठाउँ भर्नुहोस्","मिलान","नक्सा आधारित","परिदृश्य आधारित","विश्लेषणात्मक सोच"];
+  const DIFFS = ["सबै","सजिलो","मध्यम","कठिन"];
+  const BLOOMS = ["सम्झना","बुझाई","प्रयोग","विश्लेषण","मूल्याङ्कन","सिर्जना"];
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const { data } = await db.getQuestions();
+    setQuestions(data || []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const save = async () => {
+    if (!form.text.trim()) { setError("प्रश्न लेख्नुहोस्।"); return; }
+    setSaving(true); setError("");
+    const payload = {
+      text: form.text,
+      type: form.type,
+      difficulty: form.difficulty,
+      bloom_level: form.bloom,
+      chapter_title: form.chapter_title,
+      options: form.options ? form.options.split("\n").filter(Boolean) : [],
+      correct_option: form.answer ? parseInt(form.answer) - 1 : null,
+    };
+    const { error: err } = await db.upsertQuestion(payload);
+    setSaving(false);
+    if (err) { setError(err.message); return; }
+    setShowForm(false);
+    setForm({ text: "", type: "छोटो उत्तर", difficulty: "सजिलो", bloom: "सम्झना", chapter_title: "", options: "", answer: "" });
+    load();
+  };
+
+  const toggle = (id) => setSelected((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+
+  const saveSet = async () => {
+    if (!selected.length) return;
+    const title = `प्रश्न सेट — ${new Date().toLocaleDateString("ne-NP")}`;
+    await db.upsertQuestionSet({ title, question_ids: selected });
+    setSelected([]);
+    setShowSet(false);
+  };
+
+  const filtered = useMemo(() => {
+    return questions.filter((q) => {
+      const matchDiff = diffFilter === "सबै" || q.difficulty === diffFilter;
+      const matchQuery = !query.trim() || q.text.toLowerCase().includes(query.toLowerCase());
+      return matchDiff && matchQuery;
+    });
+  }, [questions, query, diffFilter]);
+
+  const selectedQuestions = questions.filter((q) => selected.includes(q.id));
+
+  return (
+    <div style={{ padding: "20px 20px 120px", maxWidth: 920, margin: "0 auto" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ fontSize: 22, fontWeight: 700, color: INK }}>प्रश्न बैंक</div>
+        <button onClick={() => setShowForm(true)} style={{ display: "flex", alignItems: "center", gap: 6, background: ACCENT, color: "#fff", border: "none", borderRadius: 10, padding: "9px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}><Plus size={15} />नयाँ प्रश्न</button>
+      </div>
+
+      {showForm && (
+        <Card style={{ marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>नयाँ प्रश्न थप्नुहोस्</div>
+          {error && <ErrorMsg msg={error} />}
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <textarea placeholder="प्रश्न लेख्नुहोस् *" value={form.text} onChange={(e) => setForm({ ...form, text: e.target.value })} rows={3} style={{ border: "1px solid #ECE6D8", borderRadius: 10, padding: "10px 12px", fontSize: 14, fontFamily: "Inter, sans-serif", resize: "vertical" }} />
+            <input placeholder="अध्याय" value={form.chapter_title} onChange={(e) => setForm({ ...form, chapter_title: e.target.value })} style={{ border: "1px solid #ECE6D8", borderRadius: 10, padding: "10px 12px", fontSize: 14, fontFamily: "Inter, sans-serif" }} />
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} style={{ flex: 1, border: "1px solid #ECE6D8", borderRadius: 10, padding: "10px 12px", fontSize: 14, fontFamily: "Inter, sans-serif" }}>
+                {TYPES.map((t) => <option key={t}>{t}</option>)}
+              </select>
+              <select value={form.difficulty} onChange={(e) => setForm({ ...form, difficulty: e.target.value })} style={{ flex: 1, border: "1px solid #ECE6D8", borderRadius: 10, padding: "10px 12px", fontSize: 14, fontFamily: "Inter, sans-serif" }}>
+                {["सजिलो","मध्यम","कठिन"].map((d) => <option key={d}>{d}</option>)}
+              </select>
+              <select value={form.bloom} onChange={(e) => setForm({ ...form, bloom: e.target.value })} style={{ flex: 1, border: "1px solid #ECE6D8", borderRadius: 10, padding: "10px 12px", fontSize: 14, fontFamily: "Inter, sans-serif" }}>
+                {BLOOMS.map((b) => <option key={b}>{b}</option>)}
+              </select>
+            </div>
+            {form.type === "बहुविकल्पीय" && (
+              <>
+                <textarea placeholder="विकल्पहरू (प्रत्येक नयाँ लाइनमा)" value={form.options} onChange={(e) => setForm({ ...form, options: e.target.value })} rows={4} style={{ border: "1px solid #ECE6D8", borderRadius: 10, padding: "10px 12px", fontSize: 14, fontFamily: "Inter, sans-serif", resize: "vertical" }} />
+                <input placeholder="सही उत्तर नम्बर (१, २, ३...)" value={form.answer} onChange={(e) => setForm({ ...form, answer: e.target.value })} style={{ border: "1px solid #ECE6D8", borderRadius: 10, padding: "10px 12px", fontSize: 14, fontFamily: "Inter, sans-serif" }} />
+              </>
+            )}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setShowForm(false)} style={{ flex: 1, padding: "11px", borderRadius: 10, border: "1px solid #ECE6D8", background: "#fff", fontWeight: 600, cursor: "pointer" }}>रद्द</button>
+              <button onClick={save} disabled={saving} style={{ flex: 1, padding: "11px", borderRadius: 10, border: "none", background: ACCENT, color: "#fff", fontWeight: 700, cursor: "pointer" }}>{saving ? "..." : "सुरक्षित"}</button>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#fff", border: "1px solid #ECE6D8", borderRadius: 14, padding: "12px 16px", marginBottom: 12 }}>
+        <Search size={18} color="#A39B8B" />
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="प्रश्न खोज्नुहोस्..." style={{ border: "none", outline: "none", fontSize: 15, flex: 1, background: "transparent", fontFamily: "Inter, sans-serif" }} />
+      </div>
+
+      <div style={{ display: "flex", gap: 8, overflowX: "auto", marginBottom: 16, paddingBottom: 4 }}>
+        {DIFFS.map((d) => (
+          <button key={d} onClick={() => setDiffFilter(d)} style={{ padding: "7px 14px", borderRadius: 999, background: diffFilter === d ? ACCENT : "#fff", color: diffFilter === d ? "#fff" : INK, fontWeight: 600, fontSize: 13, whiteSpace: "nowrap", cursor: "pointer", border: "1px solid " + (diffFilter === d ? ACCENT : "#ECE6D8") }}>{d}</button>
+        ))}
+      </div>
+
+      {loading ? <Spinner /> : filtered.length === 0 ? (
+        <div style={{ textAlign: "center", color: "#8A8275", padding: 40 }}>कुनै प्रश्न छैन — माथिको बटनबाट थप्नुहोस्।</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {filtered.map((q) => {
+            const isSelected = selected.includes(q.id);
+            return (
+              <Card key={q.id} onClick={() => toggle(q.id)} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                <div style={{ marginTop: 2, flexShrink: 0, color: isSelected ? ACCENT : "#C7BFAE" }}>
+                  {isSelected ? <CheckSquare size={20} /> : <Square size={20} />}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, background: "#E4EFE6", color: ACCENT, padding: "3px 8px", borderRadius: 6, fontWeight: 700 }}>{q.type}</span>
+                    <span style={{ fontSize: 11, background: "#F4EFE3", color: "#7A6F3E", padding: "3px 8px", borderRadius: 6, fontWeight: 600 }}>{q.difficulty}</span>
+                    {q.bloom_level && <span style={{ fontSize: 11, color: "#A39B8B", fontWeight: 600 }}>{q.bloom_level}</span>}
+                  </div>
+                  <div style={{ fontSize: 15, color: INK, lineHeight: 1.5 }}>{q.text}</div>
+                  {q.options?.length > 0 && (
+                    <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 3 }}>
+                      {q.options.map((o, i) => (
+                        <div key={i} style={{ fontSize: 13.5, color: i === q.correct_option ? ACCENT : "#6B6557", fontWeight: i === q.correct_option ? 700 : 400 }}>
+                          {i + 1}) {o}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {selected.length > 0 && (
+        <div style={{ position: "fixed", bottom: 64, left: 0, right: 0, display: "flex", justifyContent: "center", padding: "0 16px", zIndex: 20 }}>
+          <button onClick={() => setShowSet(true)} style={{ background: ACCENT, color: "#fff", border: "none", borderRadius: 999, padding: "13px 22px", fontWeight: 700, fontSize: 14.5, display: "flex", alignItems: "center", gap: 8, cursor: "pointer", boxShadow: "0 8px 20px rgba(31,77,61,0.25)" }}>
+            <Shuffle size={17} />{selected.length} प्रश्न सेट तयार गर्नुहोस्
+          </button>
+        </div>
+      )}
+
+      {showSet && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(20,18,14,0.55)", zIndex: 60, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={() => setShowSet(false)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: "20px 20px 0 0", padding: 24, maxWidth: 600, width: "100%", maxHeight: "80vh", overflowY: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div style={{ fontSize: 19, fontWeight: 700 }}>तयार सेट ({selected.length} प्रश्न)</div>
+              <button onClick={() => setShowSet(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#8A8275" }}><X size={20} /></button>
+            </div>
+            <ol style={{ paddingLeft: 20, margin: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+              {selectedQuestions.map((q) => <li key={q.id} style={{ fontSize: 14.5, color: INK, lineHeight: 1.5 }}>{q.text}</li>)}
+            </ol>
+            <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
+              <button onClick={saveSet} style={{ flex: 1, background: ACCENT, color: "#fff", border: "none", borderRadius: 12, padding: "13px", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
+                💾 सेट सुरक्षित गर्नुहोस्
+              </button>
+              <button onClick={() => window.print()} style={{ flex: 1, background: MARIGOLD, color: "#2A1E07", border: "none", borderRadius: 12, padding: "13px", fontWeight: 700, fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer" }}>
+                <Printer size={17} />प्रिन्ट
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── ASSESSMENT BUILDER ────────────────────────────────────────────────────────
+function AssessmentBuilder() {
+  const [assessments, setAssessments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ title: "", type: "observation", rubric_text: "", due_date: "" });
+
+  const TYPES = [
+    { id: "observation", label: "अवलोकन चेकलिस्ट",    icon: ClipboardList  },
+    { id: "oral",        label: "मौखिक परीक्षा",       icon: MessageSquare  },
+    { id: "practical",   label: "व्यावहारिक मूल्याङ्कन", icon: NotebookPen   },
+    { id: "project",     label: "प्रोजेक्ट मूल्याङ्कन", icon: FolderKanban  },
+    { id: "activity",    label: "क्रियाकलाप मूल्याङ्कन", icon: Gamepad2     },
+    { id: "portfolio",   label: "पोर्टफोलियो",          icon: BookOpen      },
+  ];
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const { data } = await db.getAssessments();
+    setAssessments(data || []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const save = async () => {
+    if (!form.title.trim()) return;
+    setSaving(true);
+    const rubric = form.rubric_text
+      ? form.rubric_text.split("\n").filter(Boolean).map((line) => {
+          const [level, ...rest] = line.split(":");
+          return { level: level.trim(), desc: rest.join(":").trim() };
+        })
+      : [];
+    await db.upsertAssessment({ title: form.title, type: form.type, rubric, due_date: form.due_date || null, status: "pending" });
+    setSaving(false);
+    setShowForm(false);
+    setForm({ title: "", type: "observation", rubric_text: "", due_date: "" });
+    load();
+  };
+
+  return (
+    <div style={{ padding: "20px 20px 100px", maxWidth: 920, margin: "0 auto" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <div style={{ fontSize: 22, fontWeight: 700, color: INK }}>मूल्याङ्कन निर्माता</div>
+        <button onClick={() => setShowForm(true)} style={{ display: "flex", alignItems: "center", gap: 6, background: ACCENT, color: "#fff", border: "none", borderRadius: 10, padding: "9px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}><Plus size={15} />नयाँ</button>
+      </div>
+      <div style={{ fontSize: 14, color: "#8A8275", marginBottom: 18 }}>कक्षा ५ सम्म क्षमता आधारित मूल्याङ्कनमा ध्यान दिइएको छ।</div>
+
+      {showForm && (
+        <Card style={{ marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>नयाँ मूल्याङ्कन</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <input placeholder="मूल्याङ्कनको शीर्षक *" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} style={{ border: "1px solid #ECE6D8", borderRadius: 10, padding: "10px 12px", fontSize: 14, fontFamily: "Inter, sans-serif" }} />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              {TYPES.map((t) => {
+                const Icon = t.icon;
+                return (
+                  <button key={t.id} onClick={() => setForm({ ...form, type: t.id })} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: 10, border: `2px solid ${form.type === t.id ? ACCENT : "#ECE6D8"}`, background: form.type === t.id ? "#E4EFE6" : "#fff", color: form.type === t.id ? ACCENT : INK, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
+                    <Icon size={16} />{t.label}
+                  </button>
+                );
+              })}
+            </div>
+            <textarea
+              placeholder={"मूल्याङ्कन मापदण्ड (प्रत्येक लाइनमा):\nउत्कृष्ट: ३ वा बढी सेवा स्पष्ट भन्छ\nराम्रो: २ सेवा भन्छ\nसहयोग चाहिने: १ सेवा मात्र"}
+              value={form.rubric_text}
+              onChange={(e) => setForm({ ...form, rubric_text: e.target.value })}
+              rows={5}
+              style={{ border: "1px solid #ECE6D8", borderRadius: 10, padding: "10px 12px", fontSize: 14, fontFamily: "Inter, sans-serif", resize: "vertical" }}
+            />
+            <input type="date" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} style={{ border: "1px solid #ECE6D8", borderRadius: 10, padding: "10px 12px", fontSize: 14, fontFamily: "Inter, sans-serif" }} />
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setShowForm(false)} style={{ flex: 1, padding: "11px", borderRadius: 10, border: "1px solid #ECE6D8", background: "#fff", fontWeight: 600, cursor: "pointer" }}>रद्द</button>
+              <button onClick={save} disabled={saving} style={{ flex: 1, padding: "11px", borderRadius: 10, border: "none", background: ACCENT, color: "#fff", fontWeight: 700, cursor: "pointer" }}>{saving ? "..." : "सुरक्षित"}</button>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {loading ? <Spinner /> : assessments.length === 0 ? (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14 }}>
+          {TYPES.map((t) => {
+            const Icon = t.icon;
+            return (
+              <Card key={t.id} onClick={() => { setForm({ ...form, type: t.id }); setShowForm(true); }}>
+                <div style={{ width: 40, height: 40, borderRadius: 10, background: "#E4EFE6", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 10 }}><Icon size={20} color={ACCENT} /></div>
+                <div style={{ fontWeight: 700, color: INK, fontSize: 15, marginBottom: 4 }}>{t.label}</div>
+                <div style={{ fontSize: 12.5, color: "#8A8275" }}>थिचेर सुरु गर्नुहोस्</div>
+              </Card>
+            );
+          })}
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {assessments.map((a) => {
+            const typeInfo = TYPES.find((t) => t.id === a.type) || TYPES[0];
+            const Icon = typeInfo.icon;
+            const done = a.status === "done";
+            return (
+              <Card key={a.id}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 8 }}>
+                  <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                    <div style={{ width: 38, height: 38, borderRadius: 10, background: "#E4EFE6", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Icon size={18} color={ACCENT} /></div>
+                    <div>
+                      <div style={{ fontSize: 15.5, fontWeight: 700, color: INK }}>{a.title}</div>
+                      <div style={{ fontSize: 12.5, color: "#8A8275" }}>{typeInfo.label}{a.due_date ? ` · ${a.due_date}` : ""}</div>
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: done ? ACCENT : "#9A5B12", background: done ? "#E4EFE6" : "#FBEBD3", padding: "4px 10px", borderRadius: 999, flexShrink: 0 }}>{done ? "सम्पन्न" : "बाँकी"}</span>
+                </div>
+                {a.rubric?.length > 0 && (
+                  <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+                    {a.rubric.map((r, i) => (
+                      <div key={i} style={{ background: "#FAF7EE", borderRadius: 8, padding: "7px 10px", fontSize: 13.5 }}>
+                        <strong style={{ color: ACCENT }}>{r.level}:</strong> {r.desc}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TeachingJournal() {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -794,41 +1107,116 @@ function TeachingJournal() {
 
 // ─── AI ASSISTANT ─────────────────────────────────────────────────────────────
 function AIAssistant({ lessons }) {
-  const [messages, setMessages] = useState([{ role: "ai", text: "नमस्ते! म तपाईंको पाठ योजना र सामग्रीबाट मात्र उत्तर दिन्छु। तलका छिटो प्रश्न वा आफ्नै प्रश्न टाइप गर्नुहोस्।" }]);
+  const [messages, setMessages] = useState([{ role: "ai", text: "नमस्ते! म तपाईंको पाठ योजनाबाट उत्तर दिन्छु। तलका छिटो प्रश्न थिच्नुहोस् वा आफ्नै प्रश्न टाइप गर्नुहोस्। पूर्णतया निःशुल्क — कुनै API चाहिँदैन।" }]);
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
 
-  const QUICK = ["आजको पाठ बुझाउनुहोस्", "छलफलका प्रश्न बनाउनुहोस्", "एक क्रियाकलाप सुझाव दिनुहोस्", "मौखिक प्रश्न तयार गर्नुहोस्", "गाह्रो अवधारणा पहिचान गर्नुहोस्"];
+  const QUICK = [
+    "आजको पाठ बुझाउनुहोस्",
+    "उद्देश्यहरू के के छन्?",
+    "क्रियाकलाप सुझाव दिनुहोस्",
+    "मुख्य प्रश्नहरू के के छन्?",
+    "गृहकार्य के दिने?",
+    "शब्दावली सूची देखाउनुहोस्",
+    "पढाउने क्रम बताउनुहोस्",
+    "मूल्याङ्कन कसरी गर्ने?",
+  ];
 
-  const send = async (text) => {
-    const t = text.trim();
-    if (!t || loading) return;
-    setMessages((prev) => [...prev, { role: "user", text: t }]);
-    setInput(""); setLoading(true);
+  const getReply = (text) => {
+    const lesson = lessons[0];
+    const t = text.toLowerCase();
 
-    const todayLesson = lessons[0];
-    const context = todayLesson
-      ? `पाठ: ${todayLesson.title}\nउद्देश्य: ${(todayLesson.objectives || []).join(", ")}\nशब्दावली: ${(todayLesson.vocabulary || []).join(", ")}\nक्रियाकलाप: ${(todayLesson.activities || []).join(", ")}\nगृहकार्य: ${todayLesson.homework || ""}`
-      : "कुनै पाठ योजना थपिएको छैन।";
-
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          max_tokens: 1000,
-          system: `तपाईं एक नेपाली प्राथमिक विद्यालयको कक्षा ५ सामाजिक अध्ययन शिक्षकको सहायक हुनुहुन्छ। तलको पाठ योजना र सामग्रीबाट मात्र उत्तर दिनुहोस्। नेपालीमा उत्तर दिनुहोस्।\n\n${context}`,
-          messages: [{ role: "user", content: t }],
-        }),
-      });
-      const data = await res.json();
-      const reply = data.content?.[0]?.text || "माफ गर्नुहोस्, उत्तर दिन सकिएन।";
-      setMessages((prev) => [...prev, { role: "ai", text: reply }]);
-    } catch {
-      setMessages((prev) => [...prev, { role: "ai", text: "इन्टरनेट जडान जाँच गर्नुहोस् र फेरि प्रयास गर्नुहोस्।" }]);
+    if (!lesson) {
+      return "अहिले कुनै पाठ योजना थपिएको छैन। पहिले 'योजना' ट्याबमा गई एउटा पाठ थप्नुहोस्, त्यसपछि म त्यही पाठबाट उत्तर दिन सक्छु।";
     }
-    setLoading(false);
+
+    const title = lesson.title || "";
+    const chapter = lesson.chapters?.title || lesson.chapter_title || "";
+    const objectives = lesson.objectives || [];
+    const vocabulary = lesson.vocabulary || [];
+    const sequence = lesson.sequence || [];
+    const keyQuestions = lesson.key_questions || [];
+    const activities = lesson.activities || [];
+    const homework = lesson.homework || "";
+    const notes = lesson.notes || "";
+    const rubric = lesson.rubric || [];
+
+    if (t.includes("आजको पाठ") || t.includes("बुझाउनुहोस्") || t.includes("पाठ के हो")) {
+      return `📚 आजको पाठ: ${title}\nअध्याय: ${chapter}\n\n` +
+        (objectives.length ? `🎯 उद्देश्यहरू:\n${objectives.map((o, i) => `${i + 1}. ${o}`).join("\n")}\n\n` : "") +
+        (vocabulary.length ? `📝 मुख्य शब्दावली: ${vocabulary.join(", ")}` : "");
+    }
+
+    if (t.includes("उद्देश्य")) {
+      if (!objectives.length) return `"${title}" पाठमा उद्देश्यहरू थपिएका छैनन्। पाठ सम्पादन गरेर थप्नुहोस्।`;
+      return `🎯 "${title}" पाठका उद्देश्यहरू:\n\n${objectives.map((o, i) => `${i + 1}. ${o}`).join("\n")}`;
+    }
+
+    if (t.includes("शब्दावली") || t.includes("vocabulary")) {
+      if (!vocabulary.length) return `"${title}" पाठमा शब्दावली थपिएका छैनन्।`;
+      return `📝 "${title}" पाठका शब्दावलीहरू:\n\n${vocabulary.map((v, i) => `${i + 1}. ${v}`).join("\n")}\n\nसुझाव: प्रत्येक शब्द कक्षामा लेख्नुहोस् र विद्यार्थीलाई अर्थ भन्न लगाउनुहोस्।`;
+    }
+
+    if (t.includes("क्रम") || t.includes("कसरी पढाउने") || t.includes("पढाउने")) {
+      if (!sequence.length) return `"${title}" पाठमा पढाउने क्रम थपिएको छैन।`;
+      return `📋 "${title}" पाठको पढाउने क्रम:\n\n${sequence.map((s, i) => `${i + 1}. ${s}`).join("\n")}`;
+    }
+
+    if (t.includes("प्रश्न") && (t.includes("मुख्य") || t.includes("छलफल") || t.includes("कक्षा"))) {
+      if (!keyQuestions.length) return `"${title}" पाठमा मुख्य प्रश्नहरू थपिएका छैनन्।`;
+      return `❓ कक्षामा सोध्ने प्रश्नहरू:\n\n${keyQuestions.map((q, i) => `${i + 1}. ${q}`).join("\n")}\n\nसुझाव: प्रश्न सोधेपछि विद्यार्थीलाई जोडीमा छलफल गर्न दिनुहोस्।`;
+    }
+
+    if (t.includes("मौखिक प्रश्न")) {
+      if (!vocabulary.length && !keyQuestions.length) return "मौखिक प्रश्नका लागि पहिले पाठमा शब्दावली र मुख्य प्रश्नहरू थप्नुहोस्।";
+      const oral = [...keyQuestions, ...vocabulary.map((v) => `"${v}" को अर्थ के हो?`)];
+      return `🗣️ मौखिक परीक्षाका प्रश्नहरू:\n\n${oral.map((q, i) => `${i + 1}. ${q}`).join("\n")}`;
+    }
+
+    if (t.includes("क्रियाकलाप") || t.includes("गतिविधि") || t.includes("activity")) {
+      if (!activities.length) return `"${title}" पाठमा क्रियाकलापहरू थपिएका छैनन्।`;
+      return `🎮 "${title}" पाठका क्रियाकलापहरू:\n\n${activities.map((a, i) => `${i + 1}. ${a}`).join("\n")}\n\nसुझाव: क्रियाकलाप सुरु गर्नु अघि विद्यार्थीलाई समूहमा बाँड्नुहोस्।`;
+    }
+
+    if (t.includes("गृहकार्य") || t.includes("homework")) {
+      if (!homework) return `"${title}" पाठमा गृहकार्य थपिएको छैन।`;
+      return `📖 आजको गृहकार्य:\n\n${homework}\n\nसुझाव: गृहकार्य दिँदा विद्यार्थीलाई स्पष्ट रूपमा बुझाउनुहोस् र भोलि जाँच गर्न नबिर्सनुहोस्।`;
+    }
+
+    if (t.includes("मूल्याङ्कन") || t.includes("rubric") || t.includes("जाँच")) {
+      if (!rubric.length) return `"${title}" पाठमा मूल्याङ्कन मापदण्ड थपिएको छैन।`;
+      return `📊 मूल्याङ्कन मापदण्ड:\n\n${rubric.map((r) => `• ${r.level}: ${r.desc}`).join("\n")}`;
+    }
+
+    if (t.includes("नोट") || t.includes("टिप्पणी")) {
+      if (!notes) return `"${title}" पाठमा कुनै नोट छैन।`;
+      return `📌 शिक्षकको नोट:\n\n${notes}`;
+    }
+
+    if (t.includes("सारांश") || t.includes("संक्षेप")) {
+      return `📚 "${title}" (${chapter}) को सारांश:\n\n` +
+        (objectives.length ? `उद्देश्य: ${objectives.join("; ")}\n` : "") +
+        (vocabulary.length ? `शब्दावली: ${vocabulary.join(", ")}\n` : "") +
+        (activities.length ? `क्रियाकलाप: ${activities.join("; ")}\n` : "") +
+        (homework ? `गृहकार्य: ${homework}` : "");
+    }
+
+    // Default — show what we know about the lesson
+    return `"${title}" पाठबारे म जान्ने कुराहरू:\n\n` +
+      `• उद्देश्य: ${objectives.length} वटा\n` +
+      `• शब्दावली: ${vocabulary.length} वटा\n` +
+      `• पढाउने चरण: ${sequence.length} वटा\n` +
+      `• मुख्य प्रश्न: ${keyQuestions.length} वटा\n` +
+      `• क्रियाकलाप: ${activities.length} वटा\n` +
+      `• गृहकार्य: ${homework ? "छ" : "छैन"}\n\n` +
+      `माथिका छिटो प्रश्नहरू थिचेर थप जानकारी पाउनुहोस्।`;
+  };
+
+  const send = (text) => {
+    const t = text.trim();
+    if (!t) return;
+    const reply = getReply(t);
+    setMessages((prev) => [...prev, { role: "user", text: t }, { role: "ai", text: reply }]);
+    setInput("");
   };
 
   return (
@@ -975,8 +1363,8 @@ export default function App() {
         {screen === "ai"         && <AIAssistant lessons={lessons} />}
         {screen === "homework"   && <HomeworkManager section={currentSection} loading={hwLoading} homework={homework} onRefresh={loadHomework} />}
         {screen === "journal"    && <TeachingJournal />}
-        {screen === "questions"  && <div style={{ padding: 40, textAlign: "center", color: "#8A8275" }}>प्रश्न बैंक — छिट्टै आउँदैछ।</div>}
-        {screen === "assessment" && <div style={{ padding: 40, textAlign: "center", color: "#8A8275" }}>मूल्याङ्कन निर्माता — छिट्टै आउँदैछ।</div>}
+        {screen === "questions"  && <QuestionBank />}
+        {screen === "assessment" && <AssessmentBuilder />}
       </div>
 
       {/* Bottom nav */}
