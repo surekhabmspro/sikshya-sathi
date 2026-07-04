@@ -6,7 +6,7 @@ import {
   FileSpreadsheet, Presentation, Tag, Eye, HelpCircle, CheckSquare,
   Square, Printer, Shuffle, Bot, Send, Lock, ListChecks, Plus, Smile,
   Meh, Frown, Heart, Gamepad2, FolderKanban, Map as MapIcon, Wand2,
-  Brain, Copy, ChevronRight, LogOut, User, AlertCircle, Loader,
+  Brain, Copy, ChevronRight, LogOut, User, AlertCircle, Loader, Settings as SettingsIcon,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import * as db from "./db";
@@ -1012,6 +1012,105 @@ function AssessmentBuilder() {
   );
 }
 
+// ─── SETTINGS ─────────────────────────────────────────────────────────────────
+function Settings({ session, sections, onSectionAdded }) {
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const addSection = async () => {
+    if (!name.trim()) return;
+    setSaving(true);
+    const { data, error } = await db.createSection(name.trim());
+    setSaving(false);
+    if (error) { setMsg("त्रुटि: " + error.message); return; }
+    onSectionAdded(data);
+    setName("");
+    setMsg(`"${data.name}" थपियो!`);
+    setTimeout(() => setMsg(""), 2000);
+  };
+
+  return (
+    <div style={{ padding: "20px 20px 100px", maxWidth: 600, margin: "0 auto" }}>
+      <div style={{ fontSize: 22, fontWeight: 700, color: INK, marginBottom: 20, display: "flex", alignItems: "center", gap: 8 }}>
+        <User size={22} color={ACCENT} />सेटिङ र प्रोफाइल
+      </div>
+
+      {/* Account info */}
+      <Card style={{ marginBottom: 16 }}>
+        <SectionLabel>खाता जानकारी</SectionLabel>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <div style={{ width: 50, height: 50, borderRadius: "50%", background: ACCENT, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, fontWeight: 700, flexShrink: 0 }}>
+            {session?.user?.email?.[0]?.toUpperCase() || "श"}
+          </div>
+          <div>
+            <div style={{ fontWeight: 700, color: INK, fontSize: 15 }}>{session?.user?.email || ""}</div>
+            <div style={{ fontSize: 13, color: "#8A8275", marginTop: 2 }}>कक्षा ५ · सामाजिक अध्ययन</div>
+          </div>
+        </div>
+        <button
+          onClick={() => db.signOut()}
+          style={{ marginTop: 14, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "11px", borderRadius: 10, border: "1px solid #F6E1DC", background: "#FFF5F3", color: "#A23C2A", fontWeight: 700, fontSize: 14, cursor: "pointer" }}
+        >
+          <LogOut size={16} />लगआउट गर्नुहोस्
+        </button>
+      </Card>
+
+      {/* Sections management */}
+      <Card style={{ marginBottom: 16 }}>
+        <SectionLabel>सेक्सनहरू (कक्षाहरू)</SectionLabel>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
+          {sections.length === 0
+            ? <div style={{ fontSize: 14, color: "#8A8275" }}>कुनै सेक्सन छैन।</div>
+            : sections.map((s) => (
+              <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "#FAF7EE", borderRadius: 10 }}>
+                <div style={{ width: 10, height: 10, borderRadius: "50%", background: ACCENT, flexShrink: 0 }} />
+                <div style={{ fontSize: 14.5, fontWeight: 600, color: INK }}>{s.name}</div>
+              </div>
+            ))
+          }
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addSection()}
+            placeholder="नयाँ सेक्सन (जस्तै: कक्षा ५ ख)"
+            style={{ flex: 1, border: "1px solid #ECE6D8", borderRadius: 10, padding: "10px 12px", fontSize: 14, fontFamily: "Inter, sans-serif", outline: "none" }}
+          />
+          <button
+            onClick={addSection}
+            disabled={saving}
+            style={{ background: ACCENT, color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 700, fontSize: 14, cursor: "pointer" }}
+          >
+            {saving ? "..." : "थप्नुहोस्"}
+          </button>
+        </div>
+        {msg && <div style={{ marginTop: 10, fontSize: 13.5, color: ACCENT, fontWeight: 600 }}>{msg}</div>}
+      </Card>
+
+      {/* App info */}
+      <Card>
+        <SectionLabel>एपको बारेमा</SectionLabel>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {[
+            ["एपको नाम", "शिक्षा साथी"],
+            ["संस्करण", "2.0"],
+            ["डाटाबेस", "Supabase (निःशुल्क)"],
+            ["होस्टिङ", "Vercel (निःशुल्क)"],
+            ["एआई सहायक", "नियम-आधारित (निःशुल्क)"],
+          ].map(([label, value]) => (
+            <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #F3EFE3" }}>
+              <div style={{ fontSize: 14, color: "#8A8275" }}>{label}</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: INK }}>{value}</div>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 function TeachingJournal() {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1664,6 +1763,7 @@ export default function App() {
     { id: "resources",  label: "स्रोत",        icon: Wand2        },
     { id: "search",     label: "खोज",          icon: Search       },
     { id: "calendar",   label: "पात्रो",        icon: CalendarDays },
+    { id: "settings",   label: "सेटिङ",        icon: SettingsIcon },
   ];
   const allNav = [...nav, ...navMore];
 
@@ -1685,8 +1785,8 @@ export default function App() {
           <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, color: ACCENT, fontWeight: 600 }}>
             <Clock size={13} />सिंक भएको
           </div>
-          <button onClick={() => db.signOut()} style={{ background: "none", border: "none", cursor: "pointer", color: "#8A8275" }} title="लगआउट">
-            <LogOut size={18} />
+          <button onClick={() => setScreen("settings")} style={{ background: "none", border: "none", cursor: "pointer", color: "#8A8275" }} title="सेटिङ">
+            <SettingsIcon size={18} />
           </button>
         </div>
       </div>
@@ -1713,6 +1813,7 @@ export default function App() {
         {screen === "resources"  && <ResourceCreator lessons={lessons} />}
         {screen === "search"     && <DocumentSearch lessons={lessons} homework={homework} />}
         {screen === "calendar"   && <CalendarView lessons={lessons} homework={homework} />}
+        {screen === "settings"  && <Settings session={session} sections={sections} onSectionAdded={(s) => { setSections((prev) => [...prev, s]); }} />}
       </div>
 
       {/* Bottom nav */}
