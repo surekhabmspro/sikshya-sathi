@@ -34,8 +34,8 @@ const MOOD_META = {
   hard: { icon: Frown, color: "#A23C2A", label: "गाह्रो थियो" },
 };
 
-const getTextbookPDF = () => sessionStorage.getItem("textbook_pdf_b64");
-const setTextbookPDF = (b64) => sessionStorage.setItem("textbook_pdf_b64", b64);
+const getTextbookPDF = () => window.__textbookPDF__ || null;
+const setTextbookPDF = (b64) => { window.__textbookPDF__ = b64; };
 
 function Card({ children, onClick, style }) {
   return (
@@ -1016,6 +1016,13 @@ function Settings({ session, sections, onSectionAdded }) {
   const [uploading,setUploading]=useState(false);
   const [pdfLoaded,setPdfLoaded]=useState(!!getTextbookPDF());
 
+  // Check IndexedDB on mount
+  useEffect(()=>{
+    gemini.loadTextbook().then((b64)=>{
+      if(b64){window.__textbookPDF__=b64;setPdfLoaded(true);}
+    });
+  },[]);
+
   const addSection=async()=>{
     if(!name.trim())return;setSaving(true);
     const{data,error}=await db.createSection(name.trim());
@@ -1028,17 +1035,21 @@ function Settings({ session, sections, onSectionAdded }) {
   const uploadTextbook=async(e)=>{
     const file=e.target.files[0];
     if(!file||file.type!=="application/pdf"){setMsg("PDF फाइल मात्र।");return;}
-    setUploading(true);setMsg("पाठ्यपुस्तक लोड गर्दै...");
+    setUploading(true);setMsg("पाठ्यपुस्तक लोड गर्दै... (ठूलो फाइलका लागि केही समय लाग्छ)");
     try{
       const b64=await gemini.fileToBase64(file);
-      setTextbookPDF(b64);setPdfLoaded(true);
+      await gemini.saveTextbook(b64);
+      setTextbookPDF(b64);
+      setPdfLoaded(true);
       setMsg(`"${file.name}" सफलतापूर्वक लोड भयो! अब AI ले यसबाट उत्तर दिनेछ।`);
     }catch(e){setMsg("त्रुटि: "+e.message);}
     setUploading(false);e.target.value="";
   };
 
-  const clearTextbook=()=>{
-    sessionStorage.removeItem("textbook_pdf_b64");setPdfLoaded(false);
+  const clearTextbookHandler=async()=>{
+    await gemini.clearTextbook();
+    window.__textbookPDF__=null;
+    setPdfLoaded(false);
     setMsg("पाठ्यपुस्तक हटाइयो।");setTimeout(()=>setMsg(""),2000);
   };
 
@@ -1055,7 +1066,7 @@ function Settings({ session, sections, onSectionAdded }) {
               <BookMarked size={18} color={ACCENT}/>
               <div style={{fontSize:14,color:ACCENT,fontWeight:700}}>पाठ्यपुस्तक लोड भएको छ ✓</div>
             </div>
-            <button onClick={clearTextbook} style={{display:"flex",alignItems:"center",gap:6,background:"#F6E1DC",color:"#A23C2A",border:"none",borderRadius:10,padding:"10px 14px",fontWeight:700,fontSize:13.5,cursor:"pointer"}}><Trash2 size={15}/>पाठ्यपुस्तक हटाउनुहोस्</button>
+            <button onClick={clearTextbookHandler} style={{display:"flex",alignItems:"center",gap:6,background:"#F6E1DC",color:"#A23C2A",border:"none",borderRadius:10,padding:"10px 14px",fontWeight:700,fontSize:13.5,cursor:"pointer"}}><Trash2 size={15}/>पाठ्यपुस्तक हटाउनुहोस्</button>
           </div>
         ):(
           <label style={{display:"flex",alignItems:"center",gap:8,background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"12px 16px",fontWeight:700,fontSize:14,cursor:"pointer"}}>
@@ -1111,6 +1122,8 @@ export default function App() {
   useEffect(()=>{
     supabase.auth.getSession().then(({data:{session:s}})=>{setSession(s);setAuthLoading(false);});
     const{data:{subscription}}=supabase.auth.onAuthStateChange((_e,s)=>setSession(s));
+    // Load textbook PDF from IndexedDB on startup
+    gemini.loadTextbook().then((b64)=>{ if(b64) window.__textbookPDF__=b64; });
     return()=>subscription.unsubscribe();
   },[]);
 
