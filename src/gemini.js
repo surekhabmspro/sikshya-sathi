@@ -1,6 +1,6 @@
 // gemini.js — Google Gemini AI integration (free tier)
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
 
 // ─── IndexedDB storage for large PDF files (no size limit issues) ─────────────
 const DB_NAME = "sikshya_sathi";
