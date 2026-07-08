@@ -183,7 +183,7 @@ function Dashboard({ onOpenLesson, onGoPlanner, onGoHomework, section, lessons, 
   const hwPending=homework.filter((h)=>h.checked_count<h.total_students).slice(0,3);
   if(loading)return<Spinner/>;
   return(
-    <div style={{padding:"16px 16px 100px",maxWidth:920,margin:"0 auto"}}>
+    <div style={{padding:"16px 16px 120px",maxWidth:920,margin:"0 auto"}}>
       {today?(
         <div style={{background:`linear-gradient(135deg,${ACCENT},#143329)`,borderRadius:18,padding:20,color:"#fff",marginBottom:20}}>
           <div style={{fontSize:12,opacity:0.75}}>{today.chapters?.title||today.chapter_title||""}</div>
@@ -271,7 +271,7 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh }) {
   };
 
   return(
-    <div style={{padding:"16px 16px 100px",maxWidth:920,margin:"0 auto"}}>
+    <div style={{padding:"16px 16px 120px",maxWidth:920,margin:"0 auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={{fontSize:20,fontWeight:700,color:INK}}>पाठ योजना</div>
         <button onClick={()=>setShowForm(true)} style={{display:"flex",alignItems:"center",gap:5,background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:13,fontWeight:700,cursor:"pointer"}}><Plus size={14}/>नयाँ पाठ</button>
@@ -370,7 +370,7 @@ function Materials() {
   },[materials,query]);
 
   return(
-    <div style={{padding:"16px 16px 100px",maxWidth:920,margin:"0 auto"}}>
+    <div style={{padding:"16px 16px 120px",maxWidth:920,margin:"0 auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
         <div style={{fontSize:20,fontWeight:700,color:INK}}>सामग्री पुस्तकालय</div>
         <div style={{display:"flex",gap:8}}>
@@ -438,7 +438,7 @@ function HomeworkManager({ section, loading, homework, onRefresh }) {
     await supabase.from("homework").delete().eq("id",hw.id);onRefresh();
   };
   return(
-    <div style={{padding:"16px 16px 100px",maxWidth:920,margin:"0 auto"}}>
+    <div style={{padding:"16px 16px 120px",maxWidth:920,margin:"0 auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={{fontSize:20,fontWeight:700,color:INK}}>गृहकार्य</div>
         <button onClick={()=>setShowForm(true)} style={{display:"flex",alignItems:"center",gap:5,background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:13,fontWeight:700,cursor:"pointer"}}><Plus size={14}/>नयाँ</button>
@@ -502,7 +502,7 @@ function TeachingJournal() {
     setSaving(false);setShowForm(false);setForm({lesson_title:"",taught:"",difficulty:"",idea:"",mood:"good"});load();
   };
   return(
-    <div style={{padding:"16px 16px 100px",maxWidth:720,margin:"0 auto"}}>
+    <div style={{padding:"16px 16px 120px",maxWidth:720,margin:"0 auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={{fontSize:20,fontWeight:700,color:INK,display:"flex",alignItems:"center",gap:8}}><Heart size={20} color={ACCENT}/>डायरी</div>
         {!showForm&&<button onClick={()=>setShowForm(true)} style={{display:"flex",alignItems:"center",gap:5,background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:13,fontWeight:700,cursor:"pointer"}}><Plus size={14}/>थप</button>}
@@ -562,7 +562,7 @@ function AIAssistant({ lessons }) {
     setLoading(false);
   };
   return(
-    <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 120px)",maxWidth:720,margin:"0 auto",width:"100%"}}>
+    <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 170px)",maxWidth:720,margin:"0 auto",width:"100%"}}>
       <div style={{padding:"14px 16px 8px"}}>
         <div style={{fontSize:19,fontWeight:700,color:INK,display:"flex",alignItems:"center",gap:8}}><Bot size={20} color={ACCENT}/>AI शिक्षण सहायक</div>
         <div style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:"#8A8275",marginTop:3}}>
@@ -632,7 +632,7 @@ function QuestionBank() {
   const selectedQs=questions.filter((q)=>selected.includes(q.id));
 
   return(
-    <div style={{padding:"16px 16px 120px",maxWidth:920,margin:"0 auto"}}>
+    <div style={{padding:"16px 16px 140px",maxWidth:920,margin:"0 auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={{fontSize:20,fontWeight:700,color:INK}}>प्रश्न बैंक</div>
         <button onClick={()=>setShowForm(!showForm)} style={{display:"flex",alignItems:"center",gap:5,background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:13,fontWeight:700,cursor:"pointer"}}><Plus size={14}/>नयाँ</button>
@@ -743,7 +743,7 @@ function AssessmentBuilder() {
   };
 
   return(
-    <div style={{padding:"16px 16px 100px",maxWidth:920,margin:"0 auto"}}>
+    <div style={{padding:"16px 16px 120px",maxWidth:920,margin:"0 auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={{fontSize:20,fontWeight:700,color:INK}}>मूल्याङ्कन</div>
         <button onClick={()=>setShowForm(!showForm)} style={{display:"flex",alignItems:"center",gap:5,background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:13,fontWeight:700,cursor:"pointer"}}><Plus size={14}/>नयाँ</button>
@@ -819,7 +819,7 @@ function ActivitiesLibrary() {
   const filtered=typeFilter==="सबै"?activities:activities.filter((a)=>a.type===typeFilter);
 
   return(
-    <div style={{padding:"16px 16px 100px",maxWidth:920,margin:"0 auto"}}>
+    <div style={{padding:"16px 16px 120px",maxWidth:920,margin:"0 auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={{fontSize:20,fontWeight:700,color:INK}}>क्रियाकलाप</div>
         <button onClick={()=>setShowForm(!showForm)} style={{display:"flex",alignItems:"center",gap:5,background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:13,fontWeight:700,cursor:"pointer"}}><Plus size={14}/>नयाँ</button>
@@ -898,7 +898,7 @@ function ResourceCreator({ lessons }) {
   };
 
   return(
-    <div style={{padding:"16px 16px 100px",maxWidth:920,margin:"0 auto"}}>
+    <div style={{padding:"16px 16px 120px",maxWidth:920,margin:"0 auto"}}>
       <div style={{fontSize:20,fontWeight:700,color:INK,marginBottom:4,display:"flex",alignItems:"center",gap:8}}><Wand2 size={20} color={ACCENT}/>स्रोत निर्माता</div>
       <div style={{fontSize:13,color:"#8A8275",marginBottom:16}}>{lesson?`"${lesson.title}" — AI बाट स्वतः बनाइन्छ।`:"पहिले पाठ योजनामा पाठ थप्नुहोस्।"}</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:20}}>
@@ -940,7 +940,7 @@ function DocumentSearch({ lessons, homework }) {
     ];
   },[query,lessons,allMaterials,allQuestions,allActivities,homework]);
   return(
-    <div style={{padding:"16px 16px 100px",maxWidth:720,margin:"0 auto"}}>
+    <div style={{padding:"16px 16px 120px",maxWidth:720,margin:"0 auto"}}>
       <div style={{fontSize:20,fontWeight:700,color:INK,marginBottom:4}}>सबैतिर खोज</div>
       <div style={{display:"flex",alignItems:"center",gap:8,background:"#fff",border:"1px solid #ECE6D8",borderRadius:14,padding:"12px 14px",marginBottom:14,marginTop:10}}>
         <Search size={17} color="#A39B8B"/>
@@ -967,7 +967,7 @@ function CalendarView({ lessons, homework }) {
   const [selected,setSelected]=useState(today.getDate());
 
   return(
-    <div style={{padding:"16px 16px 100px",maxWidth:500,margin:"0 auto"}}>
+    <div style={{padding:"16px 16px 120px",maxWidth:500,margin:"0 auto"}}>
       <div style={{fontSize:20,fontWeight:700,color:INK,marginBottom:14,display:"flex",alignItems:"center",gap:8}}><CalendarDays size={20} color={ACCENT}/>पात्रो</div>
       <Card style={{marginBottom:14,padding:14}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
@@ -1054,7 +1054,7 @@ function Settings({ session, sections, onSectionAdded }) {
   };
 
   return(
-    <div style={{padding:"16px 16px 100px",maxWidth:600,margin:"0 auto"}}>
+    <div style={{padding:"16px 16px 120px",maxWidth:600,margin:"0 auto"}}>
       <div style={{fontSize:20,fontWeight:700,color:INK,marginBottom:16,display:"flex",alignItems:"center",gap:8}}><SettingsIcon size={20} color={ACCENT}/>सेटिङ</div>
 
       <Card style={{marginBottom:14}}>
@@ -1170,7 +1170,21 @@ export default function App() {
 
   return(
     <div style={{fontFamily:"Inter,sans-serif",background:PAPER,minHeight:"100vh",color:INK}}>
-      <style>{`*{box-sizing:border-box;}body{margin:0;}@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');`}</style>
+      <style>{`
+        *{box-sizing:border-box;}body{margin:0;}
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+        .desktop-sidebar{display:none;}
+        .mobile-bottom-nav{display:flex;}
+        .main-content{margin-left:0;padding-bottom:70px;}
+        @media(min-width:860px){
+          .desktop-sidebar{display:flex;}
+          .mobile-bottom-nav{display:none !important;}
+          .main-content{margin-left:220px;padding-bottom:20px;}
+        }
+      `}</style>
+
+      {/* Top bar */}
       <div style={{background:"#fff",borderBottom:"1px solid #ECE6D8",padding:"12px 16px",display:"flex",alignItems:"center",gap:10,position:"sticky",top:0,zIndex:10}}>
         <div style={{width:32,height:32,borderRadius:9,background:ACCENT,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:14}}>सि</div>
         <div><div style={{fontWeight:700,fontSize:15}}>शिक्षा साथी</div><div style={{fontSize:11,color:"#8A8275"}}>कक्षा ५ · सामाजिक अध्ययन</div></div>
@@ -1182,8 +1196,21 @@ export default function App() {
           <button onClick={()=>setScreen("settings")} style={{background:"none",border:"none",cursor:"pointer",color:screen==="settings"?ACCENT:"#8A8275"}}><SettingsIcon size={18}/></button>
         </div>
       </div>
+
+      {/* Section selector */}
       <SectionSelector sections={sections} current={currentSection} onChange={setCurrentSection} onAdd={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}}/>
-      <div>
+
+      {/* Desktop sidebar */}
+      <div className="desktop-sidebar" style={{position:"fixed",top:0,left:0,bottom:0,width:220,background:"#fff",borderRight:"1px solid #ECE6D8",flexDirection:"column",paddingTop:110,zIndex:5,overflowY:"auto"}}>
+        {[...nav,...navMore].map((n)=>{const Icon=n.icon;const active=screen===n.id;return(
+          <button key={n.id} onClick={()=>setScreen(n.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",border:"none",background:active?"#E4EFE6":"transparent",color:active?ACCENT:"#6B6557",fontWeight:active?700:500,fontSize:13.5,cursor:"pointer",textAlign:"left",width:"100%",borderRadius:0}}>
+            <Icon size={17}/>{n.label}
+          </button>
+        );})}
+      </div>
+
+      {/* Main content */}
+      <div className="main-content">
         {screen==="dashboard"&&<Dashboard onOpenLesson={setActiveLesson} onGoPlanner={()=>setScreen("planner")} onGoHomework={()=>setScreen("homework")} section={currentSection} lessons={lessons} homework={homework} loading={lessonsLoading}/>}
         {screen==="planner"&&<Planner onOpenLesson={setActiveLesson} section={currentSection} lessons={lessons} loading={lessonsLoading} onRefresh={loadLessons}/>}
         {screen==="materials"&&<Materials/>}
@@ -1198,13 +1225,17 @@ export default function App() {
         {screen==="calendar"&&<CalendarView lessons={lessons} homework={homework}/>}
         {screen==="settings"&&<Settings session={session} sections={sections} onSectionAdded={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}}/>}
       </div>
-      <div style={{position:"fixed",bottom:0,left:0,right:0,background:"#fff",borderTop:"1px solid #ECE6D8",display:"flex",justifyContent:"space-around",padding:"7px 0",zIndex:10}}>
-        {nav.map((n)=>{const Icon=n.icon;const active=screen===n.id;return<button key={n.id} onClick={()=>setScreen(n.id)} style={{background:"none",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:active?ACCENT:"#A39B8B",fontSize:10.5,fontWeight:600,cursor:"pointer",padding:"3px 8px"}}><Icon size={20}/>{n.label}</button>;})}
-        <button onClick={()=>setShowMore(true)} style={{background:"none",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:navMore.some((n)=>n.id===screen)?ACCENT:"#A39B8B",fontSize:10.5,fontWeight:600,cursor:"pointer",padding:"3px 8px"}}><Layers size={20}/>थप</button>
+
+      {/* Mobile bottom nav */}
+      <div className="mobile-bottom-nav" style={{position:"fixed",bottom:0,left:0,right:0,background:"#fff",borderTop:"1px solid #ECE6D8",justifyContent:"space-around",padding:"6px 0",zIndex:10}}>
+        {nav.map((n)=>{const Icon=n.icon;const active=screen===n.id;return<button key={n.id} onClick={()=>setScreen(n.id)} style={{background:"none",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:active?ACCENT:"#A39B8B",fontSize:10,fontWeight:600,cursor:"pointer",padding:"3px 6px",flex:1}}><Icon size={19}/>{n.label}</button>;})}
+        <button onClick={()=>setShowMore(true)} style={{background:"none",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:navMore.some((n)=>n.id===screen)?ACCENT:"#A39B8B",fontSize:10,fontWeight:600,cursor:"pointer",padding:"3px 6px",flex:1}}><Layers size={19}/>थप</button>
       </div>
+
+      {/* More sheet (mobile only) */}
       {showMore&&(
         <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.55)",zIndex:60,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={()=>setShowMore(false)}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:"#fff",borderRadius:"18px 18px 0 0",padding:18,maxWidth:480,width:"100%",paddingBottom:24}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:"#fff",borderRadius:"18px 18px 0 0",padding:18,maxWidth:480,width:"100%",paddingBottom:40}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
               <div style={{fontSize:16,fontWeight:700}}>थप विशेषताहरू</div>
               <button onClick={()=>setShowMore(false)} style={{background:"none",border:"none",cursor:"pointer",color:"#8A8275"}}><X size={20}/></button>
@@ -1215,6 +1246,7 @@ export default function App() {
           </div>
         </div>
       )}
+
       {activeLesson&&<LessonMode lesson={activeLesson} onClose={()=>setActiveLesson(null)}/>}
     </div>
   );
