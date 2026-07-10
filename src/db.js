@@ -50,6 +50,36 @@ export const upsertChapter = async (chapter) => {
   return { data, error };
 };
 
+// NEW — look up a chapter's id by its title (case-insensitive), without
+// creating anything. Used when fetching materials for a chapter someone
+// typed into Lessons/Questions/Activities/Assessments.
+export const getChapterIdByTitle = async (title) => {
+  if (!title || !title.trim()) return null;
+  const { data } = await supabase
+    .from("chapters")
+    .select("id")
+    .ilike("title", title.trim())
+    .limit(1)
+    .maybeSingle();
+  return data?.id || null;
+};
+
+// NEW — look up a chapter by title, or create it if it doesn't exist yet.
+// Used when uploading/tagging a Material, so a freely-typed chapter name
+// always resolves to a real row in the chapters table.
+export const getOrCreateChapterId = async (title) => {
+  const existingId = await getChapterIdByTitle(title);
+  if (existingId) return existingId;
+  const { data: { user } } = await supabase.auth.getUser();
+  const { data, error } = await supabase
+    .from("chapters")
+    .insert({ title: title.trim(), teacher_id: user.id })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return data.id;
+};
+
 // ─── LESSONS ─────────────────────────────────────────────────────────────────
 export const getLessons = async (sectionId = null) => {
   let query = supabase
@@ -85,11 +115,35 @@ export const getMaterials = async () => {
   return { data, error };
 };
 
+// NEW — fetch only the materials linked to one chapter (by chapter_id).
+// This is the piece that lets an AI button pull in just the right files
+// instead of nothing at all.
+export const getMaterialsByChapter = async (chapterId) => {
+  if (!chapterId) return { data: [], error: null };
+  const { data, error } = await supabase
+    .from("materials")
+    .select("*")
+    .eq("chapter_id", chapterId);
+  return { data, error };
+};
+
 export const insertMaterial = async (material) => {
   const { data: { user } } = await supabase.auth.getUser();
   const { data, error } = await supabase
     .from("materials")
     .insert({ ...material, teacher_id: user.id })
+    .select()
+    .single();
+  return { data, error };
+};
+
+// NEW — update an existing material row (used to add/fix chapter_id,
+// extracted_text, or extraction_status after the fact).
+export const updateMaterial = async (id, patch) => {
+  const { data, error } = await supabase
+    .from("materials")
+    .update(patch)
+    .eq("id", id)
     .select()
     .single();
   return { data, error };
@@ -116,6 +170,16 @@ export const uploadMaterialFile = async (file, teacherId) => {
     .from("materials")
     .upload(path, file);
   return { path, error };
+};
+
+// NEW — download a stored file back as a Blob, so a PDF/image material can
+// be handed to Gemini as inline_data at generation time.
+export const downloadMaterialFile = async (storagePath) => {
+  const { data, error } = await supabase.storage
+    .from("materials")
+    .download(storagePath);
+  if (error) throw error;
+  return data; // Blob
 };
 
 // ─── QUESTIONS ───────────────────────────────────────────────────────────────

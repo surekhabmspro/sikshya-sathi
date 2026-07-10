@@ -12,6 +12,7 @@ import {
 import { supabase } from "./lib/supabase";
 import * as db from "./db";
 import * as gemini from "./gemini";
+import { extractTextFromFile } from "./lib/extract";
 
 const ACCENT = "#1F4D3D";
 const MARIGOLD = "#D98E2B";
@@ -36,6 +37,23 @@ const MOOD_META = {
 
 const getTextbookPDF = () => window.__textbookPDF__ || null;
 const setTextbookPDF = (b64) => { window.__textbookPDF__ = b64; };
+
+// NEW — the piece that actually connects Materials to every AI button.
+// Your lessons/questions/activities forms use a typed chapter name
+// (chapter_title), but Materials/Gemini need a real chapter_id (your
+// database already has a proper `chapters` table). This helper resolves
+// the typed name to that chapter's id, fetches every material tagged to
+// it, and turns them into Gemini parts alongside the global textbook.
+async function getMaterialContext(chapterTitle) {
+  if (!chapterTitle || !chapterTitle.trim()) {
+    return { pdfBase64: getTextbookPDF(), materialParts: [], matchedCount: 0 };
+  }
+  const chapterId = await db.getChapterIdByTitle(chapterTitle.trim());
+  if (!chapterId) return { pdfBase64: getTextbookPDF(), materialParts: [], matchedCount: 0 };
+  const { data: materials } = await db.getMaterialsByChapter(chapterId);
+  const materialParts = await gemini.buildMaterialParts(materials || [], db.downloadMaterialFile);
+  return { pdfBase64: getTextbookPDF(), materialParts, matchedCount: (materials || []).length };
+}
 
 function Card({ children, onClick, style }) {
   return (
@@ -62,6 +80,15 @@ function ErrorMsg({ msg }) {
 }
 function AIButton({ label, onClick, loading }) {
   return <button onClick={onClick} disabled={loading} style={{ display:"flex", alignItems:"center", gap:6, background:"#E4EFE6", color:ACCENT, border:"none", borderRadius:10, padding:"8px 14px", fontSize:13, fontWeight:700, cursor:loading?"wait":"pointer" }}>{loading?<Spinner small/>:<Zap size={14}/>}{label}</button>;
+}
+function MaterialsHint({ count, chapterTitle }) {
+  if (!chapterTitle || !chapterTitle.trim()) return null;
+  return (
+    <div style={{ fontSize:12, color: count>0?ACCENT:"#9A5B12", background: count>0?"#E4EFE6":"#FBEBD3", borderRadius:8, padding:"6px 10px", marginBottom:8, display:"flex", alignItems:"center", gap:6 }}>
+      <FileText size={13}/>
+      {count>0?`"${chapterTitle}" मा ट्याग गरिएका ${count} फाइल AI ले प्रयोग गर्दैछ`:`"${chapterTitle}" मा कुनै सामग्री ट्याग गरिएको छैन`}
+    </div>
+  );
 }
 
 function LoginScreen({ onLogin }) {
@@ -224,13 +251,17 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh }) {
   const [saving,setSaving]=useState(false);
   const [generating,setGenerating]=useState(false);
   const [error,setError]=useState("");
+  const [matchedCount,setMatchedCount]=useState(0);
 
   const autoGenerate=async()=>{
     const chapter=form.chapter_title||form.title;
     if(!chapter.trim()){setError("पहिले अध्याय वा पाठको नाम लेख्नुहोस्।");return;}
     setGenerating(true);setError("");
     try{
-      const result=await gemini.generateLessonPlan(chapter,getTextbookPDF());
+      // NEW: pulls in the global textbook PDF *and* every material tagged to this chapter
+      const ctx=await getMaterialContext(chapter);
+      setMatchedCount(ctx.matchedCount||0);
+      const result=await gemini.generateLessonPlan(chapter,ctx);
       if(result){
         setForm((prev)=>({...prev,
           objectives:(result.objectives||[]).join("\n"),
@@ -283,6 +314,7 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh }) {
             <AIButton label={generating?"बनाउँदै...":"AI बाट स्वतः बनाउनुहोस्"} onClick={autoGenerate} loading={generating}/>
           </div>
           {error&&<ErrorMsg msg={error}/>}
+          <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title}/>
           <div style={{display:"flex",flexDirection:"column",gap:9}}>
             {[["title","पाठको नाम *"],["chapter_title","अध्याय"],["homework","गृहकार्य"],["notes","नोट"]].map(([f,p])=>(
               <input key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} style={{border:"1px solid #ECE6D8",borderRadius:10,padding:"10px 12px",fontSize:14,fontFamily:"Inter,sans-serif"}}/>
@@ -331,23 +363,52 @@ function Materials() {
   const [previewUrl,setPreviewUrl]=useState("");
   const [error,setError]=useState("");
   const [syncing,setSyncing]=useState(false);
+  const [uploadChapter,setUploadChapter]=useState("");
+  const [knownChapters,setKnownChapters]=useState([]);
+  const [tagging,setTagging]=useState(null);
+  const [tagValue,setTagValue]=useState("");
+  const [retagging,setRetagging]=useState(false);
 
   const load=useCallback(async()=>{
     setLoading(true);const{data}=await db.getMaterials();setMaterials(data||[]);setLoading(false);
   },[]);
   useEffect(()=>{load();},[load]);
+  useEffect(()=>{ db.getChapters().then(({data})=>setKnownChapters((data||[]).map((c)=>c.title))); },[materials]);
 
   const sync=async()=>{setSyncing(true);await load();setSyncing(false);};
 
   const upload=async(e)=>{
     const file=e.target.files[0];if(!file)return;
+    if(!uploadChapter.trim()){
+      setError("पहिले माथि यो फाइल कुन अध्यायको हो भनी लेख्नुहोस्, त्यसपछि फाइल छान्नुहोस्।");
+      e.target.value="";
+      return;
+    }
     setUploading(true);setError("");
     const{data:{user}}=await supabase.auth.getUser();
     const ext=file.name.split(".").pop().toLowerCase();
-    const typeMap={pdf:"pdf",pptx:"pptx",ppt:"pptx",doc:"doc",docx:"doc",xlsx:"sheet",xls:"sheet",jpg:"image",jpeg:"image",png:"image",mp4:"video",mp3:"audio"};
+    const typeMap={pdf:"pdf",pptx:"pptx",ppt:"pptx",doc:"doc",docx:"doc",xlsx:"sheet",xls:"sheet",csv:"sheet",jpg:"image",jpeg:"image",png:"image",mp4:"video",mp3:"audio"};
+    const fileType=typeMap[ext]||"doc";
+
+    // NEW: extract text client-side for docx/pptx/xlsx so the AI can actually
+    // read it later (Gemini can't take these formats directly like PDFs/images).
+    let extracted_text="", extraction_status="not_needed";
+    if(["docx","pptx","xlsx","xls","csv"].includes(ext)){
+      const res=await extractTextFromFile(file);
+      extracted_text=res.text;extraction_status=res.status;
+      if(res.status==="failed") setError(`"${file.name}" बाट टेक्स्ट निकाल्न सकिएन। फाइल अपलोड भइरहन्छ, तर AI ले यो प्रयोग गर्न सक्दैन।`);
+    }else if(ext==="doc"){
+      extraction_status="failed";
+      setError(`पुरानो .doc ढाँचा समर्थित छैन — कृपया Word मा ".docx" बनाएर फेरि अपलोड गर्नुहोस्।`);
+    }
+
+    // NEW: resolve the typed chapter name to your real chapters table (create
+    // it if it doesn't exist yet), so the material links properly via chapter_id.
+    const chapterId=await db.getOrCreateChapterId(uploadChapter.trim());
+
     const{path,error:upErr}=await db.uploadMaterialFile(file,user.id);
     if(upErr){setError(upErr.message);setUploading(false);return;}
-    await db.insertMaterial({name:file.name,storage_path:path,file_type:typeMap[ext]||"doc",size_bytes:file.size,tags:[]});
+    await db.insertMaterial({name:file.name,storage_path:path,file_type:fileType,size_bytes:file.size,tags:[],chapter_id:chapterId,extracted_text,extraction_status});
     setUploading(false);load();e.target.value="";
   };
 
@@ -363,27 +424,68 @@ function Materials() {
     setPreviewUrl(url||"");
   };
 
+  // NEW: tag (or re-tag) an already-uploaded material to a chapter. If it's a
+  // docx/pptx/xlsx uploaded before this feature existed and has no
+  // extracted_text yet, re-download it and extract now.
+  const openTagEditor=(mat,e)=>{
+    e.stopPropagation();
+    setTagging(mat);setTagValue(mat.chapters?.title||"");
+  };
+
+  const saveTag=async()=>{
+    if(!tagging||!tagValue.trim())return;
+    setRetagging(true);
+    const chapterId=await db.getOrCreateChapterId(tagValue.trim());
+    let patch={chapter_id:chapterId};
+    const ext=tagging.name.split(".").pop().toLowerCase();
+    if(!tagging.extracted_text && ["docx","pptx","xlsx","xls","csv"].includes(ext)){
+      try{
+        const blob=await db.downloadMaterialFile(tagging.storage_path);
+        const file=new File([blob],tagging.name);
+        const res=await extractTextFromFile(file);
+        patch.extracted_text=res.text;patch.extraction_status=res.status;
+      }catch(e){patch.extraction_status="failed";}
+    }
+    await db.updateMaterial(tagging.id,patch);
+    setRetagging(false);setTagging(null);load();
+  };
+
   const filtered=useMemo(()=>{
     const q=query.trim().toLowerCase();
     if(!q)return materials;
     return materials.filter((m)=>m.name.toLowerCase().includes(q));
   },[materials,query]);
 
+  const untaggedCount=materials.filter((m)=>!m.chapters?.title).length;
+
   return(
     <div style={{padding:"16px 16px 120px",maxWidth:920,margin:"0 auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
         <div style={{fontSize:20,fontWeight:700,color:INK}}>सामग्री पुस्तकालय</div>
-        <div style={{display:"flex",gap:8}}>
-          <button onClick={sync} disabled={syncing} style={{display:"flex",alignItems:"center",gap:5,background:"#F4EFE3",color:"#7A6F3E",border:"none",borderRadius:10,padding:"8px 12px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
-            <RefreshCw size={14} style={{animation:syncing?"spin 1s linear infinite":"none"}}/>{syncing?"...":"सिंक"}
-          </button>
-          <label style={{display:"flex",alignItems:"center",gap:5,background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
-            <Plus size={14}/>{uploading?"अपलोड...":"फाइल थप"}
-            <input type="file" onChange={upload} style={{display:"none"}} accept=".pdf,.pptx,.ppt,.doc,.docx,.xlsx,.jpg,.jpeg,.png,.mp4,.mp3"/>
-          </label>
-        </div>
+        <button onClick={sync} disabled={syncing} style={{display:"flex",alignItems:"center",gap:5,background:"#F4EFE3",color:"#7A6F3E",border:"none",borderRadius:10,padding:"8px 12px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+          <RefreshCw size={14} style={{animation:syncing?"spin 1s linear infinite":"none"}}/>{syncing?"...":"सिंक"}
+        </button>
       </div>
       {error&&<ErrorMsg msg={error}/>}
+      {untaggedCount>0&&(
+        <div style={{background:"#FBEBD3",borderRadius:10,padding:"10px 14px",fontSize:13.5,color:"#9A5B12",margin:"10px 0",display:"flex",alignItems:"center",gap:8}}>
+          <Tag size={15}/>{untaggedCount} फाइलमा अध्याय तोकिएको छैन — AI ले ती फाइल प्रयोग गर्न सक्दैन। तल फाइलमा 🏷️ थिचेर तोक्नुहोस्।
+        </div>
+      )}
+
+      <Card style={{marginBottom:14,marginTop:10}}>
+        <div style={{fontSize:13,fontWeight:700,color:INK,marginBottom:8}}>नयाँ फाइल थप्नुहोस्</div>
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <input list="chapter-list-mat" placeholder="यो फाइल कुन अध्यायको हो? (जस्तै: राष्ट्रिय एकता) *" value={uploadChapter} onChange={(e)=>setUploadChapter(e.target.value)} style={{border:"1px solid #ECE6D8",borderRadius:10,padding:"10px 12px",fontSize:14,fontFamily:"Inter,sans-serif"}}/>
+          <datalist id="chapter-list-mat">{knownChapters.map((c)=><option key={c} value={c}/>)}</datalist>
+          <label style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:uploadChapter.trim()?ACCENT:"#C7BFAE",color:"#fff",border:"none",borderRadius:10,padding:"11px",fontSize:14,fontWeight:700,cursor:uploadChapter.trim()?"pointer":"not-allowed"}}>
+            <Plus size={15}/>{uploading?"अपलोड र प्रशोधन गर्दै...":"फाइल छान्नुहोस्"}
+            <input type="file" onChange={upload} disabled={!uploadChapter.trim()||uploading} style={{display:"none"}} accept=".pdf,.pptx,.ppt,.doc,.docx,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.mp4,.mp3"/>
+          </label>
+          <div style={{fontSize:11.5,color:"#8A8275"}}>PDF/तस्बिर सिधै AI लाई देखाइन्छ। Word/PowerPoint/Excel बाट टेक्स्ट स्वतः निकालिन्छ।</div>
+        </div>
+      </Card>
+
       <div style={{display:"flex",alignItems:"center",gap:8,background:"#fff",border:"1px solid #ECE6D8",borderRadius:12,padding:"11px 14px",marginBottom:14,marginTop:10}}>
         <Search size={16} color="#A39B8B"/>
         <input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="फाइल खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:14.5,flex:1,background:"transparent",fontFamily:"Inter,sans-serif"}}/>
@@ -391,16 +493,26 @@ function Materials() {
       {loading?<Spinner/>:filtered.length===0?(
         <div style={{textAlign:"center",color:"#8A8275",padding:40}}>{query?`"${query}" फेला परेन।`:"फाइल थपिएको छैन।"}</div>
       ):(
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(170px,1fr))",gap:10}}>
           {filtered.map((f)=>{
             const meta=FILE_TYPE_META[f.file_type]||FILE_TYPE_META.doc;const Icon=meta.icon;
+            const needsExtraction=["doc","sheet","pptx"].includes(f.file_type);
             return(
               <Card key={f.id} onClick={()=>openPreview(f)} style={{padding:12,position:"relative"}}>
-                <button onClick={(e)=>deleteMat(f,e)} style={{position:"absolute",top:8,right:8,background:"none",border:"none",cursor:"pointer",color:"#C7BFAE"}}><Trash2 size={13}/></button>
+                <div style={{position:"absolute",top:8,right:8,display:"flex",gap:4}}>
+                  <button onClick={(e)=>openTagEditor(f,e)} style={{background:"none",border:"none",cursor:"pointer",color:f.chapters?.title?ACCENT:"#C7A34A"}} title="अध्याय तोक्नुहोस्"><Tag size={13}/></button>
+                  <button onClick={(e)=>deleteMat(f,e)} style={{background:"none",border:"none",cursor:"pointer",color:"#C7BFAE"}}><Trash2 size={13}/></button>
+                </div>
                 <div style={{width:36,height:36,borderRadius:8,background:meta.color+"1A",display:"flex",alignItems:"center",justifyContent:"center",marginBottom:8}}><Icon size={18} color={meta.color}/></div>
-                <div style={{fontSize:12.5,fontWeight:600,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:3,paddingRight:16}}>{f.name}</div>
-                <div style={{fontSize:11,color:"#8A8275"}}>{f.file_type?.toUpperCase()}</div>
-                <div style={{display:"flex",alignItems:"center",gap:3,fontSize:11.5,color:ACCENT,fontWeight:700,marginTop:6}}><Eye size={11}/>हेर्नुहोस्</div>
+                <div style={{fontSize:12.5,fontWeight:600,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:3,paddingRight:32}}>{f.name}</div>
+                <div style={{fontSize:11,color:"#8A8275",marginBottom:5}}>{f.file_type?.toUpperCase()}</div>
+                {f.chapters?.title?(
+                  <span style={{fontSize:10.5,background:"#E4EFE6",color:ACCENT,padding:"2px 7px",borderRadius:5,fontWeight:700,display:"inline-block"}}>{f.chapters.title}</span>
+                ):(
+                  <span style={{fontSize:10.5,background:"#FBEBD3",color:"#9A5B12",padding:"2px 7px",borderRadius:5,fontWeight:700,display:"inline-block"}}>अध्याय छैन</span>
+                )}
+                {needsExtraction&&f.extraction_status==="done"&&<div style={{fontSize:10,color:ACCENT,marginTop:4}}>✓ AI तयार</div>}
+                {needsExtraction&&f.extraction_status==="failed"&&<div style={{fontSize:10,color:"#A23C2A",marginTop:4}}>⚠ टेक्स्ट निकाल्न सकिएन</div>}
               </Card>
             );
           })}
@@ -414,6 +526,19 @@ function Materials() {
               <button onClick={()=>setPreview(null)} style={{background:"none",border:"none",cursor:"pointer",color:"#8A8275"}}><X size={18}/></button>
             </div>
             {previewUrl?<a href={previewUrl} target="_blank" rel="noreferrer" style={{display:"block",background:ACCENT,color:"#fff",borderRadius:12,padding:"13px",fontWeight:700,fontSize:15,textAlign:"center",textDecoration:"none"}}>फाइल खोल्नुहोस्</a>:<div style={{textAlign:"center",padding:20,color:"#8A8275"}}>लिङ्क तयार गर्दै...</div>}
+          </div>
+        </div>
+      )}
+      {tagging&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.55)",zIndex:60,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setTagging(null)}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:22,maxWidth:400,width:"100%"}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
+              <div style={{fontSize:15,fontWeight:700}}>अध्याय तोक्नुहोस्</div>
+              <button onClick={()=>setTagging(null)} style={{background:"none",border:"none",cursor:"pointer",color:"#8A8275"}}><X size={18}/></button>
+            </div>
+            <div style={{fontSize:13,color:"#8A8275",marginBottom:10}}>{tagging.name}</div>
+            <input list="chapter-list-mat" autoFocus value={tagValue} onChange={(e)=>setTagValue(e.target.value)} placeholder="अध्यायको नाम" style={{width:"100%",border:"1px solid #ECE6D8",borderRadius:10,padding:"10px 12px",fontSize:14,fontFamily:"Inter,sans-serif",marginBottom:12}}/>
+            <button onClick={saveTag} disabled={retagging} style={{width:"100%",background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"11px",fontWeight:700,fontSize:14,cursor:"pointer"}}>{retagging?"प्रशोधन गर्दै...":"सुरक्षित गर्नुहोस्"}</button>
           </div>
         </div>
       )}
@@ -545,18 +670,30 @@ function TeachingJournal() {
 
 function AIAssistant({ lessons }) {
   const lesson=lessons[0];
-  const [messages,setMessages]=useState([{role:"ai",text:lesson?`नमस्ते! म "${lesson.title}" पाठ र पाठ्यपुस्तकबाट उत्तर दिन्छु। तलका छिटो प्रश्न थिच्नुहोस्।`:"नमस्ते! पहिले पाठ योजनामा एउटा पाठ थप्नुहोस्।"}]);
+  const chapterTitle=lesson?.chapters?.title||lesson?.chapter_title||"";
+  const [messages,setMessages]=useState([{role:"ai",text:lesson?`नमस्ते! म "${lesson.title}" पाठ, ट्याग गरिएका सामग्री, र पाठ्यपुस्तकबाट उत्तर दिन्छु। तलका छिटो प्रश्न थिच्नुहोस्।`:"नमस्ते! पहिले पाठ योजनामा एउटा पाठ थप्नुहोस्।"}]);
   const [input,setInput]=useState("");
   const [loading,setLoading]=useState(false);
+  const [matchedCount,setMatchedCount]=useState(0);
   const bottomRef=useRef(null);
   const QUICK=["आजको पाठ बुझाउनुहोस्","उद्देश्यहरू देखाउनुहोस्","मुख्य प्रश्नहरू दिनुहोस्","क्रियाकलाप सुझाव दिनुहोस्","गृहकार्य के दिने?","शब्दावली सूची देखाउनुहोस्","मूल्याङ्कन कसरी गर्ने?"];
   useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:"smooth"});},[messages]);
+  useEffect(()=>{
+    if(chapterTitle){
+      db.getChapterIdByTitle(chapterTitle).then((id)=>{
+        if(!id)return setMatchedCount(0);
+        db.getMaterialsByChapter(id).then(({data})=>setMatchedCount((data||[]).length));
+      });
+    }
+  },[chapterTitle]);
   const send=async(text)=>{
     const t=text.trim();if(!t||loading)return;
     setMessages((prev)=>[...prev,{role:"user",text:t}]);setInput("");setLoading(true);
     try{
-      const context=lesson?`पाठ: ${lesson.title}\nअध्याय: ${lesson.chapters?.title||""}\nउद्देश्य: ${(lesson.objectives||[]).join(", ")}\nशब्दावली: ${(lesson.vocabulary||[]).join(", ")}\nक्रियाकलाप: ${(lesson.activities||[]).join(", ")}\nगृहकार्य: ${lesson.homework||""}`: "कुनै पाठ छैन।";
-      const reply=await gemini.chatWithAI(t,context,getTextbookPDF());
+      const context=lesson?`पाठ: ${lesson.title}\nअध्याय: ${lesson.chapters?.title||lesson.chapter_title||""}\nउद्देश्य: ${(lesson.objectives||[]).join(", ")}\nशब्दावली: ${(lesson.vocabulary||[]).join(", ")}\nक्रियाकलाप: ${(lesson.activities||[]).join(", ")}\nगृहकार्य: ${lesson.homework||""}`: "कुनै पाठ छैन।";
+      // NEW: pull in materials tagged to this lesson's chapter, alongside the global textbook
+      const ctx=await getMaterialContext(chapterTitle);
+      const reply=await gemini.chatWithAI(t,context,ctx);
       setMessages((prev)=>[...prev,{role:"ai",text:reply}]);
     }catch(e){setMessages((prev)=>[...prev,{role:"ai",text:"AI सँग जोडिन सकिएन: "+e.message}]);}
     setLoading(false);
@@ -565,8 +702,9 @@ function AIAssistant({ lessons }) {
     <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 170px)",maxWidth:720,margin:"0 auto",width:"100%"}}>
       <div style={{padding:"14px 16px 8px"}}>
         <div style={{fontSize:19,fontWeight:700,color:INK,display:"flex",alignItems:"center",gap:8}}><Bot size={20} color={ACCENT}/>AI शिक्षण सहायक</div>
-        <div style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:"#8A8275",marginTop:3}}>
+        <div style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:"#8A8275",marginTop:3,flexWrap:"wrap"}}>
           <Zap size={11} color={MARIGOLD}/>Google Gemini AI · {getTextbookPDF()?"पाठ्यपुस्तक लोड भएको ✓":"पाठ्यपुस्तक लोड भएको छैन (सेटिङमा अपलोड गर्नुहोस्)"}
+          {chapterTitle&&<span>· "{chapterTitle}" का {matchedCount} सामग्री</span>}
         </div>
       </div>
       <div style={{flex:1,overflowY:"auto",padding:"6px 16px"}}>
@@ -601,6 +739,7 @@ function QuestionBank() {
   const [diffFilter,setDiffFilter]=useState("सबै");
   const [form,setForm]=useState({text:"",type:"छोटो उत्तर",difficulty:"सजिलो",bloom:"सम्झना",chapter_title:"",options:"",answer:""});
   const [error,setError]=useState("");
+  const [matchedCount,setMatchedCount]=useState(0);
   const TYPES=["छोटो उत्तर","बहुविकल्पीय","सत्य/असत्य","खाली ठाउँ","विश्लेषणात्मक","परिदृश्य आधारित"];
   const DIFFS=["सबै","सजिलो","मध्यम","कठिन"];
   const load=useCallback(async()=>{setLoading(true);const{data}=await db.getQuestions();setQuestions(data||[]);setLoading(false);},[]);
@@ -610,7 +749,9 @@ function QuestionBank() {
     if(!form.chapter_title.trim()){setError("अध्यायको नाम लेख्नुहोस्।");return;}
     setGenerating(true);setError("");
     try{
-      const results=await gemini.generateQuestions(form.chapter_title,getTextbookPDF());
+      const ctx=await getMaterialContext(form.chapter_title);
+      setMatchedCount(ctx.matchedCount||0);
+      const results=await gemini.generateQuestions(form.chapter_title,ctx);
       if(results?.length){
         for(const q of results)await db.upsertQuestion({text:q.text,type:q.type||"छोटो उत्तर",difficulty:q.difficulty||"सजिलो",bloom_level:q.bloom||"सम्झना",chapter_title:form.chapter_title,options:q.options||[],correct_option:q.correct_option??null});
         load();setShowForm(false);
@@ -644,6 +785,7 @@ function QuestionBank() {
             <AIButton label={generating?"बनाउँदै...":"AI बाट प्रश्न बनाउनुहोस्"} onClick={autoGenerate} loading={generating}/>
           </div>
           {error&&<ErrorMsg msg={error}/>}
+          <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title}/>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             <input placeholder="अध्याय (AI का लागि अनिवार्य)" value={form.chapter_title} onChange={(e)=>setForm({...form,chapter_title:e.target.value})} style={{border:"1px solid #ECE6D8",borderRadius:10,padding:"10px 12px",fontSize:14,fontFamily:"Inter,sans-serif"}}/>
             <textarea placeholder="प्रश्न (म्यानुअल)" value={form.text} onChange={(e)=>setForm({...form,text:e.target.value})} rows={3} style={{border:"1px solid #ECE6D8",borderRadius:10,padding:"10px 12px",fontSize:14,fontFamily:"Inter,sans-serif",resize:"vertical"}}/>
@@ -718,6 +860,7 @@ function AssessmentBuilder() {
   const [generating,setGenerating]=useState(false);
   const [form,setForm]=useState({title:"",type:"observation",rubric_text:"",due_date:"",chapter_title:""});
   const [error,setError]=useState("");
+  const [matchedCount,setMatchedCount]=useState(0);
   const TYPES=[{id:"observation",label:"अवलोकन",icon:ClipboardList},{id:"oral",label:"मौखिक",icon:MessageSquare},{id:"practical",label:"व्यावहारिक",icon:NotebookPen},{id:"project",label:"प्रोजेक्ट",icon:FolderKanban},{id:"activity",label:"क्रियाकलाप",icon:Gamepad2},{id:"portfolio",label:"पोर्टफोलियो",icon:BookOpen}];
   const load=useCallback(async()=>{setLoading(true);const{data}=await db.getAssessments();setAssessments(data||[]);setLoading(false);},[]);
   useEffect(()=>{load();},[load]);
@@ -726,8 +869,10 @@ function AssessmentBuilder() {
     const chapter=form.chapter_title||form.title;if(!chapter){setError("अध्याय लेख्नुहोस्।");return;}
     setGenerating(true);setError("");
     try{
+      const ctx=await getMaterialContext(chapter);
+      setMatchedCount(ctx.matchedCount||0);
       const prompt=`नेपाल कक्षा ५ "${chapter}" का लागि ${form.type} मूल्याङ्कन मापदण्ड JSON मात्र: [{"level":"उत्कृष्ट","desc":"..."},{"level":"राम्रो","desc":"..."},{"level":"सहयोग आवश्यक","desc":"..."}]`;
-      const text=getTextbookPDF()?await gemini.generateWithPDF(prompt,getTextbookPDF()):await gemini.generateText(prompt);
+      const text=(ctx.materialParts.length||ctx.pdfBase64)?await gemini.generateWithMaterials(prompt,ctx.materialParts,ctx.pdfBase64):await gemini.generateText(prompt);
       const rubric=gemini.parseJSON(text);
       if(rubric)setForm((prev)=>({...prev,rubric_text:rubric.map((r)=>`${r.level}: ${r.desc}`).join("\n")}));
       else setError("मूल्याङ्कन बनाउन सकिएन।");
@@ -755,6 +900,7 @@ function AssessmentBuilder() {
             <AIButton label={generating?"बनाउँदै...":"AI बाट rubric"} onClick={autoGenerate} loading={generating}/>
           </div>
           {error&&<ErrorMsg msg={error}/>}
+          <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title}/>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             <input placeholder="शीर्षक *" value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} style={{border:"1px solid #ECE6D8",borderRadius:10,padding:"10px 12px",fontSize:14,fontFamily:"Inter,sans-serif"}}/>
             <input placeholder="अध्याय (AI का लागि)" value={form.chapter_title} onChange={(e)=>setForm({...form,chapter_title:e.target.value})} style={{border:"1px solid #ECE6D8",borderRadius:10,padding:"10px 12px",fontSize:14,fontFamily:"Inter,sans-serif"}}/>
@@ -800,6 +946,7 @@ function ActivitiesLibrary() {
   const [typeFilter,setTypeFilter]=useState("सबै");
   const [form,setForm]=useState({title:"",type:"game",competency:"",duration:"",description:"",chapter_title:""});
   const [error,setError]=useState("");
+  const [matchedCount,setMatchedCount]=useState(0);
   const TYPES=[{id:"game",label:"खेल",icon:Gamepad2},{id:"roleplay",label:"भूमिका अभिनय",icon:Users},{id:"project",label:"प्रोजेक्ट",icon:FolderKanban},{id:"map",label:"नक्सा",icon:MapIcon},{id:"debate",label:"बहस",icon:MessageSquare},{id:"presentation",label:"प्रस्तुति",icon:Presentation}];
   const load=useCallback(async()=>{setLoading(true);const{data}=await db.getActivities();setActivities(data||[]);setLoading(false);},[]);
   useEffect(()=>{load();},[load]);
@@ -808,7 +955,9 @@ function ActivitiesLibrary() {
     if(!form.chapter_title.trim()){setError("अध्यायको नाम लेख्नुहोस्।");return;}
     setGenerating(true);setError("");
     try{
-      const results=await gemini.generateActivities(form.chapter_title,getTextbookPDF());
+      const ctx=await getMaterialContext(form.chapter_title);
+      setMatchedCount(ctx.matchedCount||0);
+      const results=await gemini.generateActivities(form.chapter_title,ctx);
       if(results?.length){for(const a of results)await db.upsertActivity({title:a.title,type:a.type||"game",duration:a.duration,competency:a.competency,description:a.description,chapter_title:form.chapter_title});load();setShowForm(false);}
       else setError("क्रियाकलाप बनाउन सकिएन।");
     }catch(e){setError("AI त्रुटि: "+e.message);}
@@ -831,6 +980,7 @@ function ActivitiesLibrary() {
             <AIButton label={generating?"बनाउँदै...":"AI बाट बनाउनुहोस्"} onClick={autoGenerate} loading={generating}/>
           </div>
           {error&&<ErrorMsg msg={error}/>}
+          <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title}/>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             <input placeholder="अध्याय (AI का लागि अनिवार्य)" value={form.chapter_title} onChange={(e)=>setForm({...form,chapter_title:e.target.value})} style={{border:"1px solid #ECE6D8",borderRadius:10,padding:"10px 12px",fontSize:14,fontFamily:"Inter,sans-serif"}}/>
             <input placeholder="क्रियाकलापको नाम" value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} style={{border:"1px solid #ECE6D8",borderRadius:10,padding:"10px 12px",fontSize:14,fontFamily:"Inter,sans-serif"}}/>
@@ -878,7 +1028,9 @@ function ResourceCreator({ lessons }) {
   const [active,setActive]=useState(null);
   const [generating,setGenerating]=useState(false);
   const [generatedText,setGeneratedText]=useState("");
+  const [matchedCount,setMatchedCount]=useState(0);
   const lesson=lessons[0];
+  const chapterTitle=lesson?.chapters?.title||lesson?.chapter_title||"";
   const TEMPLATES=[
     {id:"worksheet",title:"कार्यपत्र",icon:FileText,prompt:(l)=>`कक्षा ५ सामाजिक अध्ययन "${l?.title||""}" पाठका लागि अभ्यास कार्यपत्र नेपालीमा बनाउनुहोस्। उद्देश्य: ${(l?.objectives||[]).join(", ")}`},
     {id:"revision",title:"पुनरावलोकन",icon:ClipboardList,prompt:(l)=>`कक्षा ५ "${l?.title||""}" पाठको पुनरावलोकन पाना बनाउनुहोस्। मुख्य बुँदा, शब्दावली र प्रश्नहरू।`},
@@ -891,7 +1043,13 @@ function ResourceCreator({ lessons }) {
   const generate=async(template)=>{
     setActive(template);setGenerating(true);setGeneratedText("");
     try{
-      const text=getTextbookPDF()?await gemini.generateWithPDF(template.prompt(lesson),getTextbookPDF()):await gemini.generateText(template.prompt(lesson));
+      // NEW: use materials tagged to this lesson's chapter + the global textbook
+      const ctx=await getMaterialContext(chapterTitle);
+      setMatchedCount(ctx.matchedCount||0);
+      const prompt=template.prompt(lesson);
+      const text=(ctx.materialParts.length||ctx.pdfBase64)
+        ?await gemini.generateWithMaterials(prompt,ctx.materialParts,ctx.pdfBase64)
+        :await gemini.generateText(prompt);
       setGeneratedText(text);
     }catch(e){setGeneratedText("त्रुटि: "+e.message);}
     setGenerating(false);
@@ -901,6 +1059,7 @@ function ResourceCreator({ lessons }) {
     <div style={{padding:"16px 16px 120px",maxWidth:920,margin:"0 auto"}}>
       <div style={{fontSize:20,fontWeight:700,color:INK,marginBottom:4,display:"flex",alignItems:"center",gap:8}}><Wand2 size={20} color={ACCENT}/>स्रोत निर्माता</div>
       <div style={{fontSize:13,color:"#8A8275",marginBottom:16}}>{lesson?`"${lesson.title}" — AI बाट स्वतः बनाइन्छ।`:"पहिले पाठ योजनामा पाठ थप्नुहोस्।"}</div>
+      <MaterialsHint count={matchedCount} chapterTitle={chapterTitle}/>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:20}}>
         {TEMPLATES.map((t)=>{const Icon=t.icon;return<Card key={t.id} onClick={()=>generate(t)} style={{padding:14,border:active?.id===t.id?`2px solid ${ACCENT}`:"1px solid #ECE6D8"}}><div style={{width:36,height:36,borderRadius:8,background:"#E4EFE6",display:"flex",alignItems:"center",justifyContent:"center",marginBottom:8}}><Icon size={18} color={ACCENT}/></div><div style={{fontWeight:700,fontSize:13,color:INK}}>{t.title}</div></Card>;})}
       </div>
@@ -932,8 +1091,8 @@ function DocumentSearch({ lessons, homework }) {
   const results=useMemo(()=>{
     const q=query.trim().toLowerCase();if(!q)return[];
     return[
-      ...lessons.filter((l)=>l.title?.toLowerCase().includes(q)||(l.objectives||[]).some((o)=>o.toLowerCase().includes(q))).map((l)=>({kind:"पाठ",title:l.title,sub:l.chapter_title||"",icon:ClipboardList,color:ACCENT})),
-      ...allMaterials.filter((m)=>m.name?.toLowerCase().includes(q)).map((m)=>({kind:"सामग्री",title:m.name,sub:m.file_type?.toUpperCase()||"",icon:FileText,color:"#A23C2A"})),
+      ...lessons.filter((l)=>l.title?.toLowerCase().includes(q)||(l.objectives||[]).some((o)=>o.toLowerCase().includes(q))).map((l)=>({kind:"पाठ",title:l.title,sub:l.chapters?.title||l.chapter_title||"",icon:ClipboardList,color:ACCENT})),
+      ...allMaterials.filter((m)=>m.name?.toLowerCase().includes(q)||m.chapters?.title?.toLowerCase().includes(q)).map((m)=>({kind:"सामग्री",title:m.name,sub:(m.chapters?.title?m.chapters.title+" · ":"")+(m.file_type?.toUpperCase()||""),icon:FileText,color:"#A23C2A"})),
       ...allQuestions.filter((qq)=>qq.text?.toLowerCase().includes(q)).map((qq)=>({kind:"प्रश्न",title:qq.text,sub:qq.type+" · "+qq.difficulty,icon:HelpCircle,color:"#6B3FA0"})),
       ...allActivities.filter((a)=>a.title?.toLowerCase().includes(q)||a.description?.toLowerCase().includes(q)).map((a)=>({kind:"क्रियाकलाप",title:a.title,sub:a.chapter_title||"",icon:Gamepad2,color:"#1B7A4A"})),
       ...homework.filter((h)=>h.title?.toLowerCase().includes(q)).map((h)=>({kind:"गृहकार्य",title:h.title,sub:`${h.checked_count}/${h.total_students}`,icon:ListChecks,color:"#9A5B12"})),
@@ -1016,7 +1175,6 @@ function Settings({ session, sections, onSectionAdded }) {
   const [uploading,setUploading]=useState(false);
   const [pdfLoaded,setPdfLoaded]=useState(!!getTextbookPDF());
 
-  // Check IndexedDB on mount
   useEffect(()=>{
     gemini.loadTextbook().then((b64)=>{
       if(b64){window.__textbookPDF__=b64;setPdfLoaded(true);}
@@ -1059,7 +1217,7 @@ function Settings({ session, sections, onSectionAdded }) {
 
       <Card style={{marginBottom:14}}>
         <SectionLabel>पाठ्यपुस्तक PDF</SectionLabel>
-        <div style={{fontSize:13.5,color:"#6B6557",marginBottom:12,lineHeight:1.6}}>एकपटक PDF अपलोड गर्नुहोस् — AI ले सबैतिर यसबाट स्वतः सामग्री बनाउनेछ।</div>
+        <div style={{fontSize:13.5,color:"#6B6557",marginBottom:12,lineHeight:1.6}}>एकपटक PDF अपलोड गर्नुहोस् — AI ले सबैतिर यसबाट स्वतः सामग्री बनाउनेछ, साथै सामग्री खण्डमा अध्याय अनुसार ट्याग गरिएका फाइलहरू पनि प्रयोग हुन्छन्।</div>
         {pdfLoaded?(
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
             <div style={{display:"flex",alignItems:"center",gap:8,background:"#E4EFE6",borderRadius:10,padding:"10px 14px"}}>
@@ -1099,7 +1257,7 @@ function Settings({ session, sections, onSectionAdded }) {
 
       <Card>
         <SectionLabel>एपको बारेमा</SectionLabel>
-        {[["नाम","शिक्षा साथी"],["संस्करण","3.0"],["AI","Google Gemini (निःशुल्क)"],["डाटाबेस","Supabase (निःशुल्क)"],["होस्टिङ","Vercel (निःशुल्क)"]].map(([l,v])=><div key={l} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid #F3EFE3"}}><div style={{fontSize:13.5,color:"#8A8275"}}>{l}</div><div style={{fontSize:13.5,fontWeight:600,color:INK}}>{v}</div></div>)}
+        {[["नाम","शिक्षा साथी"],["संस्करण","3.1"],["AI","Google Gemini (निःशुल्क)"],["डाटाबेस","Supabase (निःशुल्क)"],["होस्टिङ","Vercel (निःशुल्क)"]].map(([l,v])=><div key={l} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid #F3EFE3"}}><div style={{fontSize:13.5,color:"#8A8275"}}>{l}</div><div style={{fontSize:13.5,fontWeight:600,color:INK}}>{v}</div></div>)}
       </Card>
     </div>
   );
@@ -1122,7 +1280,6 @@ export default function App() {
   useEffect(()=>{
     supabase.auth.getSession().then(({data:{session:s}})=>{setSession(s);setAuthLoading(false);});
     const{data:{subscription}}=supabase.auth.onAuthStateChange((_e,s)=>setSession(s));
-    // Load textbook PDF from IndexedDB on startup
     gemini.loadTextbook().then((b64)=>{ if(b64) window.__textbookPDF__=b64; });
     return()=>subscription.unsubscribe();
   },[]);
@@ -1184,7 +1341,6 @@ export default function App() {
         }
       `}</style>
 
-      {/* Top bar */}
       <div style={{background:"#fff",borderBottom:"1px solid #ECE6D8",padding:"12px 16px",display:"flex",alignItems:"center",gap:10,position:"sticky",top:0,zIndex:10}}>
         <div style={{width:32,height:32,borderRadius:9,background:ACCENT,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:14}}>सि</div>
         <div><div style={{fontWeight:700,fontSize:15}}>शिक्षा साथी</div><div style={{fontSize:11,color:"#8A8275"}}>कक्षा ५ · सामाजिक अध्ययन</div></div>
@@ -1197,10 +1353,8 @@ export default function App() {
         </div>
       </div>
 
-      {/* Section selector */}
       <SectionSelector sections={sections} current={currentSection} onChange={setCurrentSection} onAdd={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}}/>
 
-      {/* Desktop sidebar */}
       <div className="desktop-sidebar" style={{position:"fixed",top:0,left:0,bottom:0,width:220,background:"#fff",borderRight:"1px solid #ECE6D8",flexDirection:"column",paddingTop:110,zIndex:5,overflowY:"auto"}}>
         {[...nav,...navMore].map((n)=>{const Icon=n.icon;const active=screen===n.id;return(
           <button key={n.id} onClick={()=>setScreen(n.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",border:"none",background:active?"#E4EFE6":"transparent",color:active?ACCENT:"#6B6557",fontWeight:active?700:500,fontSize:13.5,cursor:"pointer",textAlign:"left",width:"100%",borderRadius:0}}>
@@ -1209,7 +1363,6 @@ export default function App() {
         );})}
       </div>
 
-      {/* Main content */}
       <div className="main-content">
         {screen==="dashboard"&&<Dashboard onOpenLesson={setActiveLesson} onGoPlanner={()=>setScreen("planner")} onGoHomework={()=>setScreen("homework")} section={currentSection} lessons={lessons} homework={homework} loading={lessonsLoading}/>}
         {screen==="planner"&&<Planner onOpenLesson={setActiveLesson} section={currentSection} lessons={lessons} loading={lessonsLoading} onRefresh={loadLessons}/>}
@@ -1226,13 +1379,11 @@ export default function App() {
         {screen==="settings"&&<Settings session={session} sections={sections} onSectionAdded={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}}/>}
       </div>
 
-      {/* Mobile bottom nav */}
       <div className="mobile-bottom-nav" style={{position:"fixed",bottom:0,left:0,right:0,background:"#fff",borderTop:"1px solid #ECE6D8",justifyContent:"space-around",padding:"6px 0",zIndex:10}}>
         {nav.map((n)=>{const Icon=n.icon;const active=screen===n.id;return<button key={n.id} onClick={()=>setScreen(n.id)} style={{background:"none",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:active?ACCENT:"#A39B8B",fontSize:10,fontWeight:600,cursor:"pointer",padding:"3px 6px",flex:1}}><Icon size={19}/>{n.label}</button>;})}
         <button onClick={()=>setShowMore(true)} style={{background:"none",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:navMore.some((n)=>n.id===screen)?ACCENT:"#A39B8B",fontSize:10,fontWeight:600,cursor:"pointer",padding:"3px 6px",flex:1}}><Layers size={19}/>थप</button>
       </div>
 
-      {/* More sheet (mobile only) */}
       {showMore&&(
         <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.55)",zIndex:60,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={()=>setShowMore(false)}>
           <div onClick={(e)=>e.stopPropagation()} style={{background:"#fff",borderRadius:"18px 18px 0 0",padding:18,maxWidth:480,width:"100%",paddingBottom:40}}>
