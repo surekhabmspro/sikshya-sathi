@@ -520,12 +520,36 @@ function Materials() {
       )}
       {preview&&(
         <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.55)",zIndex:60,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setPreview(null)}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:22,maxWidth:440,width:"100%"}}>
-            <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
-              <div style={{fontSize:15,fontWeight:700}}>{preview.name}</div>
-              <button onClick={()=>setPreview(null)} style={{background:"none",border:"none",cursor:"pointer",color:"#8A8275"}}><X size={18}/></button>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:18,maxWidth:640,width:"100%",maxHeight:"88vh",display:"flex",flexDirection:"column"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div style={{fontSize:15,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",paddingRight:10}}>{preview.name}</div>
+              <button onClick={()=>setPreview(null)} style={{background:"none",border:"none",cursor:"pointer",color:"#8A8275",flexShrink:0}}><X size={18}/></button>
             </div>
-            {previewUrl?<a href={previewUrl} target="_blank" rel="noreferrer" style={{display:"block",background:ACCENT,color:"#fff",borderRadius:12,padding:"13px",fontWeight:700,fontSize:15,textAlign:"center",textDecoration:"none"}}>फाइल खोल्नुहोस्</a>:<div style={{textAlign:"center",padding:20,color:"#8A8275"}}>लिङ्क तयार गर्दै...</div>}
+            {!previewUrl?(
+              <div style={{textAlign:"center",padding:20,color:"#8A8275"}}>लिङ्क तयार गर्दै...</div>
+            ):(
+              <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:12}}>
+                {preview.file_type==="pdf"&&(
+                  <iframe src={previewUrl} title={preview.name} style={{width:"100%",height:"65vh",border:"1px solid #ECE6D8",borderRadius:10}}/>
+                )}
+                {preview.file_type==="image"&&(
+                  <img src={previewUrl} alt={preview.name} style={{width:"100%",borderRadius:10}}/>
+                )}
+                {preview.file_type==="video"&&(
+                  <video src={previewUrl} controls style={{width:"100%",borderRadius:10}}/>
+                )}
+                {preview.file_type==="audio"&&(
+                  <audio src={previewUrl} controls style={{width:"100%"}}/>
+                )}
+                {(preview.file_type==="doc"||preview.file_type==="pptx"||preview.file_type==="sheet")&&(
+                  <iframe src={`https://docs.google.com/gview?url=${encodeURIComponent(previewUrl)}&embedded=true`} title={preview.name} style={{width:"100%",height:"65vh",border:"1px solid #ECE6D8",borderRadius:10}}/>
+                )}
+                <a href={previewUrl} target="_blank" rel="noreferrer" style={{display:"block",background:ACCENT,color:"#fff",borderRadius:12,padding:"13px",fontWeight:700,fontSize:14,textAlign:"center",textDecoration:"none"}}>नयाँ ट्याबमा खोल्नुहोस् / डाउनलोड गर्नुहोस्</a>
+                {(preview.file_type==="doc"||preview.file_type==="pptx"||preview.file_type==="sheet")&&(
+                  <div style={{fontSize:11.5,color:"#A39B8B",textAlign:"center"}}>माथिको प्रिभ्यू नदेखिए, केही सेकेन्ड पर्खनुहोस् वा माथिको बटनबाट खोल्नुहोस्।</div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
