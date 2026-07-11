@@ -498,13 +498,13 @@ function Materials() {
             const meta=FILE_TYPE_META[f.file_type]||FILE_TYPE_META.doc;const Icon=meta.icon;
             const needsExtraction=["doc","sheet","pptx"].includes(f.file_type);
             return(
-              <Card key={f.id} onClick={()=>openPreview(f)} style={{padding:12,position:"relative"}}>
-                <div style={{position:"absolute",top:8,right:8,display:"flex",gap:4}}>
-                  <button onClick={(e)=>openTagEditor(f,e)} style={{background:"none",border:"none",cursor:"pointer",color:f.chapters?.title?ACCENT:"#C7A34A"}} title="अध्याय तोक्नुहोस्"><Tag size={13}/></button>
-                  <button onClick={(e)=>deleteMat(f,e)} style={{background:"none",border:"none",cursor:"pointer",color:"#C7BFAE"}}><Trash2 size={13}/></button>
+              <Card key={f.id} onClick={()=>openPreview(f)} style={{padding:12,paddingTop:44,position:"relative"}}>
+                <div style={{position:"absolute",top:6,right:6,display:"flex",gap:2,zIndex:2}}>
+                  <button onClick={(e)=>openTagEditor(f,e)} style={{background:"#fff",border:"1px solid #ECE6D8",borderRadius:10,width:40,height:40,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:f.chapters?.title?ACCENT:"#C7A34A",boxShadow:"0 1px 3px rgba(0,0,0,0.08)"}} title="अध्याय तोक्नुहोस्"><Tag size={18}/></button>
+                  <button onClick={(e)=>deleteMat(f,e)} style={{background:"#fff",border:"1px solid #ECE6D8",borderRadius:10,width:40,height:40,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#C7BFAE",boxShadow:"0 1px 3px rgba(0,0,0,0.08)"}}><Trash2 size={18}/></button>
                 </div>
                 <div style={{width:36,height:36,borderRadius:8,background:meta.color+"1A",display:"flex",alignItems:"center",justifyContent:"center",marginBottom:8}}><Icon size={18} color={meta.color}/></div>
-                <div style={{fontSize:12.5,fontWeight:600,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:3,paddingRight:32}}>{f.name}</div>
+                <div style={{fontSize:12.5,fontWeight:600,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:3}}>{f.name}</div>
                 <div style={{fontSize:11,color:"#8A8275",marginBottom:5}}>{f.file_type?.toUpperCase()}</div>
                 {f.chapters?.title?(
                   <span style={{fontSize:10.5,background:"#E4EFE6",color:ACCENT,padding:"2px 7px",borderRadius:5,fontWeight:700,display:"inline-block"}}>{f.chapters.title}</span>
