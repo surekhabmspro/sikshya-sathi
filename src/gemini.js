@@ -144,12 +144,31 @@ export const generateWithMaterials = async (prompt, materialParts = [], textbook
 };
 
 export const parseJSON = (text) => {
+  if (!text) return null;
+  // 1) Strip markdown code fences if present
+  let clean = text.replace(/```json\n?/gi, "").replace(/```\n?/g, "").trim();
+
+  // 2) Try parsing as-is first (fast path — most responses are already clean)
   try {
-    const clean = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
     return JSON.parse(clean);
-  } catch {
-    return null;
+  } catch {}
+
+  // 3) Fallback: Gemini sometimes adds a sentence before/after the JSON
+  // ("Here's the lesson plan: {...}"). Pull out just the {...} or [...]
+  // portion and try again, rather than giving up entirely.
+  const firstBrace = clean.search(/[[{]/);
+  const lastBraceObj = clean.lastIndexOf("}");
+  const lastBraceArr = clean.lastIndexOf("]");
+  const lastBrace = Math.max(lastBraceObj, lastBraceArr);
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    const slice = clean.slice(firstBrace, lastBrace + 1);
+    try {
+      return JSON.parse(slice);
+    } catch {}
   }
+
+  console.warn("parseJSON: could not parse Gemini response as JSON:", text.slice(0, 300));
+  return null;
 };
 
 // ─── Internal helper — routes to the right call depending on what's passed ──
