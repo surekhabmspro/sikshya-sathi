@@ -55,8 +55,6 @@ export const fileToBase64 = (file) =>
     reader.readAsDataURL(file);
   });
 
-// NEW — same idea as fileToBase64 but for Blobs (used when we download a
-// material back from Supabase Storage to hand it to Gemini as inline_data).
 export const blobToBase64 = (blob) =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -65,53 +63,71 @@ export const blobToBase64 = (blob) =>
     reader.readAsDataURL(blob);
   });
 
-// ─── Core Gemini API calls ────────────────────────────────────────────────────
-export const generateText = async (prompt) => {
+// ─── Core Gemini API call (shared by every function below) ───────────────────
+// jsonMode=true turns on Gemini's native "response_mime_type: application/json"
+// feature — this makes Gemini itself guarantee valid, parseable JSON with no
+// markdown fences, no stray sentences, and no unescaped raw newlines inside
+// strings. Far more reliable than asking nicely in the prompt and hoping.
+async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096 } = {}) {
+  const generationConfig = { temperature: 0.7, maxOutputTokens };
+  if (jsonMode) generationConfig.response_mime_type = "application/json";
+
   let res;
   try {
     res = await fetch(GEMINI_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
-      }),
+      body: JSON.stringify({ contents: [{ parts }], generationConfig }),
     });
   } catch (e) {
     throw new Error("Gemini सर्भरसम्म पुग्न सकिएन (नेटवर्क समस्या): " + e.message);
   }
+
   let data;
   try {
     data = await res.json();
-  } catch (e) {
+  } catch {
     throw new Error(`Gemini बाट अनपेक्षित जवाफ (HTTP ${res.status}). API key जाँच गर्नुहोस्।`);
   }
+
   if (data.error) throw new Error(`Gemini API त्रुटि (${data.error.code || res.status}): ${data.error.message}`);
   if (data.promptFeedback?.blockReason) throw new Error("Gemini ले यो अनुरोध रोक्यो: " + data.promptFeedback.blockReason);
+
   const candidate = data.candidates?.[0];
   if (candidate?.finishReason && candidate.finishReason !== "STOP") {
-    throw new Error("Gemini ले पूरा जवाफ दिएन (कारण: " + candidate.finishReason + ")");
+    throw new Error("Gemini ले पूरा जवाफ दिएन (कारण: " + candidate.finishReason + ") — फेरि प्रयास गर्नुहोस्।");
   }
+
   return candidate?.content?.parts?.[0]?.text || "";
+}
+
+// ─── Plain-text generation (chat, worksheets, flashcards — human prose) ─────
+export const generateText = (prompt) => callGemini([{ text: prompt }]);
+
+export const generateWithPDF = (prompt, pdfBase64) =>
+  callGemini([{ inline_data: { mime_type: "application/pdf", data: pdfBase64 } }, { text: prompt }]);
+
+export const generateWithMaterials = (prompt, materialParts = [], textbookBase64 = null) => {
+  const parts = [...materialParts];
+  if (textbookBase64) parts.push({ inline_data: { mime_type: "application/pdf", data: textbookBase64 } });
+  parts.push({ text: prompt });
+  return callGemini(parts);
 };
 
-export const generateWithPDF = async (prompt, pdfBase64) => {
-  const res = await fetch(GEMINI_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{
-        parts: [
-          { inline_data: { mime_type: "application/pdf", data: pdfBase64 } },
-          { text: prompt },
-        ],
-      }],
-      generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
-    }),
-  });
-  const data = await res.json();
-  if (data.error) throw new Error(data.error.message);
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+// ─── JSON generation (lesson plans, questions, activities, rubrics) ─────────
+// Same shapes as above, but with jsonMode on — this is what actually fixes
+// the "AI ले डाटा बनाउन सकेन" failures, since Gemini can no longer wrap the
+// JSON in prose or leave it malformed.
+export const generateTextJSON = (prompt) => callGemini([{ text: prompt }], { jsonMode: true });
+
+export const generateWithPDFJSON = (prompt, pdfBase64) =>
+  callGemini([{ inline_data: { mime_type: "application/pdf", data: pdfBase64 } }, { text: prompt }], { jsonMode: true });
+
+export const generateWithMaterialsJSON = (prompt, materialParts = [], textbookBase64 = null) => {
+  const parts = [...materialParts];
+  if (textbookBase64) parts.push({ inline_data: { mime_type: "application/pdf", data: textbookBase64 } });
+  parts.push({ text: prompt });
+  return callGemini(parts, { jsonMode: true });
 };
 
 // NEW — turns Materials-library rows into Gemini `parts`. PDFs/images are
@@ -136,78 +152,49 @@ export const buildMaterialParts = async (materials, downloadFn) => {
   return parts;
 };
 
-// NEW — like generateWithPDF, but takes any number of material parts (PDFs,
-// images, extracted docx/pptx/xlsx text) plus the optional global textbook,
-// all in one request. This is what lets AI features actually use whatever a
-// teacher uploaded to Materials, tagged to the matching chapter.
-export const generateWithMaterials = async (prompt, materialParts = [], textbookBase64 = null) => {
-  const parts = [...materialParts];
-  if (textbookBase64) parts.push({ inline_data: { mime_type: "application/pdf", data: textbookBase64 } });
-  parts.push({ text: prompt });
-
-  const res = await fetch(GEMINI_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts }],
-      generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
-    }),
-  });
-  const data = await res.json();
-  if (data.error) throw new Error(data.error.message);
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-};
-
 export const parseJSON = (text) => {
   if (!text) return null;
-  // 1) Strip markdown code fences if present
   let clean = text.replace(/```json\n?/gi, "").replace(/```\n?/g, "").trim();
-
-  // 2) Try parsing as-is first (fast path — most responses are already clean)
   try {
     return JSON.parse(clean);
   } catch {}
-
-  // 3) Fallback: Gemini sometimes adds a sentence before/after the JSON
-  // ("Here's the lesson plan: {...}"). Pull out just the {...} or [...]
-  // portion and try again, rather than giving up entirely.
   const firstBrace = clean.search(/[[{]/);
-  const lastBraceObj = clean.lastIndexOf("}");
-  const lastBraceArr = clean.lastIndexOf("]");
-  const lastBrace = Math.max(lastBraceObj, lastBraceArr);
+  const lastBrace = Math.max(clean.lastIndexOf("}"), clean.lastIndexOf("]"));
   if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-    const slice = clean.slice(firstBrace, lastBrace + 1);
     try {
-      return JSON.parse(slice);
+      return JSON.parse(clean.slice(firstBrace, lastBrace + 1));
     } catch {}
   }
-
   console.warn("parseJSON: could not parse Gemini response as JSON:", text.slice(0, 300));
   return null;
 };
 
-// ─── Internal helper — routes to the right call depending on what's passed ──
-// `ctx` can be:
-//   - null/undefined              → plain text prompt
-//   - a string                    → old behavior, treated as pdfBase64
-//   - { pdfBase64, materialParts } → new behavior, richest context
+// ─── Internal routers — pick the right call based on what's passed ──────────
+// `ctx` can be: null/undefined (plain prompt), a string (legacy — treated as
+// pdfBase64), or { pdfBase64, materialParts } (chapter-tagged materials).
 async function runPrompt(prompt, ctx) {
   if (!ctx) return generateText(prompt);
-  if (typeof ctx === "string") return generateWithPDF(prompt, ctx); // legacy call style still works
+  if (typeof ctx === "string") return generateWithPDF(prompt, ctx);
   const { pdfBase64 = null, materialParts = [] } = ctx;
   if (materialParts.length) return generateWithMaterials(prompt, materialParts, pdfBase64);
   if (pdfBase64) return generateWithPDF(prompt, pdfBase64);
   return generateText(prompt);
 }
 
+async function runPromptJSON(prompt, ctx) {
+  if (!ctx) return generateTextJSON(prompt);
+  if (typeof ctx === "string") return generateWithPDFJSON(prompt, ctx);
+  const { pdfBase64 = null, materialParts = [] } = ctx;
+  if (materialParts.length) return generateWithMaterialsJSON(prompt, materialParts, pdfBase64);
+  if (pdfBase64) return generateWithPDFJSON(prompt, pdfBase64);
+  return generateTextJSON(prompt);
+}
+
 // ─── High-level generation helpers ───────────────────────────────────────────
-// Signatures are unchanged in spirit — 2nd/3rd arg can still be a plain
-// pdfBase64 string like before, OR the new { pdfBase64, materialParts }
-// object once you wire up chapter-tagged Materials in db.js/App.jsx.
 export const generateLessonPlan = async (chapterTitle, ctx = null) => {
   const prompt = `तपाईं नेपालको कक्षा ५ सामाजिक अध्ययनका लागि पाठ योजना बनाउँदै हुनुहुन्छ।
 अध्याय: "${chapterTitle}"
-JSON मात्र (कुनै अतिरिक्त टेक्स्ट नराख्नुस्):
+यो ठ्याक्कै यो JSON संरचनामा मात्र जवाफ दिनुहोस्:
 {
   "objectives": ["उद्देश्य १","उद्देश्य २","उद्देश्य ३"],
   "vocabulary": ["शब्द १","शब्द २","शब्द ३","शब्द ४","शब्द ५"],
@@ -218,31 +205,46 @@ JSON मात्र (कुनै अतिरिक्त टेक्स्�
   "notes": "शिक्षकका लागि टिप्पणी",
   "rubric": [{"level":"उत्कृष्ट","desc":"विवरण"},{"level":"राम्रो","desc":"विवरण"},{"level":"सहयोग आवश्यक","desc":"विवरण"}]
 }`;
-  const text = await runPrompt(prompt, ctx);
+  const text = await runPromptJSON(prompt, ctx);
   const result = parseJSON(text);
   if (!result) {
-    // NEW: surface exactly what Gemini sent back instead of a generic failure,
-    // so the real cause (empty response, refusal, quota error, etc.) is visible.
-    const preview = (text && text.trim()) ? text.trim().slice(0, 200) : "(खाली प्रतिक्रिया — Gemini बाट केही फर्केन)";
+    const preview = (text && text.trim()) ? text.trim().slice(0, 300) : "(खाली प्रतिक्रिया — Gemini बाट केही फर्केन)";
     throw new Error("Gemini ले सही ढाँचामा जवाफ दिएन। जवाफको सुरुवात: " + preview);
   }
   return result;
 };
 
 export const generateQuestions = async (chapterTitle, ctx = null) => {
-  const prompt = `नेपालको कक्षा ५ सामाजिक अध्ययन "${chapterTitle}" अध्यायका लागि १० विभिन्न प्रकारका प्रश्नहरू JSON मात्र:
+  const prompt = `नेपालको कक्षा ५ सामाजिक अध्ययन "${chapterTitle}" अध्यायका लागि १० विभिन्न प्रकारका प्रश्नहरू भएको JSON array मात्र:
 [{"text":"प्रश्न?","type":"छोटो उत्तर","difficulty":"सजिलो","bloom":"सम्झना","answer":"उत्तर"},
 {"text":"प्रश्न?","type":"बहुविकल्पीय","difficulty":"मध्यम","bloom":"बुझाई","options":["क) विकल्प","ख) विकल्प","ग) विकल्प","घ) विकल्प"],"correct_option":0,"answer":"उत्तर"}]`;
-  const text = await runPrompt(prompt, ctx);
-  return parseJSON(text) || [];
+  const text = await runPromptJSON(prompt, ctx);
+  const result = parseJSON(text);
+  if (!result) {
+    const preview = (text && text.trim()) ? text.trim().slice(0, 300) : "(खाली प्रतिक्रिया)";
+    throw new Error("Gemini ले सही ढाँचामा जवाफ दिएन। जवाफको सुरुवात: " + preview);
+  }
+  return result;
 };
 
 export const generateActivities = async (chapterTitle, ctx = null) => {
-  const prompt = `नेपाल कक्षा ५ "${chapterTitle}" का लागि ५ कक्षागत क्रियाकलाप JSON मात्र:
+  const prompt = `नेपाल कक्षा ५ "${chapterTitle}" का लागि ५ कक्षागत क्रियाकलाप भएको JSON array मात्र:
 [{"title":"नाम","type":"game","duration":"१५ मिनेट","competency":"क्षमता","description":"विवरण"}]
 प्रकार: game, roleplay, project, map, debate, presentation`;
-  const text = await runPrompt(prompt, ctx);
-  return parseJSON(text) || [];
+  const text = await runPromptJSON(prompt, ctx);
+  const result = parseJSON(text);
+  if (!result) {
+    const preview = (text && text.trim()) ? text.trim().slice(0, 300) : "(खाली प्रतिक्रिया)";
+    throw new Error("Gemini ले सही ढाँचामा जवाफ दिएन। जवाफको सुरुवात: " + preview);
+  }
+  return result;
+};
+
+// NEW — used by AssessmentBuilder for the rubric JSON. Same JSON-mode
+// reliability as the functions above.
+export const generateRubric = async (prompt, ctx = null) => {
+  const text = await runPromptJSON(prompt, ctx);
+  return parseJSON(text);
 };
 
 export const chatWithAI = async (userMessage, lessonContext, ctx = null) => {

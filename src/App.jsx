@@ -895,9 +895,8 @@ function AssessmentBuilder() {
     try{
       const ctx=await getMaterialContext(chapter);
       setMatchedCount(ctx.matchedCount||0);
-      const prompt=`नेपाल कक्षा ५ "${chapter}" का लागि ${form.type} मूल्याङ्कन मापदण्ड JSON मात्र: [{"level":"उत्कृष्ट","desc":"..."},{"level":"राम्रो","desc":"..."},{"level":"सहयोग आवश्यक","desc":"..."}]`;
-      const text=(ctx.materialParts.length||ctx.pdfBase64)?await gemini.generateWithMaterials(prompt,ctx.materialParts,ctx.pdfBase64):await gemini.generateText(prompt);
-      const rubric=gemini.parseJSON(text);
+      const prompt=`नेपाल कक्षा ५ "${chapter}" का लागि ${form.type} मूल्याङ्कन मापदण्ड भएको JSON array मात्र: [{"level":"उत्कृष्ट","desc":"..."},{"level":"राम्रो","desc":"..."},{"level":"सहयोग आवश्यक","desc":"..."}]`;
+      const rubric=await gemini.generateRubric(prompt,ctx);
       if(rubric)setForm((prev)=>({...prev,rubric_text:rubric.map((r)=>`${r.level}: ${r.desc}`).join("\n")}));
       else setError("मूल्याङ्कन बनाउन सकिएन।");
     }catch(e){setError("AI त्रुटि: "+e.message);}
