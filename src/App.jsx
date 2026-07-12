@@ -333,25 +333,25 @@ function LessonMode({ lesson, onClose }) {
   const rubric=lesson.rubric||[];
   return(
     <div style={{position:"fixed",inset:0,background:PAPER,zIndex:50,display:"flex",flexDirection:"column"}}>
-      <div style={{background:ACCENT,color:"#fff",padding:"14px 16px",display:"flex",alignItems:"center",gap:10}}>
+      <div className="no-print" style={{background:ACCENT,color:"#fff",padding:"14px 16px",display:"flex",alignItems:"center",gap:10}}>
         <button onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:10,display:"flex",cursor:"pointer"}}><ChevronLeft size={20}/></button>
         <div style={{flex:1,minWidth:0}}>
           <div style={{fontSize:14,opacity:0.75}}>{lesson.chapters?.title||lesson.chapter_title||""}</div>
           <div style={{fontSize:18.5,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{lesson.title}</div>
         </div>
-        <Sparkles size={18} style={{opacity:0.8,flexShrink:0}}/>
+        <button onClick={()=>window.print()} title="प्रिन्ट गर्नुहोस्" style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:10,display:"flex",cursor:"pointer",flexShrink:0}}><Printer size={19}/></button>
       </div>
       {(objectives.length>0||vocabulary.length>0)&&(
-        <div style={{padding:"12px 16px 8px",background:SURFACE,borderBottom:`1px solid ${BORDER}`}}>
+        <div className="no-print" style={{padding:"12px 16px 8px",background:SURFACE,borderBottom:`1px solid ${BORDER}`}}>
           <div style={{fontSize:15,color:INK_SOFT,marginBottom:5,fontWeight:600}}>आजको उद्देश्य</div>
           <ul style={{margin:0,paddingLeft:16,fontSize:16.5,color:INK,lineHeight:1.6}}>{objectives.map((o,i)=><li key={i}>{o}</li>)}</ul>
           <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>{vocabulary.map((v)=><span key={v} style={{background:WARN_BG,color:MARIGOLD_DARK,fontSize:15,fontWeight:600,padding:"3px 8px",borderRadius:6}}>{v}</span>)}</div>
         </div>
       )}
-      <div style={{display:"flex",overflowX:"auto",background:SURFACE,borderBottom:`1px solid ${BORDER}`}}>
+      <div className="no-print" style={{display:"flex",overflowX:"auto",background:SURFACE,borderBottom:`1px solid ${BORDER}`}}>
         {tabs.map((t)=>{const Icon=t.icon;const active=tab===t.id;return<button key={t.id} onClick={()=>setTab(t.id)} style={{display:"flex",alignItems:"center",gap:5,padding:"11px 12px",border:"none",background:"none",borderBottom:active?`3px solid ${ACCENT}`:"3px solid transparent",color:active?ACCENT:INK_SOFT,fontWeight:600,fontSize:16,cursor:"pointer",whiteSpace:"nowrap"}}><Icon size={15}/>{t.label}</button>;})}
       </div>
-      <div style={{flex:1,overflowY:"auto",padding:16,maxWidth:720,margin:"0 auto",width:"100%"}}>
+      <div className="no-print" style={{flex:1,overflowY:"auto",padding:16,maxWidth:720,margin:"0 auto",width:"100%"}}>
         {tab==="sequence"&&(<div><SectionLabel>पढाउने क्रम</SectionLabel>{sequence.length===0?<div style={{color:INK_SOFT}}>पढाउने क्रम थपिएको छैन।</div>:(<ol style={{margin:0,paddingLeft:0,listStyle:"none"}}>{sequence.map((s,i)=>(<li key={i} style={{display:"flex",gap:12,padding:"12px 0",borderBottom:i<sequence.length-1?`1px solid ${BORDER}`:"none"}}><div style={{width:26,height:26,borderRadius:"50%",background:ACCENT_LIGHT,color:ACCENT,fontWeight:700,fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div><div style={{fontSize:17,color:INK,lineHeight:1.5,paddingTop:2}}>{s}</div></li>))}</ol>)}{lesson.notes&&<div style={{marginTop:14,background:WARN_BG,borderRadius:10,padding:12}}><div style={{fontSize:15,fontWeight:700,color:WARN,marginBottom:3}}>नोट</div><div style={{fontSize:16.5,color:"#5E4622"}}>{lesson.notes}</div></div>}</div>)}
         {tab==="questions"&&<div><SectionLabel>कक्षामा सोध्नुहोस्</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:8}}>{keyQuestions.length===0?<div style={{color:INK_SOFT}}>प्रश्नहरू थपिएका छैनन्।</div>:keyQuestions.map((q,i)=><Card key={i}><div style={{fontSize:17,color:INK}}>{q}</div></Card>)}</div></div>}
         {tab==="activities"&&<div><SectionLabel>क्रियाकलापहरू</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:8}}>{activities.length===0?<div style={{color:INK_SOFT}}>क्रियाकलापहरू थपिएका छैनन्।</div>:activities.map((a,i)=><Card key={i}><div style={{fontSize:17,color:INK}}>{a}</div></Card>)}</div></div>}
@@ -1578,7 +1578,7 @@ function Settings({ session, sections, onSectionAdded, theme, onToggleTheme }) {
         <SectionLabel>खाता</SectionLabel>
         <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
           <div style={{width:46,height:46,borderRadius:"50%",background:ACCENT,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18.5,fontWeight:700,flexShrink:0}}>{session?.user?.email?.[0]?.toUpperCase()||"श"}</div>
-          <div><div style={{fontWeight:700,color:INK,fontSize:16.5}}>{session?.user?.email||""}</div><div style={{fontSize:15,color:INK_SOFT}}>कक्षा ५ · सामाजिक अध्ययन</div></div>
+          <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,color:INK,fontSize:16.5,overflowWrap:"break-word",wordBreak:"break-word"}}>{session?.user?.email||""}</div><div style={{fontSize:15,color:INK_SOFT}}>कक्षा ५ · सामाजिक अध्ययन</div></div>
         </div>
         <button onClick={()=>db.signOut()} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"10px",borderRadius:10,border:`1px solid ${DANGER_BG}`,background:DANGER_BG,color:DANGER,fontWeight:700,fontSize:16.5,cursor:"pointer"}}><LogOut size={15}/>लगआउट</button>
       </Card>
@@ -1625,6 +1625,7 @@ export default function App() {
   });
   useEffect(()=>{ try{ localStorage.setItem("ss-theme", theme); }catch{} },[theme]);
   const toggleTheme=()=>setTheme((t)=>t==="light"?"dark":"light");
+  useEffect(()=>{ document.documentElement.setAttribute("data-theme", theme); },[theme]);
 
   useEffect(()=>{
     supabase.auth.getSession().then(({data:{session:s}})=>{setSession(s);setAuthLoading(false);});
@@ -1683,7 +1684,7 @@ export default function App() {
     {id:"settings",label:"सेटिङ",icon:SettingsIcon},
   ];
 
-  if(authLoading)return<div style={{minHeight:"100vh",background:PAPER,display:"flex",alignItems:"center",justifyContent:"center"}}><Spinner/></div>;
+  if(authLoading)return<div style={{minHeight:"100vh",background:"var(--bg,#F7F4EC)",display:"flex",alignItems:"center",justifyContent:"center"}}><Spinner/></div>;
   if(!session)return<LoginScreen onLogin={setSession}/>;
 
   return(
@@ -1747,8 +1748,19 @@ export default function App() {
         .ss-chip:active{transform:translateY(0) scale(0.96);}
 
         ::-webkit-scrollbar{height:8px;width:8px;}
-        ::-webkit-scrollbar-thumb{background:#D8CFB8;border-radius:99px;}
         ::-webkit-scrollbar-track{background:transparent;}
+
+        /* NEW — printing. Anything with class "no-print" (header, nav,
+           buttons) disappears on paper; "ss-print-area" content expands to
+           fill the page cleanly, in plain black-on-white regardless of
+           dark mode. */
+        @media print{
+          .no-print{display:none !important;}
+          .main-content{margin-left:0 !important;padding-bottom:0 !important;}
+          body,[data-theme]{background:#fff !important;color:#000 !important;}
+          .ss-print-area{box-shadow:none !important;border:none !important;}
+        }
+        ::-webkit-scrollbar-thumb{background:#D8CFB8;border-radius:99px;}
 
         .desktop-sidebar{display:none;}
         .mobile-bottom-nav{display:flex;}
@@ -1760,24 +1772,28 @@ export default function App() {
         }
       `}</style>
 
-      <div style={{background:`linear-gradient(180deg, ${SURFACE} 0%, ${SURFACE_2} 100%)`,borderBottom:`1px solid ${BORDER}`,padding:"14px 18px",display:"flex",alignItems:"center",gap:12,position:"sticky",top:0,zIndex:10,boxShadow:SHADOW.sm}}>
-        <div style={{width:38,height:38,borderRadius:11,background:`linear-gradient(135deg, ${TEAL} 0%, ${ACCENT} 55%, ${ACCENT_DARK} 100%)`,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:18,boxShadow:SHADOW.accent}}>सि</div>
-        <div><div style={{fontWeight:800,fontSize:18,letterSpacing:"-0.01em"}}>शिक्षा साथी</div><div style={{fontSize:15,color:INK_SOFT,fontWeight:500}}>कक्षा ५ · सामाजिक अध्ययन</div></div>
-        <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10}}>
-          <div style={{display:"flex",alignItems:"center",gap:4,fontSize:14.5,color:synced?ACCENT:INK_SOFT,fontWeight:700,transition:"color .3s"}}>
-            <RefreshCw size={12} style={{animation:lessonsLoading?"spin 1s linear infinite":"none"}}/>
-            {lessonsLoading?"सिंक...":synced?"सिंक भयो ✓":"सिंक भएको"}
+      <div className="no-print" style={{background:`linear-gradient(180deg, ${SURFACE} 0%, ${SURFACE_2} 100%)`,borderBottom:`1px solid ${BORDER}`,padding:"14px 18px",display:"flex",alignItems:"center",gap:12,position:"sticky",top:0,zIndex:10,boxShadow:SHADOW.sm}}>
+        <div style={{width:38,height:38,borderRadius:11,background:`linear-gradient(135deg, ${TEAL} 0%, ${ACCENT} 55%, ${ACCENT_DARK} 100%)`,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:18,boxShadow:SHADOW.accent,flexShrink:0}}>सि</div>
+        <div style={{minWidth:0,overflow:"hidden"}}><div style={{fontWeight:800,fontSize:18,letterSpacing:"-0.01em",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>शिक्षा साथी</div><div style={{fontSize:15,color:INK_SOFT,fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>कक्षा ५ · सामाजिक अध्ययन</div></div>
+        <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+          <div title={lessonsLoading?"सिंक हुँदैछ...":synced?"सिंक भयो":"सिंक भएको"} style={{display:"flex",alignItems:"center",gap:4,fontSize:14.5,color:synced?ACCENT:INK_SOFT,fontWeight:700,transition:"color .3s",whiteSpace:"nowrap"}}>
+            <RefreshCw size={14} style={{animation:lessonsLoading?"spin 1s linear infinite":"none",flexShrink:0}}/>
+            <span className="ss-sync-label">{lessonsLoading?"सिंक...":synced?"सिंक भयो ✓":"सिंक भएको"}</span>
           </div>
-          <button onClick={toggleTheme} title={theme==="light"?"गाढा मोडमा जानुहोस्":"उज्यालो मोडमा जानुहोस्"} style={{background:BORDER,border:"none",borderRadius:9,width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:INK}}>
+          <button onClick={toggleTheme} title={theme==="light"?"गाढा मोडमा जानुहोस्":"उज्यालो मोडमा जानुहोस्"} style={{background:BORDER,border:"none",borderRadius:9,width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:INK,flexShrink:0}}>
             {theme==="light"?<Moon size={16}/>:<Sun size={16}/>}
           </button>
-          <button onClick={()=>setScreen("settings")} style={{background:"none",border:"none",cursor:"pointer",color:screen==="settings"?ACCENT:INK_SOFT}}><SettingsIcon size={18}/></button>
+          <button onClick={()=>setScreen("settings")} style={{background:"none",border:"none",cursor:"pointer",color:screen==="settings"?ACCENT:INK_SOFT,flexShrink:0}}><SettingsIcon size={19}/></button>
         </div>
       </div>
 
-      <SectionSelector sections={sections} current={currentSection} onChange={setCurrentSection} onAdd={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}}/>
+      <style>{`@media (max-width:420px){.ss-sync-label{display:none;}}`}</style>
+      
+      </div>
 
-      <div className="desktop-sidebar" style={{position:"fixed",top:0,left:0,bottom:0,width:232,background:SURFACE,borderRight:`1px solid ${BORDER}`,flexDirection:"column",paddingTop:118,paddingLeft:10,paddingRight:10,zIndex:5,overflowY:"auto",gap:3}}>
+      <div className="no-print"><SectionSelector sections={sections} current={currentSection} onChange={setCurrentSection} onAdd={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}}/></div>
+
+      <div className="desktop-sidebar no-print" style={{position:"fixed",top:0,left:0,bottom:0,width:232,background:SURFACE,borderRight:`1px solid ${BORDER}`,flexDirection:"column",paddingTop:118,paddingLeft:10,paddingRight:10,zIndex:5,overflowY:"auto",gap:3}}>
         {[...nav,...navMore].map((n)=>{const Icon=n.icon;const active=screen===n.id;return(
           <button key={n.id} onClick={()=>setScreen(n.id)} className="ss-btn" style={{display:"flex",alignItems:"center",gap:11,padding:"11px 14px",border:"none",background:active?`linear-gradient(135deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`:"transparent",color:active?"#fff":INK_SOFT,fontWeight:active?700:600,fontSize:16.5,cursor:"pointer",textAlign:"left",width:"100%",borderRadius:12,boxShadow:active?SHADOW.accent:"none"}}>
             <Icon size={18}/>{n.label}
@@ -1798,7 +1814,7 @@ export default function App() {
         {screen==="settings"&&<Settings session={session} sections={sections} onSectionAdded={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}} theme={theme} onToggleTheme={toggleTheme}/>}
       </div>
 
-      <div className="mobile-bottom-nav" style={{position:"fixed",bottom:0,left:0,right:0,background:SURFACE,borderTop:`1px solid ${BORDER}`,justifyContent:"space-around",padding:"8px 4px",zIndex:10,boxShadow:"0 -4px 16px rgba(33,30,26,0.06)"}}>
+      <div className="mobile-bottom-nav no-print" style={{position:"fixed",bottom:0,left:0,right:0,background:SURFACE,borderTop:`1px solid ${BORDER}`,justifyContent:"space-around",padding:"8px 4px",zIndex:10,boxShadow:"0 -4px 16px rgba(33,30,26,0.06)"}}>
         {nav.map((n)=>{const Icon=n.icon;const active=screen===n.id;return<button key={n.id} onClick={()=>setScreen(n.id)} style={{background:"none",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:3,color:active?ACCENT:INK_SOFT,fontSize:13.5,fontWeight:700,cursor:"pointer",padding:"4px 6px",flex:1,transition:"color .15s"}}><Icon size={20}/>{n.label}</button>;})}
         <button onClick={()=>setShowMore(true)} style={{background:"none",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:3,color:navMore.some((n)=>n.id===screen)?ACCENT:INK_SOFT,fontSize:13.5,fontWeight:700,cursor:"pointer",padding:"4px 6px",flex:1}}><Layers size={20}/>थप</button>
       </div>
