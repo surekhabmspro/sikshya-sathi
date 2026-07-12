@@ -1627,6 +1627,23 @@ export default function App() {
   const toggleTheme=()=>setTheme((t)=>t==="light"?"dark":"light");
   useEffect(()=>{ document.documentElement.setAttribute("data-theme", theme); },[theme]);
 
+  // NEW — inject the theme's CSS variables directly, once, on first mount.
+  // This runs before the login screen or spinner ever renders (hooks always
+  // run before the early `return`s below), so colors exist immediately no
+  // matter what — it doesn't depend on index.html having been updated too.
+  useEffect(()=>{
+    if(document.getElementById("ss-theme-vars"))return;
+    const style=document.createElement("style");
+    style.id="ss-theme-vars";
+    style.textContent=`
+      [data-theme="light"]{--bg:#F7F4EC;--surface:#FFFFFF;--surface-2:#FDFBF6;--ink:#211E1A;--ink-soft:#6B6557;--border:#E7E1D3;--accent:#1F4D3D;--accent-dark:#153728;--accent-light:#E8F3EC;--marigold:#D98E2B;--marigold-dark:#B9741A;--teal:#0E8A87;--teal-light:#E1F5F3;--violet:#7A4FC2;--violet-light:#F0E9FA;--blue:#2E6FBE;--blue-light:#E8F1FC;--rose:#C4436B;--rose-light:#FBE9EF;--danger:#B3402C;--danger-bg:#FBEAE6;--warn:#9A5B12;--warn-bg:#FCF0DA;--shadow-rgb:33,30,26;}
+      [data-theme="dark"]{--bg:#14181A;--surface:#1E2528;--surface-2:#242C2F;--ink:#EDEAE3;--ink-soft:#A39C90;--border:#333C3F;--accent:#3FAE8F;--accent-dark:#276954;--accent-light:#1C3833;--marigold:#E8A44A;--marigold-dark:#C98A34;--teal:#3FC2BD;--teal-light:#173B39;--violet:#A886E8;--violet-light:#2B2242;--blue:#6FA3E8;--blue-light:#1E2E42;--rose:#E58AA8;--rose-light:#3A2028;--danger:#E5715A;--danger-bg:#3A2320;--warn:#E0A94E;--warn-bg:#3A2E18;--shadow-rgb:0,0,0;}
+      html,body{background:var(--bg);}
+    `;
+    document.head.appendChild(style);
+    document.documentElement.setAttribute("data-theme", theme);
+  },[]);
+
   useEffect(()=>{
     supabase.auth.getSession().then(({data:{session:s}})=>{setSession(s);setAuthLoading(false);});
     const{data:{subscription}}=supabase.auth.onAuthStateChange((_e,s)=>setSession(s));
