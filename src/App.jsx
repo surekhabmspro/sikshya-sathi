@@ -19,6 +19,14 @@ const ACCENT_DARK = "#153728";
 const ACCENT_LIGHT = "#E8F3EC";
 const MARIGOLD = "#D98E2B";
 const MARIGOLD_DARK = "#B9741A";
+const TEAL = "#0E8A87";
+const TEAL_LIGHT = "#E1F5F3";
+const VIOLET = "#7A4FC2";
+const VIOLET_LIGHT = "#F0E9FA";
+const BLUE = "#2E6FBE";
+const BLUE_LIGHT = "#E8F1FC";
+const ROSE = "#C4436B";
+const ROSE_LIGHT = "#FBE9EF";
 const PAPER = "#F7F4EC";
 const SURFACE = "#FFFFFF";
 const INK = "#211E1A";
@@ -52,11 +60,11 @@ const FILE_TYPE_META = {
 // plan and a Q&A solution might both be .docx — this is what actually
 // separates them in the Materials library).
 const CATEGORY_META = {
-  lesson_plan: { label: "पाठ योजना",        icon: ClipboardList, color: "#1F4D3D" },
-  presentation:{ label: "प्रस्तुति",         icon: Presentation,  color: "#D98E2B" },
-  qa_solution: { label: "प्रश्नोत्तर समाधान", icon: HelpCircle,    color: "#6B3FA0" },
-  exercise:    { label: "अभ्यास",            icon: PenSquare,     color: "#1B7A4A" },
-  other:       { label: "अन्य",              icon: FileText,      color: "#8A8275" },
+  lesson_plan: { label: "पाठ योजना",        icon: ClipboardList, color: ACCENT },
+  presentation:{ label: "प्रस्तुति",         icon: Presentation,  color: MARIGOLD_DARK },
+  qa_solution: { label: "प्रश्नोत्तर समाधान", icon: HelpCircle,    color: VIOLET },
+  exercise:    { label: "अभ्यास",            icon: PenSquare,     color: TEAL },
+  other:       { label: "अन्य",              icon: FileText,      color: INK_SOFT },
 };
 const CATEGORY_ORDER = ["lesson_plan","presentation","qa_solution","exercise","other"];
 
@@ -253,7 +261,7 @@ function LoginScreen({ onLogin }) {
     <div style={{minHeight:"100vh",background:`radial-gradient(circle at 20% 15%, ${ACCENT_LIGHT} 0%, ${PAPER} 45%)`,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
       <div style={{width:"100%",maxWidth:400}}>
         <div style={{textAlign:"center",marginBottom:36}}>
-          <div style={{width:72,height:72,borderRadius:22,background:`linear-gradient(135deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,fontWeight:800,margin:"0 auto 18px",boxShadow:SHADOW.accent}}>सि</div>
+          <div style={{width:72,height:72,borderRadius:22,background:`linear-gradient(135deg, ${TEAL} 0%, ${ACCENT} 55%, ${ACCENT_DARK} 100%)`,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,fontWeight:800,margin:"0 auto 18px",boxShadow:SHADOW.accent}}>सि</div>
           <div style={{fontSize:29,fontWeight:800,color:INK,letterSpacing:"-0.02em"}}>शिक्षा साथी</div>
           <div style={{fontSize:15.5,color:INK_SOFT,marginTop:5,fontWeight:500}}>कक्षा ५ · सामाजिक अध्ययन</div>
         </div>
@@ -375,7 +383,7 @@ function Dashboard({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, sec
       <GetStartedCard chapters={chapters||[]} materialsCount={materialsCount} lessons={lessons} onGoMaterials={onGoMaterials} onGoPlanner={onGoPlanner}/>
 
       {today?(
-        <div style={{background:`linear-gradient(135deg,${ACCENT} 0%, ${ACCENT_DARK} 100%)`,borderRadius:20,padding:26,color:"#fff",marginBottom:22,boxShadow:SHADOW.accent,position:"relative",overflow:"hidden"}}>
+        <div style={{background:`linear-gradient(135deg,${TEAL} 0%, ${ACCENT} 60%, ${ACCENT_DARK} 100%)`,borderRadius:20,padding:26,color:"#fff",marginBottom:22,boxShadow:SHADOW.accent,position:"relative",overflow:"hidden"}}>
           <div style={{position:"absolute",top:-40,right:-40,width:160,height:160,borderRadius:"50%",background:"rgba(255,255,255,0.06)"}}/>
           <div style={{fontSize:14,opacity:0.8,fontWeight:600,letterSpacing:"0.03em",textTransform:"uppercase"}}>{today.chapters?.title||today.chapter_title||""}</div>
           <div style={{fontSize:25,fontWeight:800,margin:"6px 0 4px",letterSpacing:"-0.01em"}}>{today.title}</div>
@@ -390,10 +398,10 @@ function Dashboard({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, sec
 
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:12,marginBottom:22}}>
         <StatCard icon={BookOpen} value={chapters?.length||0} label="अध्यायहरू" color={ACCENT} accent onClick={onGoMaterials}/>
-        <StatCard icon={FileText} value={materialsCount} label="सामग्री फाइल" color="#A23C2A" accent onClick={onGoMaterials}/>
+        <StatCard icon={FileText} value={materialsCount} label="सामग्री फाइल" color={ROSE} accent onClick={onGoMaterials}/>
         <StatCard icon={ClipboardList} value={lessons.length} label="कुल पाठ" color={MARIGOLD} accent onClick={onGoPlanner}/>
-        <StatCard icon={CheckCircle2} value={readyCount} label="तयार पाठ" color="#1B7A4A" accent onClick={onGoPlanner}/>
-        <StatCard icon={ListChecks} value={homework.length} label="गृहकार्य" color="#6B3FA0" accent onClick={onGoHomework}/>
+        <StatCard icon={CheckCircle2} value={readyCount} label="तयार पाठ" color={TEAL} accent onClick={onGoPlanner}/>
+        <StatCard icon={ListChecks} value={homework.length} label="गृहकार्य" color={VIOLET} accent onClick={onGoHomework}/>
       </div>
 
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:16}}>
@@ -1292,16 +1300,16 @@ function ActivitiesLibrary({ chapters, onAddChapter }) {
 function AITools({ lessons, chapters, onAddChapter }) {
   const [tab,setTab]=useState("questions");
   const TABS=[
-    {id:"questions",label:"प्रश्न बैंक",icon:HelpCircle},
-    {id:"activities",label:"क्रियाकलाप",icon:Gamepad2},
-    {id:"assessment",label:"मूल्याङ्कन",icon:NotebookPen},
-    {id:"resources",label:"स्रोत",icon:Wand2},
+    {id:"questions",label:"प्रश्न बैंक",icon:HelpCircle,color:VIOLET,bg:VIOLET_LIGHT},
+    {id:"activities",label:"क्रियाकलाप",icon:Gamepad2,color:TEAL,bg:TEAL_LIGHT},
+    {id:"assessment",label:"मूल्याङ्कन",icon:NotebookPen,color:BLUE,bg:BLUE_LIGHT},
+    {id:"resources",label:"स्रोत",icon:Wand2,color:MARIGOLD_DARK,bg:"#FCF0DA"},
   ];
   return(
     <div>
-      <div style={{display:"flex",overflowX:"auto",background:"#fff",borderBottom:"1px solid #ECE6D8",position:"sticky",top:0,zIndex:8}}>
+      <div style={{display:"flex",overflowX:"auto",background:SURFACE,borderBottom:`1px solid ${BORDER}`,position:"sticky",top:0,zIndex:8}}>
         {TABS.map((t)=>{const Icon=t.icon;const active=tab===t.id;return(
-          <button key={t.id} onClick={()=>setTab(t.id)} style={{display:"flex",alignItems:"center",gap:6,padding:"12px 16px",border:"none",background:"none",borderBottom:active?`3px solid ${ACCENT}`:"3px solid transparent",color:active?ACCENT:"#8A8275",fontWeight:600,fontSize:14.5,cursor:"pointer",whiteSpace:"nowrap"}}><Icon size={15}/>{t.label}</button>
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{display:"flex",alignItems:"center",gap:7,padding:"13px 18px",border:"none",background:active?t.bg:"none",borderBottom:active?`3px solid ${t.color}`:"3px solid transparent",color:active?t.color:INK_SOFT,fontWeight:700,fontSize:14.5,cursor:"pointer",whiteSpace:"nowrap",transition:"background .15s"}}><Icon size={16}/>{t.label}</button>
         );})}
       </div>
       {tab==="questions"&&<QuestionBank chapters={chapters} onAddChapter={onAddChapter}/>}
@@ -1670,7 +1678,7 @@ export default function App() {
       `}</style>
 
       <div style={{background:`linear-gradient(180deg, ${SURFACE} 0%, #FDFBF6 100%)`,borderBottom:`1px solid ${BORDER}`,padding:"14px 18px",display:"flex",alignItems:"center",gap:12,position:"sticky",top:0,zIndex:10,boxShadow:SHADOW.sm}}>
-        <div style={{width:38,height:38,borderRadius:11,background:`linear-gradient(135deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:17,boxShadow:SHADOW.accent}}>सि</div>
+        <div style={{width:38,height:38,borderRadius:11,background:`linear-gradient(135deg, ${TEAL} 0%, ${ACCENT} 55%, ${ACCENT_DARK} 100%)`,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:17,boxShadow:SHADOW.accent}}>सि</div>
         <div><div style={{fontWeight:800,fontSize:17,letterSpacing:"-0.01em"}}>शिक्षा साथी</div><div style={{fontSize:13.5,color:INK_SOFT,fontWeight:500}}>कक्षा ५ · सामाजिक अध्ययन</div></div>
         <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10}}>
           <div style={{display:"flex",alignItems:"center",gap:4,fontSize:13,color:synced?ACCENT:"#A39B8B",fontWeight:700,transition:"color .3s"}}>
@@ -1683,7 +1691,7 @@ export default function App() {
 
       <SectionSelector sections={sections} current={currentSection} onChange={setCurrentSection} onAdd={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}}/>
 
-      <div className="desktop-sidebar" style={{position:"fixed",top:0,left:0,bottom:0,width:232,background:SURFACE,borderRight:`1px solid ${BORDER}`,flexDirection:"column",paddingTop:118,paddingLeft:10,paddingRight:10,zIndex:5,overflowY:"auto",gap:3,display:"flex"}}>
+      <div className="desktop-sidebar" style={{position:"fixed",top:0,left:0,bottom:0,width:232,background:SURFACE,borderRight:`1px solid ${BORDER}`,flexDirection:"column",paddingTop:118,paddingLeft:10,paddingRight:10,zIndex:5,overflowY:"auto",gap:3}}>
         {[...nav,...navMore].map((n)=>{const Icon=n.icon;const active=screen===n.id;return(
           <button key={n.id} onClick={()=>setScreen(n.id)} className="ss-btn" style={{display:"flex",alignItems:"center",gap:11,padding:"11px 14px",border:"none",background:active?`linear-gradient(135deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`:"transparent",color:active?"#fff":INK_SOFT,fontWeight:active?700:600,fontSize:15,cursor:"pointer",textAlign:"left",width:"100%",borderRadius:12,boxShadow:active?SHADOW.accent:"none"}}>
             <Icon size={18}/>{n.label}
