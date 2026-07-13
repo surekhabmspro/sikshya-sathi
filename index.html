@@ -1,12 +1,61 @@
 <!doctype html>
-<html lang="ne">
+<html lang="ne" data-theme="light">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>शिक्षा साथी</title>
-    <meta name="description" content="कक्षा ५ सामाजिक अध्ययन शिक्षकका लागि व्यक्तिगत शिक्षण सहायक" />
-    <meta name="theme-color" content="#1F4D3D" />
+
+    <!-- PWA -->
     <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#1F4D3D" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="शिक्षा साथी" />
+
+    <!-- NEW — dark/light theme colors, defined here (not just inside App.jsx)
+         so they exist from the very first paint: the login screen and the
+         loading spinner render before React finishes mounting the themed
+         wrapper, and would otherwise have no colors to use at all. -->
+    <style>
+      [data-theme="light"]{
+        --bg:#F7F4EC; --surface:#FFFFFF; --surface-2:#FDFBF6;
+        --ink:#211E1A; --ink-soft:#6B6557; --border:#E7E1D3;
+        --accent:#1F4D3D; --accent-dark:#153728; --accent-light:#E8F3EC;
+        --marigold:#D98E2B; --marigold-dark:#B9741A;
+        --teal:#0E8A87; --teal-light:#E1F5F3;
+        --violet:#7A4FC2; --violet-light:#F0E9FA;
+        --blue:#2E6FBE; --blue-light:#E8F1FC;
+        --rose:#C4436B; --rose-light:#FBE9EF;
+        --danger:#B3402C; --danger-bg:#FBEAE6;
+        --warn:#9A5B12; --warn-bg:#FCF0DA;
+        --shadow-rgb:33,30,26;
+      }
+      [data-theme="dark"]{
+        --bg:#14181A; --surface:#1E2528; --surface-2:#242C2F;
+        --ink:#EDEAE3; --ink-soft:#A39C90; --border:#333C3F;
+        --accent:#3FAE8F; --accent-dark:#276954; --accent-light:#1C3833;
+        --marigold:#E8A44A; --marigold-dark:#C98A34;
+        --teal:#3FC2BD; --teal-light:#173B39;
+        --violet:#A886E8; --violet-light:#2B2242;
+        --blue:#6FA3E8; --blue-light:#1E2E42;
+        --rose:#E58AA8; --rose-light:#3A2028;
+        --danger:#E5715A; --danger-bg:#3A2320;
+        --warn:#E0A94E; --warn-bg:#3A2E18;
+        --shadow-rgb:0,0,0;
+      }
+      html, body { background: var(--bg); color: var(--ink); }
+    </style>
+    <script>
+      // Apply the saved theme choice immediately, before React loads, so
+      // there's no flash of the wrong theme on page refresh.
+      try {
+        var saved = localStorage.getItem("ss-theme");
+        if (saved === "dark" || saved === "light") {
+          document.documentElement.setAttribute("data-theme", saved);
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>
