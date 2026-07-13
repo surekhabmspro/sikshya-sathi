@@ -1,0 +1,7 @@
+/* Minimal reset only — शिक्षा साथी manages all its own colors and theming
+   directly inside App.jsx (including dark/light mode), so this file
+   intentionally does NOT set any background/color/color-scheme here.
+   If your project's main.jsx doesn't import this file, that's fine —
+   it's safe to leave unused. */
+* { box-sizing: border-box; }
+body { margin: 0; -webkit-font-smoothing: antialiased; }
