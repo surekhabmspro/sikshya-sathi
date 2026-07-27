@@ -168,6 +168,25 @@ function EmptyState({ icon:Icon=FileText, text }) {
     </div>
   );
 }
+// NEW — one shared screen-title treatment (icon badge + title + optional
+// subtitle + right-aligned action) used across every screen. Before this,
+// each screen hand-rolled its own title size/weight/icon usage, so the app
+// felt inconsistent moving between sections — this is what makes it read as
+// one cohesively-designed product instead of many separate pages.
+function PageHeader({ icon:Icon, title, subtitle, action }) {
+  return (
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:18,flexWrap:"wrap"}}>
+      <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
+        {Icon&&<div style={{width:42,height:42,borderRadius:13,background:`linear-gradient(135deg, ${TEAL}26, ${ACCENT}16)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={19} color={ACCENT}/></div>}
+        <div style={{minWidth:0}}>
+          <div style={{fontSize:21.5,fontWeight:800,color:INK,letterSpacing:"-0.015em",lineHeight:1.2}}>{title}</div>
+          {subtitle&&<div style={{fontSize:14.5,color:INK_SOFT,fontWeight:600,marginTop:1}}>{subtitle}</div>}
+        </div>
+      </div>
+      {action&&<div style={{flexShrink:0}}>{action}</div>}
+    </div>
+  );
+}
 function AIButton({ label, onClick, loading }) {
   return <Button variant="ghost" size="sm" onClick={onClick} disabled={loading} icon={loading?undefined:Zap}>{loading?<><Spinner small/> {label}</>:label}</Button>;
 }
