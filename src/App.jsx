@@ -44,38 +44,26 @@ const DANGER = "var(--danger)";
 const DANGER_BG = "var(--danger-bg)";
 const WARN = "var(--warn)";
 const WARN_BG = "var(--warn-bg)";
-const SUCCESS = "var(--success)";
-const SUCCESS_BG = "var(--success-bg)";
 
 // Elevation scale — used for the "premium, elevated" card/button look.
 const SHADOW = {
-  sm: "0 1px 3px rgba(var(--shadow-rgb),0.10), 0 1px 2px rgba(var(--shadow-rgb),0.07)",
-  md: "0 4px 14px rgba(var(--shadow-rgb),0.12), 0 1px 3px rgba(var(--shadow-rgb),0.09)",
+  sm: "0 1px 2px rgba(var(--shadow-rgb),0.06), 0 1px 1px rgba(var(--shadow-rgb),0.04)",
+  md: "0 4px 14px rgba(var(--shadow-rgb),0.10), 0 1px 3px rgba(var(--shadow-rgb),0.08)",
   lg: "0 12px 28px rgba(var(--shadow-rgb),0.18), 0 4px 10px rgba(var(--shadow-rgb),0.10)",
-  accent: "0 8px 20px rgba(38,65,92,0.28)",
-  marigold: "0 8px 20px rgba(224,138,30,0.32)",
+  // "raised" = the 3D/live card look: a bright 1px sheen along the top inner
+  // edge (like light catching a slightly domed surface) plus a soft two-layer
+  // drop shadow underneath. Used on every Card/StatCard so tiles read as
+  // physical, tappable objects instead of flat rectangles.
+  raised: "inset 0 1px 0 var(--card-sheen), 0 1px 2px rgba(var(--shadow-rgb),0.06), 0 8px 18px rgba(var(--shadow-rgb),0.13), 0 2px 5px rgba(var(--shadow-rgb),0.09)",
+  raisedHover: "inset 0 1px 0 var(--card-sheen), 0 14px 30px rgba(var(--shadow-rgb),0.20), 0 4px 10px rgba(var(--shadow-rgb),0.12)",
+  accent: "0 8px 20px rgba(163,36,47,0.30)",
+  marigold: "0 8px 20px rgba(201,151,28,0.34)",
 };
 
-// NEW — a real type scale, used instead of every screen picking its own
-// one-off fontSize/fontWeight. Six tiers, each with a fixed weight, so size
-// and weight always move together and the eye can tell at a glance what's
-// primary vs secondary. Regular (500) is now actually used for plain body
-// copy instead of everything defaulting to 600/700 bold.
-const TEXT = {
-  display:     { fontSize:30,  fontWeight:800, letterSpacing:"-0.015em" },
-  h1:          { fontSize:22,  fontWeight:800, letterSpacing:"-0.015em" },
-  h2:          { fontSize:18,  fontWeight:700, letterSpacing:"-0.005em" },
-  body:        { fontSize:16,  fontWeight:500 },
-  bodyStrong:  { fontSize:16,  fontWeight:600 },
-  label:       { fontSize:14,  fontWeight:600 },
-  caption:     { fontSize:13,  fontWeight:600, letterSpacing:"0.04em" },
-};
-
-// NEW — a five-value radius scale (was 14 different ad-hoc numbers spread
-// across the file). xs=small inline tags, sm=icon badges/small buttons,
-// md=inputs & the default button, lg=bigger icon tiles & sheets, xl=main
-// cards & the hero banner, pill=fully round.
-const R = { xs:8, sm:10, md:12, lg:16, xl:20, pill:999 };
+// color+"1A" string-concat only works when color is a literal hex string; it
+// silently produces invalid CSS (transparent) when color is one of the
+// var(--x)-based constants above. tint() works for both.
+const tint = (color, pct=14) => `color-mix(in srgb, ${color} ${pct}%, transparent)`;
 
 const FILE_TYPE_META = {
   pdf:   { icon: FileText,        color: "#A23C2A" },
@@ -132,7 +120,7 @@ async function getMaterialContext(chapterTitle) {
 function Button({ children, onClick, variant="primary", size="md", disabled, style, icon:Icon, type }) {
   const variants = {
     primary:   { background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`, color:"#fff", border:"none", boxShadow:SHADOW.accent },
-    marigold:  { background:`linear-gradient(180deg, #E39A34 0%, ${MARIGOLD} 100%)`, color:"#2A1E07", border:"none", boxShadow:SHADOW.marigold },
+    marigold:  { background:`linear-gradient(180deg, #DDB054 0%, ${MARIGOLD} 100%)`, color:"#2A1E07", border:"none", boxShadow:SHADOW.marigold },
     secondary: { background:SURFACE, color:ACCENT, border:`1.5px solid ${BORDER}`, boxShadow:SHADOW.sm },
     ghost:     { background:ACCENT_LIGHT, color:ACCENT, border:"none", boxShadow:"none" },
     danger:    { background:SURFACE, color:DANGER, border:`1.5px solid ${DANGER_BG}`, boxShadow:SHADOW.sm },
@@ -150,7 +138,7 @@ function Button({ children, onClick, variant="primary", size="md", disabled, sty
       className="ss-btn"
       style={{
         display:"flex", alignItems:"center", justifyContent:"center", gap:8,
-        borderRadius:R.md, fontWeight:700, letterSpacing:"-0.01em", fontFamily:"'Inter','Noto Sans Devanagari',sans-serif",
+        borderRadius:13, fontWeight:700, letterSpacing:"-0.01em", fontFamily:"'Inter','Noto Sans Devanagari',sans-serif",
         cursor:disabled?"wait":"pointer", opacity:disabled?0.65:1,
         ...variants[variant], ...sizes[size], ...style,
       }}>
@@ -164,30 +152,39 @@ function Card({ children, onClick, style }) {
   return (
     <div onClick={onClick}
       className={onClick?"ss-card ss-card-hover":"ss-card"}
-      style={{ background:SURFACE, border:`1.5px solid color-mix(in srgb, ${BORDER} 100%, ${INK} 8%)`, borderRadius:R.xl, padding:24, cursor:onClick?"pointer":"default", boxShadow:SHADOW.sm, ...style }}>
+      style={{
+        background:`linear-gradient(165deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 90%, var(--border) 55%) 100%)`,
+        border:`1px solid ${BORDER}`, borderRadius:18, padding:18,
+        cursor:onClick?"pointer":"default", boxShadow:SHADOW.raised, ...style,
+      }}>
       {children}
     </div>
   );
 }
 function SectionLabel({ children }) {
-  return <div style={{ ...TEXT.caption, textTransform:"uppercase", color:INK_SOFT, marginBottom:11 }}>{children}</div>;
+  return <div style={{ fontSize:16, letterSpacing:"0.06em", textTransform:"uppercase", color:INK_SOFT, marginBottom:11, fontWeight:700 }}>{children}</div>;
 }
 function StatusPill({ status }) {
-  const map = { ready:{label:"तयार",bg:SUCCESS_BG,color:SUCCESS}, prep:{label:"तयारी चाहिने",bg:WARN_BG,color:WARN}, missing:{label:"सुरु नभएको",bg:DANGER_BG,color:DANGER} };
+  const map = { ready:{label:"तयार",bg:ACCENT_LIGHT,color:ACCENT}, prep:{label:"तयारी चाहिने",bg:WARN_BG,color:WARN}, missing:{label:"सुरु नभएको",bg:DANGER_BG,color:DANGER} };
   const s = map[status]||map.prep;
-  return <span style={{ background:s.bg, color:s.color, ...TEXT.label, letterSpacing:0, padding:"4px 12px", borderRadius:R.pill }}>{s.label}</span>;
+  return <span style={{ background:s.bg, color:s.color, fontSize:15.5, fontWeight:700, padding:"4px 12px", borderRadius:999 }}>{s.label}</span>;
 }
 function Spinner({ small }) {
   return <div style={{ display:"flex", justifyContent:"center", alignItems:"center", padding:small?0:40 }}><Loader size={small?18:28} color={ACCENT} style={{ animation:"spin 1s linear infinite" }} /><style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style></div>;
 }
 function ErrorMsg({ msg }) {
-  return <div style={{ display:"flex", alignItems:"center", gap:9, background:DANGER_BG, borderRadius:R.md, padding:"12px 15px", ...TEXT.body, color:DANGER, margin:"10px 0" }}><AlertCircle size={17}/>{msg}</div>;
+  return <div style={{ display:"flex", alignItems:"center", gap:9, background:DANGER_BG, borderRadius:12, padding:"12px 15px", fontSize:16, color:DANGER, margin:"10px 0", fontWeight:500 }}><AlertCircle size={17}/>{msg}</div>;
 }
 function EmptyState({ icon:Icon=FileText, text }) {
   return (
-    <div style={{textAlign:"center",padding:"46px 20px"}}>
-      <div style={{width:56,height:56,borderRadius:R.lg,background:SURFACE_2,border:`1px solid ${BORDER}`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px"}}><Icon size={23} color={INK_SOFT}/></div>
-      <div style={{...TEXT.body,color:INK_SOFT}}>{text}</div>
+    <div style={{textAlign:"center",padding:"30px 20px"}}>
+      <div style={{
+        width:52,height:52,borderRadius:15,margin:"0 auto 12px",
+        background:`linear-gradient(160deg, color-mix(in srgb, ${ACCENT} 14%, var(--surface)) 0%, var(--surface) 70%)`,
+        border:`1px solid ${BORDER}`,display:"flex",alignItems:"center",justifyContent:"center",
+        boxShadow:SHADOW.raised,
+      }}><Icon size={21} color={INK_SOFT}/></div>
+      <div style={{fontSize:16.5,fontWeight:600,color:INK_SOFT}}>{text}</div>
     </div>
   );
 }
@@ -200,10 +197,10 @@ function PageHeader({ icon:Icon, title, subtitle, action }) {
   return (
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:18,flexWrap:"wrap"}}>
       <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
-        {Icon&&<div style={{width:42,height:42,borderRadius:R.sm,background:`linear-gradient(135deg, ${TEAL}26, ${ACCENT}16)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={19} color={ACCENT}/></div>}
+        {Icon&&<div style={{width:42,height:42,borderRadius:13,background:`linear-gradient(135deg, ${tint(TEAL,15)} 0%, ${tint(ACCENT,9)} 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={19} color={ACCENT}/></div>}
         <div style={{minWidth:0}}>
-          <div style={{...TEXT.h1,color:INK,lineHeight:1.2}}>{title}</div>
-          {subtitle&&<div style={{...TEXT.body,color:INK_SOFT,marginTop:1}}>{subtitle}</div>}
+          <div style={{fontSize:21.5,fontWeight:800,color:INK,letterSpacing:"-0.015em",lineHeight:1.2}}>{title}</div>
+          {subtitle&&<div style={{fontSize:14.5,color:INK_SOFT,fontWeight:600,marginTop:1}}>{subtitle}</div>}
         </div>
       </div>
       {action&&<div style={{flexShrink:0}}>{action}</div>}
@@ -318,8 +315,8 @@ function LoginScreen({ onLogin }) {
   };
   return(
     <div style={{minHeight:"100vh",position:"relative",overflow:"hidden",background:`radial-gradient(1000px 560px at 15% -10%, ${ACCENT_LIGHT}, ${PAPER} 55%)`,display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}>
-      <div style={{position:"absolute",top:-120,right:-100,width:340,height:340,borderRadius:"50%",background:`radial-gradient(circle, ${MARIGOLD}22, transparent 70%)`,pointerEvents:"none"}}/>
-      <div style={{position:"absolute",bottom:-140,left:-110,width:360,height:360,borderRadius:"50%",background:`radial-gradient(circle, ${TEAL}1E, transparent 70%)`,pointerEvents:"none"}}/>
+      <div style={{position:"absolute",top:-120,right:-100,width:340,height:340,borderRadius:"50%",background:`radial-gradient(circle, ${tint(MARIGOLD,14)}, transparent 70%)`,pointerEvents:"none"}}/>
+      <div style={{position:"absolute",bottom:-140,left:-110,width:360,height:360,borderRadius:"50%",background:`radial-gradient(circle, ${tint(TEAL,12)}, transparent 70%)`,pointerEvents:"none"}}/>
 
       <div style={{width:"100%",maxWidth:408,position:"relative"}}>
         <div style={{textAlign:"center",marginBottom:32}}>
@@ -412,7 +409,7 @@ function LessonMode({ lesson, onClose }) {
         <div className="no-print" style={{padding:"12px 16px 8px",background:SURFACE,borderBottom:`1px solid ${BORDER}`}}>
           <div style={{fontSize:15,color:INK_SOFT,marginBottom:5,fontWeight:600}}>आजको उद्देश्य</div>
           <ul style={{margin:0,paddingLeft:16,fontSize:16.5,color:INK,lineHeight:1.6}}>{objectives.map((o,i)=><li key={i}>{o}</li>)}</ul>
-          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>{vocabulary.map((v)=><span key={v} style={{background:WARN_BG,color:MARIGOLD_DARK,fontSize:15,fontWeight:600,padding:"3px 8px",borderRadius:8}}>{v}</span>)}</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>{vocabulary.map((v)=><span key={v} style={{background:WARN_BG,color:MARIGOLD_DARK,fontSize:15,fontWeight:600,padding:"3px 8px",borderRadius:6}}>{v}</span>)}</div>
         </div>
       )}
       <div className="no-print" style={{display:"flex",overflowX:"auto",background:SURFACE,borderBottom:`1px solid ${BORDER}`}}>
@@ -431,14 +428,19 @@ function LessonMode({ lesson, onClose }) {
 
 function StatCard({ icon:Icon, value, label, color, onClick, accent }) {
   return (
-    <Card onClick={onClick} style={{padding:18, background: accent?`linear-gradient(135deg, ${color}12, ${color}05)`:SURFACE}}>
-      <div style={{display:"flex",alignItems:"center",gap:12}}>
-        <div style={{width:44,height:44,borderRadius:R.sm,background:color+"1E",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-          <Icon size={22} color={color}/>
+    <Card onClick={onClick} style={{padding:"14px 15px", background: accent?`linear-gradient(160deg, color-mix(in srgb, ${color} 10%, var(--surface)) 0%, var(--surface) 65%)`:undefined}}>
+      <div style={{display:"flex",alignItems:"center",gap:11}}>
+        <div style={{
+          width:38,height:38,borderRadius:11,flexShrink:0,
+          background:`linear-gradient(160deg, color-mix(in srgb, ${color} 30%, transparent) 0%, color-mix(in srgb, ${color} 16%, transparent) 100%)`,
+          display:"flex",alignItems:"center",justifyContent:"center",
+          boxShadow:`inset 0 1px 0 rgba(255,255,255,0.4), inset 0 -2px 4px rgba(0,0,0,0.10)`,
+        }}>
+          <Icon size={18} color={color}/>
         </div>
         <div style={{minWidth:0}}>
-          <div style={{...TEXT.display,fontSize:27,color:INK,lineHeight:1.1}}>{value}</div>
-          <div style={{...TEXT.caption,textTransform:"none",letterSpacing:0,color:INK_SOFT,marginTop:2}}>{label}</div>
+          <div style={{fontSize:22,fontWeight:800,color:INK,lineHeight:1.05}}>{value}</div>
+          <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:600,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{label}</div>
         </div>
       </div>
     </Card>
@@ -475,30 +477,34 @@ function Dashboard({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, sec
       <GetStartedCard chapters={chapters||[]} materialsCount={materialsCount} lessons={lessons} onGoMaterials={onGoMaterials} onGoPlanner={onGoPlanner}/>
 
       {today?(
-        <div style={{background:`linear-gradient(135deg,${TEAL} 0%, ${ACCENT} 60%, ${ACCENT_DARK} 100%)`,borderRadius:20,padding:26,color:"#fff",marginBottom:22,boxShadow:SHADOW.accent,position:"relative",overflow:"hidden"}}>
-          <div style={{position:"absolute",top:-40,right:-40,width:160,height:160,borderRadius:"50%",background:"rgba(255,255,255,0.06)"}}/>
-          <div style={{fontSize:15.5,opacity:0.8,fontWeight:600,letterSpacing:"0.03em",textTransform:"uppercase"}}>{today.chapters?.title||today.chapter_title||""}</div>
-          <div style={{fontSize:25,fontWeight:800,margin:"6px 0 4px",letterSpacing:"-0.01em"}}>{today.title}</div>
-          <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:14}}>
-            <Button variant="marigold" size="lg" icon={Sparkles} onClick={()=>onOpenLesson(today)}>आजको पाठ सुरु गर्नुहोस्</Button>
-            <button onClick={generateBriefing} disabled={briefingLoading} className="ss-btn" style={{display:"flex",alignItems:"center",gap:8,background:"rgba(255,255,255,0.16)",color:"#fff",border:"1.5px solid rgba(255,255,255,0.35)",borderRadius:12,padding:"12px 18px",fontWeight:700,fontSize:16,cursor:briefingLoading?"wait":"pointer"}}>
-              {briefingLoading?<Spinner small/>:<Lightbulb size={17}/>}AI ब्रिफिङ
-            </button>
+        <div style={{background:`linear-gradient(120deg,${TEAL} 0%, ${ACCENT} 65%, ${ACCENT_DARK} 100%)`,borderRadius:18,padding:"16px 18px",color:"#fff",marginBottom:16,boxShadow:SHADOW.accent,position:"relative",overflow:"hidden"}}>
+          <div style={{position:"absolute",top:-30,right:-30,width:110,height:110,borderRadius:"50%",background:"rgba(255,255,255,0.07)"}}/>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap",position:"relative"}}>
+            <div style={{minWidth:0}}>
+              <div style={{fontSize:13,opacity:0.8,fontWeight:600,letterSpacing:"0.03em",textTransform:"uppercase"}}>{today.chapters?.title||today.chapter_title||""}</div>
+              <div style={{fontSize:19.5,fontWeight:800,margin:"2px 0 0",letterSpacing:"-0.01em"}}>{today.title}</div>
+            </div>
+            <div style={{display:"flex",gap:8,flexShrink:0}}>
+              <Button variant="marigold" size="sm" icon={Sparkles} onClick={()=>onOpenLesson(today)}>आजको पाठ सुरु</Button>
+              <button onClick={generateBriefing} disabled={briefingLoading} className="ss-btn" title="AI ब्रिफिङ" style={{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,0.16)",color:"#fff",border:"1.5px solid rgba(255,255,255,0.35)",borderRadius:10,padding:"10px 14px",fontWeight:700,fontSize:14.5,cursor:briefingLoading?"wait":"pointer"}}>
+                {briefingLoading?<Spinner small/>:<Lightbulb size={15}/>}<span className="ss-sync-label">AI ब्रिफिङ</span>
+              </button>
+            </div>
           </div>
           {briefing&&(
-            <div style={{marginTop:16,background:"rgba(255,255,255,0.14)",borderRadius:14,padding:16,fontSize:16,lineHeight:1.65,backdropFilter:"blur(2px)"}}>
+            <div style={{marginTop:12,background:"rgba(255,255,255,0.14)",borderRadius:12,padding:13,fontSize:15,lineHeight:1.6,backdropFilter:"blur(2px)"}}>
               {briefing}
             </div>
           )}
         </div>
       ):(
-        <Card style={{marginBottom:22,textAlign:"center",padding:34}}>
-          <div style={{color:INK_SOFT,fontSize:17,marginBottom:14}}>{section?"पाठ योजनामा पाठ थप्नुहोस्।":"माथिबाट सेक्सन छान्नुहोस्।"}</div>
-          <Button variant="primary" icon={Plus} onClick={onGoPlanner}>पाठ थप्नुहोस्</Button>
+        <Card style={{marginBottom:16,textAlign:"center",padding:22}}>
+          <div style={{color:INK_SOFT,fontSize:16,marginBottom:11}}>{section?"पाठ योजनामा पाठ थप्नुहोस्।":"माथिबाट सेक्सन छान्नुहोस्।"}</div>
+          <Button variant="primary" size="sm" icon={Plus} onClick={onGoPlanner}>पाठ थप्नुहोस्</Button>
         </Card>
       )}
 
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:12,marginBottom:22}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:16}}>
         <StatCard icon={BookOpen} value={chapters?.length||0} label="अध्यायहरू" color={ACCENT} accent onClick={onGoMaterials}/>
         <StatCard icon={FileText} value={materialsCount} label="सामग्री फाइल" color={ROSE} accent onClick={onGoMaterials}/>
         <StatCard icon={ClipboardList} value={lessons.length} label="कुल पाठ" color={MARIGOLD} accent onClick={onGoPlanner}/>
@@ -586,9 +592,10 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
 
   return(
     <div style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
-      <PageHeader icon={CalendarDays} title="पाठ योजना" action={
-        <button onClick={()=>setShowForm(true)} style={{display:"flex",alignItems:"center",gap:5,background:ACCENT,color:"#fff",border:"none",borderRadius:R.sm,padding:"8px 14px",...TEXT.label,letterSpacing:0,cursor:"pointer"}}><Plus size={14}/>नयाँ पाठ</button>
-      }/>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{fontSize:20,fontWeight:700,color:INK}}>पाठ योजना</div>
+        <button onClick={()=>setShowForm(true)} style={{display:"flex",alignItems:"center",gap:5,background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:"pointer"}}><Plus size={14}/>नयाँ पाठ</button>
+      </div>
       {showForm&&(
         <Card style={{marginBottom:14}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
@@ -646,7 +653,7 @@ function CategoryPicker({ value, onChange }) {
       {CATEGORY_ORDER.map((key)=>{
         const meta=CATEGORY_META[key];const Icon=meta.icon;const active=value===key;
         return(
-          <button key={key} type="button" onClick={()=>onChange(key)} className="ss-chip" style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,padding:"10px 6px",borderRadius:12,border:`2px solid ${active?meta.color:BORDER}`,background:active?meta.color+"14":SURFACE,color:active?meta.color:INK_SOFT,fontWeight:700,fontSize:15,cursor:"pointer"}}>
+          <button key={key} type="button" onClick={()=>onChange(key)} className="ss-chip" style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,padding:"10px 6px",borderRadius:12,border:`2px solid ${active?meta.color:BORDER}`,background:active?tint(meta.color,14):SURFACE,color:active?meta.color:INK_SOFT,fontWeight:700,fontSize:15,cursor:"pointer"}}>
             <Icon size={17}/>{meta.label}
           </button>
         );
@@ -780,9 +787,10 @@ function Materials({ chapters, onAddChapter, onChaptersChanged }) {
 
   return(
     <div style={{padding:"18px 18px 130px",maxWidth:1040,margin:"0 auto"}}>
-      <PageHeader icon={BookOpen} title="सामग्री पुस्तकालय" action={
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+        <div style={{fontSize:22,fontWeight:800,color:INK,letterSpacing:"-0.01em"}}>सामग्री पुस्तकालय</div>
         <Button variant="ghost" size="sm" icon={RefreshCw} onClick={sync} disabled={syncing}>{syncing?"...":"सिंक"}</Button>
-      }/>
+      </div>
       {error&&<ErrorMsg msg={error}/>}
       {untaggedCount>0&&(
         <div style={{background:WARN_BG,borderRadius:12,padding:"11px 16px",fontSize:16,color:WARN,margin:"12px 0",display:"flex",alignItems:"center",gap:8,fontWeight:600}}>
@@ -842,15 +850,15 @@ function Materials({ chapters, onAddChapter, onChaptersChanged }) {
                   <button onClick={(e)=>deleteMat(f,e)} style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,width:40,height:40,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:INK_SOFT,boxShadow:SHADOW.sm}}><Trash2 size={18}/></button>
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
-                  <div style={{width:36,height:36,borderRadius:10,background:meta.color+"1A",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={18} color={meta.color}/></div>
-                  <div style={{fontSize:13.5,background:catMeta.color+"18",color:catMeta.color,padding:"3px 8px",borderRadius:8,fontWeight:700,display:"flex",alignItems:"center",gap:4}}><CatIcon size={11}/>{catMeta.label}</div>
+                  <div style={{width:36,height:36,borderRadius:9,background:tint(meta.color,16),display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={18} color={meta.color}/></div>
+                  <div style={{fontSize:13.5,background:tint(catMeta.color,15),color:catMeta.color,padding:"3px 8px",borderRadius:6,fontWeight:700,display:"flex",alignItems:"center",gap:4}}><CatIcon size={11}/>{catMeta.label}</div>
                 </div>
                 <div style={{fontSize:16,fontWeight:700,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:4}}>{f.name}</div>
                 <div style={{fontSize:14,color:INK_SOFT,marginBottom:6,fontWeight:600}}>{f.file_type?.toUpperCase()}</div>
                 {f.chapters?.title?(
-                  <span style={{fontSize:13.5,background:ACCENT_LIGHT,color:ACCENT,padding:"3px 8px",borderRadius:8,fontWeight:700,display:"inline-block"}}>{f.chapters.title}</span>
+                  <span style={{fontSize:13.5,background:ACCENT_LIGHT,color:ACCENT,padding:"3px 8px",borderRadius:6,fontWeight:700,display:"inline-block"}}>{f.chapters.title}</span>
                 ):(
-                  <span style={{fontSize:13.5,background:WARN_BG,color:WARN,padding:"3px 8px",borderRadius:8,fontWeight:700,display:"inline-block"}}>अध्याय छैन</span>
+                  <span style={{fontSize:13.5,background:WARN_BG,color:WARN,padding:"3px 8px",borderRadius:6,fontWeight:700,display:"inline-block"}}>अध्याय छैन</span>
                 )}
                 {needsExtraction&&f.extraction_status==="done"&&<div style={{fontSize:13.5,color:ACCENT,marginTop:5,fontWeight:700}}>✓ AI तयार</div>}
                 {needsExtraction&&f.extraction_status==="failed"&&<div style={{fontSize:13.5,color:DANGER,marginTop:5,fontWeight:700}}>⚠ टेक्स्ट निकाल्न सकिएन</div>}
@@ -861,7 +869,7 @@ function Materials({ chapters, onAddChapter, onChaptersChanged }) {
       )}
       {preview&&(
         <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.6)",zIndex:60,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setPreview(null)}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:20,maxWidth:640,width:"100%",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:SHADOW.lg}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,padding:20,maxWidth:640,width:"100%",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:SHADOW.lg}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
               <div style={{fontSize:18,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",paddingRight:10}}>{preview.name}</div>
               <button onClick={()=>setPreview(null)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,flexShrink:0}}><X size={20}/></button>
@@ -896,7 +904,7 @@ function Materials({ chapters, onAddChapter, onChaptersChanged }) {
       )}
       {tagging&&(
         <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.6)",zIndex:60,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setTagging(null)}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:24,maxWidth:420,width:"100%",boxShadow:SHADOW.lg}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,padding:24,maxWidth:420,width:"100%",boxShadow:SHADOW.lg}}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
               <div style={{fontSize:18,fontWeight:700}}>अध्याय र प्रकार तोक्नुहोस्</div>
               <button onClick={()=>setTagging(null)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><X size={20}/></button>
@@ -934,9 +942,10 @@ function HomeworkManager({ section, loading, homework, onRefresh }) {
   };
   return(
     <div style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
-      <PageHeader icon={ListChecks} title="गृहकार्य" action={
-        <button onClick={()=>setShowForm(true)} style={{display:"flex",alignItems:"center",gap:5,background:ACCENT,color:"#fff",border:"none",borderRadius:R.sm,padding:"8px 14px",...TEXT.label,letterSpacing:0,cursor:"pointer"}}><Plus size={14}/>नयाँ</button>
-      }/>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{fontSize:20,fontWeight:700,color:INK}}>गृहकार्य</div>
+        <button onClick={()=>setShowForm(true)} style={{display:"flex",alignItems:"center",gap:5,background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:"pointer"}}><Plus size={14}/>नयाँ</button>
+      </div>
       {showForm&&(
         <Card style={{marginBottom:14}}>
           <div style={{display:"flex",flexDirection:"column",gap:9}}>
@@ -964,8 +973,8 @@ function HomeworkManager({ section, loading, homework, onRefresh }) {
                     <button onClick={()=>deleteHw(h)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><Trash2 size={14}/></button>
                   </div>
                 </div>
-                <div style={{height:6,background:BORDER,borderRadius:999,marginBottom:10}}>
-                  <div style={{height:6,width:`${pct}%`,background:done?ACCENT:MARIGOLD,borderRadius:999}}/>
+                <div style={{height:6,background:BORDER,borderRadius:99,marginBottom:10}}>
+                  <div style={{height:6,width:`${pct}%`,background:done?ACCENT:MARIGOLD,borderRadius:99}}/>
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:10}}>
                   <button onClick={()=>bump(h,-1)} style={{width:34,height:34,borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontSize:18.5,fontWeight:700,cursor:"pointer"}}>−</button>
@@ -997,9 +1006,10 @@ function TeachingJournal() {
   };
   return(
     <div style={{padding:"20px 20px 130px",maxWidth:820,margin:"0 auto"}}>
-      <PageHeader icon={Heart} title="डायरी" action={
-        !showForm&&<button onClick={()=>setShowForm(true)} style={{display:"flex",alignItems:"center",gap:5,background:ACCENT,color:"#fff",border:"none",borderRadius:R.sm,padding:"8px 14px",...TEXT.label,letterSpacing:0,cursor:"pointer"}}><Plus size={14}/>थप</button>
-      }/>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{fontSize:20,fontWeight:700,color:INK,display:"flex",alignItems:"center",gap:8}}><Heart size={20} color={ACCENT}/>डायरी</div>
+        {!showForm&&<button onClick={()=>setShowForm(true)} style={{display:"flex",alignItems:"center",gap:5,background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:"pointer"}}><Plus size={14}/>थप</button>}
+      </div>
       {showForm&&(
         <Card style={{marginBottom:14}}>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -1008,7 +1018,7 @@ function TeachingJournal() {
             <textarea placeholder="के गाह्रो भयो?" value={form.difficulty} onChange={(e)=>setForm({...form,difficulty:e.target.value})} rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
             <textarea placeholder="अर्को पटककालागि सुझाव" value={form.idea} onChange={(e)=>setForm({...form,idea:e.target.value})} rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
             <div style={{display:"flex",gap:8}}>
-              {Object.entries(MOOD_META).map(([key,m])=>{const Icon=m.icon;return<button key={key} onClick={()=>setForm({...form,mood:key})} style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:5,padding:"8px",borderRadius:10,border:form.mood===key?`2px solid ${m.color}`:`1px solid ${BORDER}`,background:form.mood===key?m.color+"15":SURFACE,color:m.color,fontSize:15,fontWeight:700,cursor:"pointer"}}><Icon size={13}/>{m.label}</button>;})}
+              {Object.entries(MOOD_META).map(([key,m])=>{const Icon=m.icon;return<button key={key} onClick={()=>setForm({...form,mood:key})} style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:5,padding:"8px",borderRadius:10,border:form.mood===key?`2px solid ${m.color}`:`1px solid ${BORDER}`,background:form.mood===key?tint(m.color,15):SURFACE,color:m.color,fontSize:15,fontWeight:700,cursor:"pointer"}}><Icon size={13}/>{m.label}</button>;})}
             </div>
             <div style={{display:"flex",gap:8}}>
               <button onClick={()=>setShowForm(false)} style={{flex:1,padding:"10px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer"}}>रद्द</button>
@@ -1023,7 +1033,7 @@ function TeachingJournal() {
             <Card key={e.id}>
               <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
                 <div style={{fontSize:16.5,fontWeight:700,color:INK}}>{e.lessons?.title||e.entry_date}</div>
-                <div style={{display:"flex",alignItems:"center",gap:4,background:mood.color+"15",color:mood.color,padding:"3px 9px",borderRadius:999,fontSize:14.5,fontWeight:700}}><MIcon size={12}/>{mood.label}</div>
+                <div style={{display:"flex",alignItems:"center",gap:4,background:tint(mood.color,15),color:mood.color,padding:"3px 9px",borderRadius:999,fontSize:14.5,fontWeight:700}}><MIcon size={12}/>{mood.label}</div>
               </div>
               {e.taught&&<div style={{fontSize:16,color:INK,marginBottom:5}}><strong>के पढाइयो:</strong> {e.taught}</div>}
               {e.difficulty&&<div style={{fontSize:16,color:INK_SOFT,marginBottom:5}}><strong>गाह्रो:</strong> {e.difficulty}</div>}
@@ -1069,25 +1079,48 @@ function AIAssistant({ lessons }) {
   return(
     <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 170px)",maxWidth:720,margin:"0 auto",width:"100%"}}>
       <div style={{padding:"14px 16px 8px"}}>
-        <PageHeader icon={Bot} title="AI शिक्षण सहायक" subtitle={
-          <span style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
-            <Zap size={11} color={MARIGOLD}/>Google Gemini AI · {getTextbookPDF()?"पाठ्यपुस्तक लोड भएको ✓":"पाठ्यपुस्तक लोड भएको छैन (सेटिङमा अपलोड गर्नुहोस्)"}
-            {chapterTitle&&<span>· "{chapterTitle}" का {matchedCount} सामग्री</span>}
-          </span>
-        }/>
+        <div style={{fontSize:19,fontWeight:700,color:INK,display:"flex",alignItems:"center",gap:8}}><Bot size={20} color={ACCENT}/>AI शिक्षण सहायक</div>
+        <div style={{display:"flex",alignItems:"center",gap:5,fontSize:15,color:INK_SOFT,marginTop:3,flexWrap:"wrap"}}>
+          <Zap size={11} color={MARIGOLD}/>Google Gemini AI · {getTextbookPDF()?"पाठ्यपुस्तक लोड भएको ✓":"पाठ्यपुस्तक लोड भएको छैन (सेटिङमा अपलोड गर्नुहोस्)"}
+          {chapterTitle&&<span>· "{chapterTitle}" का {matchedCount} सामग्री</span>}
+        </div>
       </div>
-      <div style={{flex:1,overflowY:"auto",padding:"6px 16px"}}>
-        {messages.map((m,i)=>(
-          <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",marginBottom:10}}>
-            <div style={{maxWidth:"88%",background:m.role==="user"?ACCENT:SURFACE,color:m.role==="user"?"#fff":INK,border:m.role==="ai"?`1px solid ${BORDER}`:"none",borderRadius:14,padding:"11px 14px",fontSize:16.5,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{m.text}</div>
+      <div style={{flex:1,overflowY:"auto",padding:"6px 16px",display:"flex",flexDirection:"column"}}>
+        {messages.length<=1?(
+          // NEW — instead of one greeting bubble sitting at the top of a mostly
+          // empty scroll area (the "big empty space" problem), the idle chat
+          // fills that space with the quick-prompts as a proper card grid, so
+          // the screen has something useful to look at before the user types.
+          <div style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"center",gap:14,padding:"6px 2px 18px"}}>
+            <div style={{maxWidth:"88%",background:SURFACE,color:INK,border:`1px solid ${BORDER}`,borderRadius:14,padding:"11px 14px",fontSize:16.5,lineHeight:1.6,boxShadow:SHADOW.raised}}>{messages[0]?.text}</div>
+            <div>
+              <SectionLabel>छिटो सुरुवात</SectionLabel>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(155px,1fr))",gap:9}}>
+                {QUICK.map((q)=>(
+                  <button key={q} onClick={()=>send(q)} className="ss-btn ss-card-hover" style={{textAlign:"left",background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:13,padding:"12px 13px",fontSize:15,fontWeight:600,color:INK,cursor:"pointer",boxShadow:SHADOW.raised,display:"flex",alignItems:"center",gap:8}}>
+                    <Zap size={14} color={MARIGOLD} style={{flexShrink:0}}/>{q}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
-        ))}
-        {loading&&<div style={{display:"flex",marginBottom:10}}><div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:14,padding:"11px 14px",color:INK_SOFT,fontSize:16.5}}>सोच्दै छु...</div></div>}
+        ):(
+          <>
+            {messages.map((m,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",marginBottom:10}}>
+                <div style={{maxWidth:"88%",background:m.role==="user"?ACCENT:SURFACE,color:m.role==="user"?"#fff":INK,border:m.role==="ai"?`1px solid ${BORDER}`:"none",borderRadius:14,padding:"11px 14px",fontSize:16.5,lineHeight:1.6,whiteSpace:"pre-wrap",boxShadow:m.role==="ai"?SHADOW.sm:"none"}}>{m.text}</div>
+              </div>
+            ))}
+            {loading&&<div style={{display:"flex",marginBottom:10}}><div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:14,padding:"11px 14px",color:INK_SOFT,fontSize:16.5}}>सोच्दै छु...</div></div>}
+          </>
+        )}
         <div ref={bottomRef}/>
       </div>
-      <div style={{padding:"8px 16px",display:"flex",gap:7,overflowX:"auto"}}>
-        {QUICK.map((q)=><button key={q} onClick={()=>send(q)} style={{flexShrink:0,background:WARN_BG,color:MARIGOLD_DARK,border:"none",borderRadius:999,padding:"7px 12px",fontSize:15,fontWeight:600,whiteSpace:"nowrap",cursor:"pointer"}}>{q}</button>)}
-      </div>
+      {messages.length>1&&(
+        <div style={{padding:"8px 16px",display:"flex",gap:7,overflowX:"auto"}}>
+          {QUICK.map((q)=><button key={q} onClick={()=>send(q)} style={{flexShrink:0,background:WARN_BG,color:MARIGOLD_DARK,border:"none",borderRadius:999,padding:"7px 12px",fontSize:15,fontWeight:600,whiteSpace:"nowrap",cursor:"pointer"}}>{q}</button>)}
+        </div>
+      )}
       <div style={{display:"flex",gap:8,padding:"8px 16px 16px"}}>
         <input value={input} onChange={(e)=>setInput(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&send(input)} placeholder="आफ्नो प्रश्न लेख्नुहोस्..." style={{flex:1,border:`1px solid ${BORDER}`,borderRadius:999,padding:"12px 16px",fontSize:16.5,outline:"none",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
         <button onClick={()=>send(input)} style={{background:ACCENT,color:"#fff",border:"none",borderRadius:"50%",width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}><Send size={17}/></button>
@@ -1143,8 +1176,9 @@ function QuestionBank({ chapters, onAddChapter }) {
 
   return(
     <div style={{padding:"20px 20px 150px",maxWidth:1040,margin:"0 auto"}}>
-      <div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",marginBottom:14}}>
-        <button onClick={()=>setShowForm(!showForm)} style={{display:"flex",alignItems:"center",gap:5,background:ACCENT,color:"#fff",border:"none",borderRadius:R.sm,padding:"8px 14px",...TEXT.label,letterSpacing:0,cursor:"pointer"}}><Plus size={14}/>नयाँ</button>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{fontSize:20,fontWeight:700,color:INK}}>प्रश्न बैंक</div>
+        <button onClick={()=>setShowForm(!showForm)} style={{display:"flex",alignItems:"center",gap:5,background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:"pointer"}}><Plus size={14}/>नयाँ</button>
       </div>
       {showForm&&(
         <Card style={{marginBottom:14}}>
@@ -1182,8 +1216,8 @@ function QuestionBank({ chapters, onAddChapter }) {
               <div style={{marginTop:2,flexShrink:0,color:isSel?ACCENT:INK_SOFT}}>{isSel?<CheckSquare size={18}/>:<Square size={18}/>}</div>
               <div style={{flex:1}}>
                 <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:5}}>
-                  <span style={{fontSize:14,background:ACCENT_LIGHT,color:ACCENT,padding:"2px 7px",borderRadius:8,fontWeight:700}}>{q.type}</span>
-                  <span style={{fontSize:14,background:WARN_BG,color:MARIGOLD_DARK,padding:"2px 7px",borderRadius:8,fontWeight:600}}>{q.difficulty}</span>
+                  <span style={{fontSize:14,background:ACCENT_LIGHT,color:ACCENT,padding:"2px 7px",borderRadius:5,fontWeight:700}}>{q.type}</span>
+                  <span style={{fontSize:14,background:WARN_BG,color:MARIGOLD_DARK,padding:"2px 7px",borderRadius:5,fontWeight:600}}>{q.difficulty}</span>
                   {q.chapter_title&&<span style={{fontSize:14,color:INK_SOFT,fontWeight:600}}>{q.chapter_title}</span>}
                 </div>
                 <div style={{fontSize:16.5,color:INK,lineHeight:1.5}}>{q.text}</div>
@@ -1256,8 +1290,9 @@ function AssessmentBuilder({ chapters, onAddChapter }) {
 
   return(
     <div style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
-      <div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",marginBottom:14}}>
-        <button onClick={()=>setShowForm(!showForm)} style={{display:"flex",alignItems:"center",gap:5,background:ACCENT,color:"#fff",border:"none",borderRadius:R.sm,padding:"8px 14px",...TEXT.label,letterSpacing:0,cursor:"pointer"}}><Plus size={14}/>नयाँ</button>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{fontSize:20,fontWeight:700,color:INK}}>मूल्याङ्कन</div>
+        <button onClick={()=>setShowForm(!showForm)} style={{display:"flex",alignItems:"center",gap:5,background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:"pointer"}}><Plus size={14}/>नयाँ</button>
       </div>
       {showForm&&(
         <Card style={{marginBottom:14}}>
@@ -1294,7 +1329,7 @@ function AssessmentBuilder({ chapters, onAddChapter }) {
                 <div style={{width:36,height:36,borderRadius:8,background:ACCENT_LIGHT,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={17} color={ACCENT}/></div>
                 <div><div style={{fontSize:17,fontWeight:700,color:INK}}>{a.title}</div><div style={{fontSize:15,color:INK_SOFT}}>{typeInfo.label}{a.due_date?` · ${a.due_date}`:""}</div></div>
               </div>
-              {a.rubric?.length>0&&a.rubric.map((r,i)=><div key={i} style={{background:SURFACE_2,borderRadius:8,padding:"6px 10px",fontSize:16,marginBottom:5}}><strong style={{color:ACCENT}}>{r.level}:</strong> {r.desc}</div>)}
+              {a.rubric?.length>0&&a.rubric.map((r,i)=><div key={i} style={{background:SURFACE_2,borderRadius:7,padding:"6px 10px",fontSize:16,marginBottom:5}}><strong style={{color:ACCENT}}>{r.level}:</strong> {r.desc}</div>)}
             </Card>
           );})}
         </div>
@@ -1335,8 +1370,9 @@ function ActivitiesLibrary({ chapters, onAddChapter }) {
 
   return(
     <div style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
-      <div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",marginBottom:14}}>
-        <button onClick={()=>setShowForm(!showForm)} style={{display:"flex",alignItems:"center",gap:5,background:ACCENT,color:"#fff",border:"none",borderRadius:R.sm,padding:"8px 14px",...TEXT.label,letterSpacing:0,cursor:"pointer"}}><Plus size={14}/>नयाँ</button>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{fontSize:20,fontWeight:700,color:INK}}>क्रियाकलाप</div>
+        <button onClick={()=>setShowForm(!showForm)} style={{display:"flex",alignItems:"center",gap:5,background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:"pointer"}}><Plus size={14}/>नयाँ</button>
       </div>
       {showForm&&(
         <Card style={{marginBottom:14}}>
@@ -1376,8 +1412,8 @@ function ActivitiesLibrary({ chapters, onAddChapter }) {
                   <div style={{display:"flex",justifyContent:"space-between"}}><div style={{fontWeight:700,fontSize:16.5,color:INK}}>{a.title}</div>{a.duration&&<span style={{fontSize:15,color:INK_SOFT}}>{a.duration}</span>}</div>
                   {a.description&&<div style={{fontSize:16,color:INK_SOFT,lineHeight:1.5,marginTop:4}}>{a.description}</div>}
                   <div style={{display:"flex",gap:5,marginTop:6,flexWrap:"wrap"}}>
-                    {a.chapter_title&&<span style={{fontSize:14,background:WARN_BG,color:MARIGOLD_DARK,padding:"2px 7px",borderRadius:8,fontWeight:600}}>{a.chapter_title}</span>}
-                    {a.competency&&<span style={{fontSize:14,background:ACCENT_LIGHT,color:ACCENT,padding:"2px 7px",borderRadius:8,fontWeight:600}}>{a.competency}</span>}
+                    {a.chapter_title&&<span style={{fontSize:14,background:WARN_BG,color:MARIGOLD_DARK,padding:"2px 7px",borderRadius:5,fontWeight:600}}>{a.chapter_title}</span>}
+                    {a.competency&&<span style={{fontSize:14,background:ACCENT_LIGHT,color:ACCENT,padding:"2px 7px",borderRadius:5,fontWeight:600}}>{a.competency}</span>}
                   </div>
                 </div>
               </div>
@@ -1449,7 +1485,8 @@ function ResourceCreator({ lessons }) {
 
   return(
     <div style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
-      <PageHeader icon={Wand2} title="स्रोत निर्माता" subtitle={lesson?`"${lesson.title}" — AI बाट स्वतः बनाइन्छ।`:"पहिले पाठ योजनामा पाठ थप्नुहोस्।"}/>
+      <div style={{fontSize:20,fontWeight:700,color:INK,marginBottom:4,display:"flex",alignItems:"center",gap:8}}><Wand2 size={20} color={ACCENT}/>स्रोत निर्माता</div>
+      <div style={{fontSize:16,color:INK_SOFT,marginBottom:16}}>{lesson?`"${lesson.title}" — AI बाट स्वतः बनाइन्छ।`:"पहिले पाठ योजनामा पाठ थप्नुहोस्।"}</div>
       <MaterialsHint count={matchedCount} chapterTitle={chapterTitle}/>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:20}}>
         {TEMPLATES.map((t)=>{const Icon=t.icon;return<Card key={t.id} onClick={()=>generate(t)} style={{padding:14,border:active?.id===t.id?`2px solid ${ACCENT}`:`1px solid ${BORDER}`}}><div style={{width:36,height:36,borderRadius:8,background:ACCENT_LIGHT,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:8}}><Icon size={18} color={ACCENT}/></div><div style={{fontWeight:700,fontSize:16,color:INK}}>{t.title}</div></Card>;})}
@@ -1491,15 +1528,15 @@ function DocumentSearch({ lessons, homework }) {
   },[query,lessons,allMaterials,allQuestions,allActivities,homework]);
   return(
     <div style={{padding:"20px 20px 130px",maxWidth:820,margin:"0 auto"}}>
-      <PageHeader icon={Search} title="सबैतिर खोज"/>
+      <div style={{fontSize:20,fontWeight:700,color:INK,marginBottom:4}}>सबैतिर खोज</div>
       <div style={{display:"flex",alignItems:"center",gap:8,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:14,padding:"12px 14px",marginBottom:14,marginTop:10}}>
         <Search size={17} color={INK_SOFT}/>
         <input autoFocus value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:17,flex:1,background:"transparent",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
       </div>
-      {!query.trim()?<div style={{textAlign:"center",color:INK_SOFT,padding:40,fontSize:16.5}}>टाइप गर्नुहोस्...</div>:results.length===0?<div style={{textAlign:"center",color:INK_SOFT,padding:40}}>"{query}" फेला परेन।</div>:(
+      {!query.trim()?<EmptyState icon={Search} text="टाइप गर्नुहोस्..."/>:results.length===0?<EmptyState icon={Search} text={`"${query}" फेला परेन।`}/>:(
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           <div style={{fontSize:15.5,color:INK_SOFT,marginBottom:4}}>{results.length} परिणाम</div>
-          {results.map((r,i)=>{const Icon=r.icon;return<Card key={i} style={{display:"flex",gap:10,alignItems:"center"}}><div style={{width:36,height:36,borderRadius:8,background:r.color+"1A",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={17} color={r.color}/></div><div style={{flex:1,minWidth:0}}><div style={{fontSize:14,color:r.color,fontWeight:700,marginBottom:2}}>{r.kind}</div><div style={{fontSize:16.5,color:INK,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.title}</div>{r.sub&&<div style={{fontSize:15,color:INK_SOFT}}>{r.sub}</div>}</div></Card>;})}
+          {results.map((r,i)=>{const Icon=r.icon;return<Card key={i} style={{display:"flex",gap:10,alignItems:"center"}}><div style={{width:36,height:36,borderRadius:8,background:tint(r.color,16),display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={17} color={r.color}/></div><div style={{flex:1,minWidth:0}}><div style={{fontSize:14,color:r.color,fontWeight:700,marginBottom:2}}>{r.kind}</div><div style={{fontSize:16.5,color:INK,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.title}</div>{r.sub&&<div style={{fontSize:15,color:INK_SOFT}}>{r.sub}</div>}</div></Card>;})}
         </div>
       )}
     </div>
@@ -1518,7 +1555,7 @@ function CalendarView({ lessons, homework }) {
 
   return(
     <div style={{padding:"20px 20px 130px",maxWidth:560,margin:"0 auto"}}>
-      <PageHeader icon={CalendarDays} title="पात्रो"/>
+      <div style={{fontSize:20,fontWeight:700,color:INK,marginBottom:14,display:"flex",alignItems:"center",gap:8}}><CalendarDays size={20} color={ACCENT}/>पात्रो</div>
       <Card style={{marginBottom:14,padding:14}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
           <button onClick={()=>{if(month===0){setMonth(11);setYear(y=>y-1);}else setMonth(m=>m-1);}} style={{background:WARN_BG,border:"none",borderRadius:8,padding:"6px 12px",fontWeight:700,cursor:"pointer",color:ACCENT,fontSize:18}}>‹</button>
@@ -1549,7 +1586,7 @@ function CalendarView({ lessons, homework }) {
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           {[...lessons.slice(0,3).map((l)=>({type:"पाठ",title:l.title,color:ACCENT,bg:ACCENT_LIGHT})),...homework.filter((h)=>h.checked_count<h.total_students).slice(0,2).map((h)=>({type:"गृहकार्य",title:h.title,color:WARN,bg:WARN_BG}))].map((item,i)=>(
             <Card key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px"}}>
-              <span style={{fontSize:14,fontWeight:700,color:item.color,background:item.bg,padding:"3px 8px",borderRadius:8,flexShrink:0}}>{item.type}</span>
+              <span style={{fontSize:14,fontWeight:700,color:item.color,background:item.bg,padding:"3px 8px",borderRadius:5,flexShrink:0}}>{item.type}</span>
               <div style={{fontSize:16.5,color:INK,fontWeight:600}}>{item.title}</div>
             </Card>
           ))}
@@ -1604,10 +1641,10 @@ function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, ins
 
   return(
     <div style={{padding:"20px 20px 130px",maxWidth:680,margin:"0 auto"}}>
-      <PageHeader icon={SettingsIcon} title="सेटिङ"/>
+      <div style={{fontSize:20,fontWeight:700,color:INK,marginBottom:16,display:"flex",alignItems:"center",gap:8}}><SettingsIcon size={20} color={ACCENT}/>सेटिङ</div>
 
       {!isStandalone&&(
-        <Card style={{marginBottom:14,background:`linear-gradient(135deg, ${TEAL}14, ${ACCENT}08)`,border:`1.5px solid ${ACCENT_LIGHT}`}}>
+        <Card style={{marginBottom:14,background:`linear-gradient(135deg, ${tint(TEAL,10)} 0%, ${tint(ACCENT,5)} 100%)`,border:`1.5px solid ${ACCENT_LIGHT}`}}>
           <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
             <div style={{width:44,height:44,borderRadius:12,background:`linear-gradient(135deg, ${TEAL}, ${ACCENT})`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:SHADOW.accent}}><Zap size={21} color="#fff"/></div>
             <div>
@@ -1743,8 +1780,8 @@ export default function App() {
     const style=document.createElement("style");
     style.id="ss-theme-vars";
     style.textContent=`
-      [data-theme="light"]{--bg:#F5EFE0;--bg-grad:#ECE0C0;--surface:#FFFFFF;--surface-2:#FBF7ED;--ink:#211B14;--ink-soft:#726A57;--border:#E6D9BC;--accent:#B0134A;--accent-dark:#7C0D34;--accent-light:#FBE6ED;--marigold:#E0980C;--marigold-dark:#B87509;--teal:#0E8FA0;--teal-light:#DDF3F6;--violet:#7C3AAD;--violet-light:#F1E7FA;--blue:#2168C9;--blue-light:#E4EEFC;--rose:#D6427A;--rose-light:#FCE8F0;--danger:#D93A2B;--danger-bg:#FCEAE6;--warn:#B4790A;--warn-bg:#FBF0D8;--success:#1F9D5A;--success-bg:#E1F5E9;--shadow-rgb:33,27,20;}
-      [data-theme="dark"]{--bg:#12151C;--bg-grad:#191D26;--surface:#1B1F29;--surface-2:#20252F;--ink:#F0ECE2;--ink-soft:#9CA0AF;--border:#2E3440;--accent:#E8547E;--accent-dark:#B0134A;--accent-light:#3A1B28;--marigold:#F0B429;--marigold-dark:#C98F1D;--teal:#2FC4D9;--teal-light:#153238;--violet:#B57BE0;--violet-light:#2C1F3A;--blue:#5B9CF0;--blue-light:#1C2C42;--rose:#F07AA8;--rose-light:#3A2028;--danger:#F0574A;--danger-bg:#3A1E1A;--warn:#F0B429;--warn-bg:#3A2E14;--success:#3FCB7E;--success-bg:#173A28;--shadow-rgb:0,0,0;}
+      [data-theme="light"]{--bg:#F6F3EA;--bg-grad:#EFE9D8;--surface:#FFFFFF;--surface-2:#FDFBF6;--ink:#201D19;--ink-soft:#6B6557;--border:#E6E0D1;--accent:#164A38;--accent-dark:#0F3627;--accent-light:#E4F1EA;--marigold:#D98E2B;--marigold-dark:#B9741A;--teal:#0E8A87;--teal-light:#E1F5F3;--violet:#7A4FC2;--violet-light:#F0E9FA;--blue:#2E6FBE;--blue-light:#E8F1FC;--rose:#C4436B;--rose-light:#FBE9EF;--danger:#B3402C;--danger-bg:#FBEAE6;--warn:#9A5B12;--warn-bg:#FCF0DA;--shadow-rgb:32,29,25;}
+      [data-theme="dark"]{--bg:#12171A;--bg-grad:#1A2225;--surface:#1D2427;--surface-2:#232B2E;--ink:#F1EEE7;--ink-soft:#A8A192;--border:#323B3E;--accent:#45BB9A;--accent-dark:#2C7C63;--accent-light:#1B332C;--marigold:#E8A44A;--marigold-dark:#C98A34;--teal:#3FC2BD;--teal-light:#173B39;--violet:#B294EE;--violet-light:#2B2242;--blue:#79ABEE;--blue-light:#1E2E42;--rose:#E58AA8;--rose-light:#3A2028;--danger:#E5715A;--danger-bg:#3A2320;--warn:#E0A94E;--warn-bg:#3A2E18;--shadow-rgb:0,0,0;}
       html,body{background:radial-gradient(1100px 620px at 12% -8%, var(--bg-grad), var(--bg) 55%);}
     `;
     document.head.appendChild(style);
@@ -1821,32 +1858,32 @@ export default function App() {
            reads these via var(--x), so toggling data-theme instantly
            re-colors the whole app with no per-component logic needed. */
         [data-theme="light"]{
-          --bg:#F5EFE0; --bg-grad:#ECE0C0; --surface:#FFFFFF; --surface-2:#FBF7ED;
-          --ink:#211B14; --ink-soft:#726A57; --border:#E6D9BC;
-          --accent:#B0134A; --accent-dark:#7C0D34; --accent-light:#FBE6ED;
-          --marigold:#E0980C; --marigold-dark:#B87509;
-          --teal:#0E8FA0; --teal-light:#DDF3F6;
-          --violet:#7C3AAD; --violet-light:#F1E7FA;
-          --blue:#2168C9; --blue-light:#E4EEFC;
-          --rose:#D6427A; --rose-light:#FCE8F0;
-          --danger:#D93A2B; --danger-bg:#FCEAE6;
-          --warn:#B4790A; --warn-bg:#FBF0D8;
-          --success:#1F9D5A; --success-bg:#E1F5E9;
-          --shadow-rgb:33,27,20;
+          --bg:#FAF3E7; --bg-grad:#F1E3C9; --surface:#FFFFFF; --surface-2:#FBF4E8;
+          --ink:#251712; --ink-soft:#7C6C5B; --border:#EADCC3;
+          --accent:#A3242F; --accent-dark:#78141E; --accent-light:#F7E2DF;
+          --marigold:#C9971C; --marigold-dark:#96690E;
+          --teal:#33437A; --teal-light:#E8EAF6;
+          --violet:#7A4468; --violet-light:#F6E7EF;
+          --blue:#3E6089; --blue-light:#E8EFF6;
+          --rose:#B5502E; --rose-light:#F8E8DE;
+          --danger:#B3261E; --danger-bg:#FBEAE6;
+          --warn:#96690E; --warn-bg:#FBF0DA;
+          --shadow-rgb:37,23,18;
+          --card-sheen:rgba(255,255,255,0.75);
         }
         [data-theme="dark"]{
-          --bg:#12151C; --bg-grad:#191D26; --surface:#1B1F29; --surface-2:#20252F;
-          --ink:#F0ECE2; --ink-soft:#9CA0AF; --border:#2E3440;
-          --accent:#E8547E; --accent-dark:#B0134A; --accent-light:#3A1B28;
-          --marigold:#F0B429; --marigold-dark:#C98F1D;
-          --teal:#2FC4D9; --teal-light:#153238;
-          --violet:#B57BE0; --violet-light:#2C1F3A;
-          --blue:#5B9CF0; --blue-light:#1C2C42;
-          --rose:#F07AA8; --rose-light:#3A2028;
-          --danger:#F0574A; --danger-bg:#3A1E1A;
-          --warn:#F0B429; --warn-bg:#3A2E14;
-          --success:#3FCB7E; --success-bg:#173A28;
+          --bg:#171320; --bg-grad:#1F1A2B; --surface:#221D2F; --surface-2:#2B2439;
+          --ink:#F3E9DD; --ink-soft:#AFA192; --border:#3C3449;
+          --accent:#E2626B; --accent-dark:#B23A44; --accent-light:#3A1F23;
+          --marigold:#E8B84B; --marigold-dark:#C99A3A;
+          --teal:#8393D6; --teal-light:#262B47;
+          --violet:#D391B8; --violet-light:#3A2233;
+          --blue:#8FB4DE; --blue-light:#212A3C;
+          --rose:#E2825C; --rose-light:#3C2419;
+          --danger:#E5766D; --danger-bg:#3A211E;
+          --warn:#E0A94E; --warn-bg:#3A2E18;
           --shadow-rgb:0,0,0;
+          --card-sheen:rgba(255,255,255,0.06);
         }
 
         @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
@@ -1859,8 +1896,11 @@ export default function App() {
 
         /* Elevated card + hover lift */
         .ss-card{transition:box-shadow .2s ease, transform .2s ease, background .2s ease, border-color .2s ease;}
-        .ss-card-hover:hover{box-shadow:${SHADOW.lg};transform:translateY(-3px);border-color:color-mix(in srgb, ${ACCENT} 25%, var(--border));}
-        .ss-card-hover:active{transform:translateY(0px) scale(0.995);}
+        .ss-card-hover:hover{box-shadow:${SHADOW.raisedHover};transform:translateY(-3px);border-color:color-mix(in srgb, ${ACCENT} 25%, var(--border));}
+        .ss-card-hover:active{transform:translateY(1px) scale(0.99);box-shadow:${SHADOW.sm};}
+        .ss-btn{transition:transform .15s ease, box-shadow .15s ease, filter .15s ease;}
+        .ss-btn:hover{filter:brightness(1.04);}
+        .ss-btn:active{transform:translateY(1px) scale(0.98);}
 
         /* Buttons — real hover/active feedback via CSS, not just JS */
         .ss-btn{transition:transform .12s ease, box-shadow .12s ease, filter .12s ease; -webkit-tap-highlight-color:transparent;}
