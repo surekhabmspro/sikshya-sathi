@@ -1928,8 +1928,6 @@ export default function App() {
       </div>
 
       <style>{`@media (max-width:420px){.ss-sync-label{display:none;}}`}</style>
-      
-      </div>
 
       <div className="no-print"><SectionSelector sections={sections} current={currentSection} onChange={setCurrentSection} onAdd={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}}/></div>
 
