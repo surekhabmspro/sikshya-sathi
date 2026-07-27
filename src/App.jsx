@@ -127,8 +127,8 @@ function Button({ children, onClick, variant="primary", size="md", disabled, sty
       className="ss-btn"
       style={{
         display:"flex", alignItems:"center", justifyContent:"center", gap:8,
-        borderRadius:12, fontWeight:700, fontFamily:"Inter,sans-serif",
-        cursor:disabled?"wait":"pointer", opacity:disabled?0.7:1,
+        borderRadius:13, fontWeight:700, letterSpacing:"-0.01em", fontFamily:"'Inter','Noto Sans Devanagari',sans-serif",
+        cursor:disabled?"wait":"pointer", opacity:disabled?0.65:1,
         ...variants[variant], ...sizes[size], ...style,
       }}>
       {Icon&&<Icon size={size==="lg"?19:size==="sm"?14:16}/>}
@@ -141,7 +141,7 @@ function Card({ children, onClick, style }) {
   return (
     <div onClick={onClick}
       className={onClick?"ss-card ss-card-hover":"ss-card"}
-      style={{ background:SURFACE, border:`1px solid ${BORDER}`, borderRadius:18, padding:24, cursor:onClick?"pointer":"default", boxShadow:SHADOW.sm, ...style }}>
+      style={{ background:SURFACE, border:`1px solid ${BORDER}`, borderRadius:20, padding:24, cursor:onClick?"pointer":"default", boxShadow:SHADOW.sm, ...style }}>
       {children}
     </div>
   );
@@ -160,13 +160,21 @@ function Spinner({ small }) {
 function ErrorMsg({ msg }) {
   return <div style={{ display:"flex", alignItems:"center", gap:9, background:DANGER_BG, borderRadius:12, padding:"12px 15px", fontSize:16, color:DANGER, margin:"10px 0", fontWeight:500 }}><AlertCircle size={17}/>{msg}</div>;
 }
+function EmptyState({ icon:Icon=FileText, text }) {
+  return (
+    <div style={{textAlign:"center",padding:"46px 20px"}}>
+      <div style={{width:56,height:56,borderRadius:16,background:SURFACE_2,border:`1px solid ${BORDER}`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px"}}><Icon size={23} color={INK_SOFT}/></div>
+      <div style={{fontSize:16.5,fontWeight:600,color:INK_SOFT}}>{text}</div>
+    </div>
+  );
+}
 function AIButton({ label, onClick, loading }) {
   return <Button variant="ghost" size="sm" onClick={onClick} disabled={loading} icon={loading?undefined:Zap}>{loading?<><Spinner small/> {label}</>:label}</Button>;
 }
 function MaterialsHint({ count, chapterTitle }) {
   if (!chapterTitle || !chapterTitle.trim()) return null;
   return (
-    <div style={{ fontSize:15, color: count>0?ACCENT:WARN, background: count>0?"#E4EFE6":"#FBEBD3", borderRadius:8, padding:"6px 10px", marginBottom:8, display:"flex", alignItems:"center", gap:6 }}>
+    <div style={{ fontSize:15, color: count>0?ACCENT:WARN, background: count>0?ACCENT_LIGHT:WARN_BG, borderRadius:8, padding:"6px 10px", marginBottom:8, display:"flex", alignItems:"center", gap:6 }}>
       <FileText size={13}/>
       {count>0?`"${chapterTitle}" मा ट्याग गरिएका ${count} फाइल AI ले प्रयोग गर्दैछ`:`"${chapterTitle}" मा कुनै सामग्री ट्याग गरिएको छैन`}
     </div>
@@ -201,14 +209,15 @@ function ChapterPicker({ value, onChange, chapters, onAddChapter, placeholder })
           if(e.target.value==="__new__"){setShowAdd(true);}
           else {onChange(e.target.value);setShowAdd(false);}
         }}
-        style={{width:"100%",border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 12px",fontSize:16.5,fontFamily:"Inter,sans-serif",background:SURFACE,color:value?INK:INK_SOFT}}>
+        className="ss-field"
+        style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,color:value?INK:INK_SOFT}}>
         <option value="">{placeholder||"— अध्याय छान्नुहोस् —"}</option>
         {chapters.map((c)=><option key={c.id} value={c.title}>{c.title}</option>)}
         <option value="__new__">+ नयाँ अध्याय थप्नुहोस्</option>
       </select>
       {showAdd&&(
         <div style={{display:"flex",gap:8,marginTop:8}}>
-          <input autoFocus value={newTitle} onChange={(e)=>setNewTitle(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&submitNew()} placeholder="नयाँ अध्यायको नाम लेख्नुहोस्" style={{flex:1,border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 12px",fontSize:16.5,fontFamily:"Inter,sans-serif"}}/>
+          <input autoFocus value={newTitle} onChange={(e)=>setNewTitle(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&submitNew()} placeholder="नयाँ अध्यायको नाम लेख्नुहोस्" className="ss-field" style={{flex:1,borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
           <button onClick={submitNew} disabled={adding||!newTitle.trim()} style={{background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontWeight:700,fontSize:16,cursor:"pointer"}}>{adding?"...":"थप्नुहोस्"}</button>
         </div>
       )}
@@ -266,26 +275,42 @@ function LoginScreen({ onLogin }) {
     else onLogin(data.session);
   };
   return(
-    <div style={{minHeight:"100vh",background:`radial-gradient(circle at 20% 15%, ${ACCENT_LIGHT} 0%, ${PAPER} 45%)`,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <div style={{width:"100%",maxWidth:400}}>
-        <div style={{textAlign:"center",marginBottom:36}}>
-          <div style={{width:72,height:72,borderRadius:22,background:`linear-gradient(135deg, ${TEAL} 0%, ${ACCENT} 55%, ${ACCENT_DARK} 100%)`,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,fontWeight:800,margin:"0 auto 18px",boxShadow:SHADOW.accent}}>सि</div>
-          <div style={{fontSize:29,fontWeight:800,color:INK,letterSpacing:"-0.02em"}}>शिक्षा साथी</div>
-          <div style={{fontSize:16.5,color:INK_SOFT,marginTop:5,fontWeight:500}}>कक्षा ५ · सामाजिक अध्ययन</div>
+    <div style={{minHeight:"100vh",position:"relative",overflow:"hidden",background:`radial-gradient(1000px 560px at 15% -10%, ${ACCENT_LIGHT}, ${PAPER} 55%)`,display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}>
+      <div style={{position:"absolute",top:-120,right:-100,width:340,height:340,borderRadius:"50%",background:`radial-gradient(circle, ${MARIGOLD}22, transparent 70%)`,pointerEvents:"none"}}/>
+      <div style={{position:"absolute",bottom:-140,left:-110,width:360,height:360,borderRadius:"50%",background:`radial-gradient(circle, ${TEAL}1E, transparent 70%)`,pointerEvents:"none"}}/>
+
+      <div style={{width:"100%",maxWidth:408,position:"relative"}}>
+        <div style={{textAlign:"center",marginBottom:32}}>
+          <img src="/icons/icon-192.png" alt="शिक्षा साथी" width={76} height={76} style={{borderRadius:22,margin:"0 auto 18px",display:"block",boxShadow:SHADOW.accent}}/>
+          <div style={{fontSize:30,fontWeight:800,color:INK,letterSpacing:"-0.02em"}}>शिक्षा साथी</div>
+          <div style={{fontSize:16.5,color:INK_SOFT,marginTop:6,fontWeight:600}}>कक्षा ५ · सामाजिक अध्ययन शिक्षकको साथी</div>
         </div>
-        <Card style={{boxShadow:SHADOW.lg,padding:26}}>
-          <div style={{fontSize:19,fontWeight:800,color:INK,marginBottom:18}}>{mode==="login"?"लगइन":"नयाँ खाता"}</div>
-          {error&&<ErrorMsg msg={error}/>}
-          {success&&<div style={{background:ACCENT_LIGHT,borderRadius:12,padding:"11px 15px",fontSize:16,color:ACCENT,marginBottom:10,fontWeight:600}}>{success}</div>}
-          <div style={{display:"flex",flexDirection:"column",gap:13}}>
-            <input type="email" placeholder="इमेल" value={email} onChange={(e)=>setEmail(e.target.value)} style={{border:`1.5px solid ${BORDER}`,borderRadius:12,padding:"13px 15px",fontSize:17,fontFamily:"Inter,sans-serif",outline:"none"}}/>
-            <input type="password" placeholder="पासवर्ड" value={password} onChange={(e)=>setPassword(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&handle()} style={{border:`1.5px solid ${BORDER}`,borderRadius:12,padding:"13px 15px",fontSize:17,fontFamily:"Inter,sans-serif",outline:"none"}}/>
-            <Button variant="primary" size="lg" onClick={handle} disabled={loading} style={{width:"100%",marginTop:4}}>{loading?"...":mode==="login"?"लगइन":"खाता बनाउनुहोस्"}</Button>
+
+        <Card style={{boxShadow:SHADOW.lg,padding:8,border:`1px solid ${BORDER}`}}>
+          <div style={{display:"flex",gap:4,padding:6,background:SURFACE_2,borderRadius:14,marginBottom:22}}>
+            <button onClick={()=>setMode("login")} className="ss-btn" style={{flex:1,padding:"10px",borderRadius:10,border:"none",cursor:"pointer",fontWeight:700,fontSize:16,background:mode==="login"?SURFACE:"transparent",color:mode==="login"?ACCENT:INK_SOFT,boxShadow:mode==="login"?SHADOW.sm:"none"}}>लगइन</button>
+            <button onClick={()=>setMode("signup")} className="ss-btn" style={{flex:1,padding:"10px",borderRadius:10,border:"none",cursor:"pointer",fontWeight:700,fontSize:16,background:mode==="signup"?SURFACE:"transparent",color:mode==="signup"?ACCENT:INK_SOFT,boxShadow:mode==="signup"?SHADOW.sm:"none"}}>नयाँ खाता</button>
           </div>
-          <div style={{textAlign:"center",marginTop:18,fontSize:16,color:INK_SOFT}}>
-            {mode==="login"?<><span>खाता छैन? </span><span onClick={()=>setMode("signup")} style={{color:ACCENT,fontWeight:700,cursor:"pointer"}}>नयाँ बनाउनुहोस्</span></>:<><span>खाता छ? </span><span onClick={()=>setMode("login")} style={{color:ACCENT,fontWeight:700,cursor:"pointer"}}>लगइन</span></>}
+
+          <div style={{padding:"0 18px 22px"}}>
+            {error&&<ErrorMsg msg={error}/>}
+            {success&&<div style={{display:"flex",alignItems:"center",gap:8,background:ACCENT_LIGHT,borderRadius:12,padding:"11px 15px",fontSize:16,color:ACCENT,marginBottom:12,fontWeight:600}}><CheckCircle2 size={16}/>{success}</div>}
+
+            <div style={{display:"flex",flexDirection:"column",gap:13}}>
+              <div style={{position:"relative"}}>
+                <User size={17} color={INK_SOFT} style={{position:"absolute",left:15,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}/>
+                <input type="email" placeholder="इमेल" value={email} onChange={(e)=>setEmail(e.target.value)} style={{width:"100%",border:`1.5px solid ${BORDER}`,borderRadius:12,padding:"13px 15px 13px 42px",fontSize:16.5,outline:"none",background:SURFACE_2}}/>
+              </div>
+              <div style={{position:"relative"}}>
+                <Lock size={17} color={INK_SOFT} style={{position:"absolute",left:15,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}/>
+                <input type="password" placeholder="पासवर्ड" value={password} onChange={(e)=>setPassword(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&handle()} style={{width:"100%",border:`1.5px solid ${BORDER}`,borderRadius:12,padding:"13px 15px 13px 42px",fontSize:16.5,outline:"none",background:SURFACE_2}}/>
+              </div>
+              <Button variant="primary" size="lg" onClick={handle} disabled={loading} style={{width:"100%",marginTop:4}}>{loading?<Spinner small/>:mode==="login"?"लगइन गर्नुहोस्":"खाता बनाउनुहोस्"}</Button>
+            </div>
           </div>
         </Card>
+
+        <div style={{textAlign:"center",marginTop:22,fontSize:14.5,color:INK_SOFT}}>नेपाली शिक्षकहरूका लागि, ❤️ सहित बनाइएको</div>
       </div>
     </div>
   );
@@ -303,19 +328,19 @@ function SectionSelector({ sections, current, onChange, onAdd }) {
     if(!error){onAdd(data);setName("");setAdding(false);}
   };
   return(
-    <div style={{padding:"10px 16px",background:SURFACE,borderBottom:`1px solid ${BORDER}`}}>
+    <div style={{padding:"11px 16px",background:SURFACE,borderBottom:`1px solid ${BORDER}`}}>
       <div style={{display:"flex",gap:8,overflowX:"auto",alignItems:"center"}}>
         {sections.map((s)=>(
-          <button key={s.id} onClick={()=>onChange(s)} style={{padding:"6px 14px",borderRadius:999,border:"none",fontWeight:700,fontSize:16,whiteSpace:"nowrap",cursor:"pointer",background:current?.id===s.id?ACCENT:WARN_BG,color:current?.id===s.id?"#fff":"#7A6F3E"}}>{s.name}</button>
+          <button key={s.id} onClick={()=>onChange(s)} className="ss-chip" style={{padding:"7px 16px",borderRadius:999,border:`1.5px solid ${current?.id===s.id?ACCENT:BORDER}`,fontWeight:700,fontSize:15.5,whiteSpace:"nowrap",cursor:"pointer",background:current?.id===s.id?ACCENT:SURFACE_2,color:current?.id===s.id?"#fff":INK_SOFT,boxShadow:current?.id===s.id?SHADOW.sm:"none"}}>{s.name}</button>
         ))}
         {adding?(
           <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
-            <input autoFocus value={name} onChange={(e)=>setName(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&save()} placeholder="जस्तै: ५ क" style={{border:`1px solid ${BORDER}`,borderRadius:8,padding:"6px 10px",fontSize:16,width:100,fontFamily:"Inter,sans-serif"}}/>
-            <button onClick={save} disabled={loading} style={{background:ACCENT,color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontWeight:700,fontSize:16,cursor:"pointer"}}>{loading?"...":"थप"}</button>
+            <input autoFocus value={name} onChange={(e)=>setName(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&save()} placeholder="जस्तै: ५ क" style={{border:`1.5px solid ${BORDER}`,borderRadius:10,padding:"7px 11px",fontSize:15.5,width:100}}/>
+            <button onClick={save} disabled={loading} style={{background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"7px 13px",fontWeight:700,fontSize:15.5,cursor:"pointer"}}>{loading?"...":"थप"}</button>
             <button onClick={()=>setAdding(false)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><X size={16}/></button>
           </div>
         ):(
-          <button onClick={()=>setAdding(true)} style={{display:"flex",alignItems:"center",gap:4,padding:"6px 10px",borderRadius:999,border:`1px dashed ${INK_SOFT}`,background:"none",color:INK_SOFT,fontSize:15,fontWeight:600,cursor:"pointer",flexShrink:0}}><Plus size={13}/>थप</button>
+          <button onClick={()=>setAdding(true)} className="ss-chip" style={{display:"flex",alignItems:"center",gap:4,padding:"7px 12px",borderRadius:999,border:`1.5px dashed ${BORDER}`,background:"none",color:INK_SOFT,fontSize:15,fontWeight:700,cursor:"pointer",flexShrink:0}}><Plus size={13}/>नयाँ सेक्सन</button>
         )}
       </div>
     </div>
@@ -533,17 +558,17 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
           <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title}/>
           <div style={{display:"flex",flexDirection:"column",gap:9}}>
             {[["title","पाठको नाम *"]].map(([f,p])=>(
-              <input key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} style={{border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 12px",fontSize:16.5,fontFamily:"Inter,sans-serif"}}/>
+              <input key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
             ))}
             <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} chapters={chapters||[]} onAddChapter={onAddChapter} placeholder="— अध्याय छान्नुहोस् —"/>
             {[["homework","गृहकार्य"],["notes","नोट"]].map(([f,p])=>(
-              <input key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} style={{border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 12px",fontSize:16.5,fontFamily:"Inter,sans-serif"}}/>
+              <input key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
             ))}
             {[["objectives","उद्देश्यहरू (प्रत्येक नयाँ लाइनमा)"],["vocabulary","शब्दावली (कमाले छुट्याउनुहोस्)"],["sequence","पढाउने क्रम (प्रत्येक नयाँ लाइनमा)"],["key_questions","मुख्य प्रश्नहरू (प्रत्येक नयाँ लाइनमा)"],["activities","क्रियाकलापहरू (प्रत्येक नयाँ लाइनमा)"]].map(([f,p])=>(
-              <textarea key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} rows={3} style={{border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 12px",fontSize:16.5,fontFamily:"Inter,sans-serif",resize:"vertical"}}/>
+              <textarea key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} rows={3} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
             ))}
             <div style={{display:"flex",gap:8}}>
-              {["missing","prep","ready"].map((s)=><button key={s} onClick={()=>setForm({...form,status:s})} style={{flex:1,padding:"8px",borderRadius:10,border:`2px solid ${form.status===s?ACCENT:BORDER}`,background:form.status===s?"#E4EFE6":"#fff",cursor:"pointer"}}><StatusPill status={s}/></button>)}
+              {["missing","prep","ready"].map((s)=><button key={s} onClick={()=>setForm({...form,status:s})} style={{flex:1,padding:"8px",borderRadius:10,border:`2px solid ${form.status===s?ACCENT:BORDER}`,background:form.status===s?ACCENT_LIGHT:SURFACE,cursor:"pointer"}}><StatusPill status={s}/></button>)}
             </div>
             <div style={{display:"flex",gap:8}}>
               <button onClick={()=>setShowForm(false)} style={{flex:1,padding:"11px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer"}}>रद्द</button>
@@ -552,7 +577,7 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
           </div>
         </Card>
       )}
-      {loading?<Spinner/>:lessons.length===0?<div style={{textAlign:"center",color:INK_SOFT,padding:40}}>कुनै पाठ छैन।</div>:(
+      {loading?<Spinner/>:lessons.length===0?<EmptyState icon={ClipboardList} text="कुनै पाठ छैन।"/>:(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {lessons.map((l)=>(
             <Card key={l.id} onClick={()=>onOpenLesson(l)}>
@@ -580,7 +605,7 @@ function CategoryPicker({ value, onChange }) {
       {CATEGORY_ORDER.map((key)=>{
         const meta=CATEGORY_META[key];const Icon=meta.icon;const active=value===key;
         return(
-          <button key={key} type="button" onClick={()=>onChange(key)} className="ss-chip" style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,padding:"10px 6px",borderRadius:12,border:`2px solid ${active?meta.color:BORDER}`,background:active?meta.color+"14":"#fff",color:active?meta.color:INK_SOFT,fontWeight:700,fontSize:15,cursor:"pointer"}}>
+          <button key={key} type="button" onClick={()=>onChange(key)} className="ss-chip" style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,padding:"10px 6px",borderRadius:12,border:`2px solid ${active?meta.color:BORDER}`,background:active?meta.color+"14":SURFACE,color:active?meta.color:INK_SOFT,fontWeight:700,fontSize:15,cursor:"pointer"}}>
             <Icon size={17}/>{meta.label}
           </button>
         );
@@ -742,11 +767,11 @@ function Materials({ chapters, onAddChapter, onChaptersChanged }) {
       </Card>
 
       <div style={{display:"flex",gap:7,overflowX:"auto",marginBottom:12,paddingBottom:2}}>
-        <button onClick={()=>setCategoryFilter("all")} className="ss-chip" style={{padding:"8px 14px",borderRadius:999,background:categoryFilter==="all"?ACCENT:"#fff",color:categoryFilter==="all"?"#fff":INK,fontWeight:700,fontSize:16,whiteSpace:"nowrap",cursor:"pointer",border:`1.5px solid ${categoryFilter==="all"?ACCENT:BORDER}`,boxShadow:categoryFilter==="all"?SHADOW.sm:"none"}}>सबै ({materials.length})</button>
+        <button onClick={()=>setCategoryFilter("all")} className="ss-chip" style={{padding:"8px 14px",borderRadius:999,background:categoryFilter==="all"?ACCENT:SURFACE,color:categoryFilter==="all"?"#fff":INK,fontWeight:700,fontSize:16,whiteSpace:"nowrap",cursor:"pointer",border:`1.5px solid ${categoryFilter==="all"?ACCENT:BORDER}`,boxShadow:categoryFilter==="all"?SHADOW.sm:"none"}}>सबै ({materials.length})</button>
         {CATEGORY_ORDER.map((key)=>{
           const meta=CATEGORY_META[key];const Icon=meta.icon;const active=categoryFilter===key;
           return(
-            <button key={key} onClick={()=>setCategoryFilter(key)} className="ss-chip" style={{display:"flex",alignItems:"center",gap:5,padding:"8px 14px",borderRadius:999,background:active?meta.color:"#fff",color:active?"#fff":INK,fontWeight:700,fontSize:16,whiteSpace:"nowrap",cursor:"pointer",border:`1.5px solid ${active?meta.color:BORDER}`,boxShadow:active?SHADOW.sm:"none"}}><Icon size={13}/>{meta.label} ({categoryCounts[key]||0})</button>
+            <button key={key} onClick={()=>setCategoryFilter(key)} className="ss-chip" style={{display:"flex",alignItems:"center",gap:5,padding:"8px 14px",borderRadius:999,background:active?meta.color:SURFACE,color:active?"#fff":INK,fontWeight:700,fontSize:16,whiteSpace:"nowrap",cursor:"pointer",border:`1.5px solid ${active?meta.color:BORDER}`,boxShadow:active?SHADOW.sm:"none"}}><Icon size={13}/>{meta.label} ({categoryCounts[key]||0})</button>
           );
         })}
       </div>
@@ -754,16 +779,16 @@ function Materials({ chapters, onAddChapter, onChaptersChanged }) {
       <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
         <div style={{flex:1,minWidth:180,display:"flex",alignItems:"center",gap:8,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"11px 14px"}}>
           <Search size={16} color={INK_SOFT}/>
-          <input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="फाइल खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:16.5,flex:1,background:"transparent",fontFamily:"Inter,sans-serif"}}/>
+          <input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="फाइल खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:16.5,flex:1,background:"transparent",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
         </div>
-        <select value={sortBy} onChange={(e)=>setSortBy(e.target.value)} style={{border:`1px solid ${BORDER}`,borderRadius:12,padding:"11px 14px",fontSize:16,fontFamily:"Inter,sans-serif",background:SURFACE,color:INK,fontWeight:600}}>
+        <select value={sortBy} onChange={(e)=>setSortBy(e.target.value)} style={{border:`1px solid ${BORDER}`,borderRadius:12,padding:"11px 14px",fontSize:16,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif",background:SURFACE,color:INK,fontWeight:600}}>
           <option value="newest">नयाँ पहिले</option>
           <option value="name">नाम अनुसार (क-ज्ञ)</option>
         </select>
       </div>
 
       {loading?<Spinner/>:filtered.length===0?(
-        <div style={{textAlign:"center",color:INK_SOFT,padding:50,fontSize:16.5}}>{query?`"${query}" फेला परेन।`:"यो श्रेणीमा फाइल थपिएको छैन।"}</div>
+        <EmptyState icon={FileText} text={query?`"${query}" फेला परेन।`:"यो श्रेणीमा फाइल थपिएको छैन।"}/>
       ):(
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:12}}>
           {filtered.map((f)=>{
@@ -876,9 +901,9 @@ function HomeworkManager({ section, loading, homework, onRefresh }) {
       {showForm&&(
         <Card style={{marginBottom:14}}>
           <div style={{display:"flex",flexDirection:"column",gap:9}}>
-            <input placeholder="गृहकार्यको शीर्षक" value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} style={{border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 12px",fontSize:16.5,fontFamily:"Inter,sans-serif"}}/>
-            <input type="number" placeholder="कुल विद्यार्थी" value={form.total_students} onChange={(e)=>setForm({...form,total_students:parseInt(e.target.value)||0})} style={{border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 12px",fontSize:16.5,fontFamily:"Inter,sans-serif"}}/>
-            <textarea placeholder="टिप्पणी" value={form.remark} onChange={(e)=>setForm({...form,remark:e.target.value})} rows={2} style={{border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 12px",fontSize:16.5,fontFamily:"Inter,sans-serif",resize:"vertical"}}/>
+            <input placeholder="गृहकार्यको शीर्षक" value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+            <input type="number" placeholder="कुल विद्यार्थी" value={form.total_students} onChange={(e)=>setForm({...form,total_students:parseInt(e.target.value)||0})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+            <textarea placeholder="टिप्पणी" value={form.remark} onChange={(e)=>setForm({...form,remark:e.target.value})} rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
             <div style={{display:"flex",gap:8}}>
               <button onClick={()=>setShowForm(false)} style={{flex:1,padding:"10px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer"}}>रद्द</button>
               <button onClick={save} disabled={saving} style={{flex:1,padding:"10px",borderRadius:10,border:"none",background:ACCENT,color:"#fff",fontWeight:700,cursor:"pointer"}}>{saving?"...":"सुरक्षित"}</button>
@@ -886,7 +911,7 @@ function HomeworkManager({ section, loading, homework, onRefresh }) {
           </div>
         </Card>
       )}
-      {loading?<Spinner/>:homework.length===0?<div style={{textAlign:"center",color:INK_SOFT,padding:40}}>कुनै गृहकार्य छैन।</div>:(
+      {loading?<Spinner/>:homework.length===0?<EmptyState icon={ListChecks} text="कुनै गृहकार्य छैन।"/>:(
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
           {homework.map((h)=>{
             const pct=h.total_students>0?Math.round((h.checked_count/h.total_students)*100):0;
@@ -896,7 +921,7 @@ function HomeworkManager({ section, loading, homework, onRefresh }) {
                 <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
                   <div style={{fontSize:17,fontWeight:700,color:INK}}>{h.title}</div>
                   <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                    <span style={{fontSize:15,fontWeight:700,color:done?ACCENT:WARN,background:done?"#E4EFE6":"#FBEBD3",padding:"3px 8px",borderRadius:999}}>{h.checked_count}/{h.total_students}</span>
+                    <span style={{fontSize:15,fontWeight:700,color:done?ACCENT:WARN,background:done?ACCENT_LIGHT:WARN_BG,padding:"3px 8px",borderRadius:999}}>{h.checked_count}/{h.total_students}</span>
                     <button onClick={()=>deleteHw(h)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><Trash2 size={14}/></button>
                   </div>
                 </div>
@@ -940,12 +965,12 @@ function TeachingJournal() {
       {showForm&&(
         <Card style={{marginBottom:14}}>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            <input placeholder="आजको पाठ" value={form.lesson_title} onChange={(e)=>setForm({...form,lesson_title:e.target.value})} style={{border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 12px",fontSize:16.5,fontFamily:"Inter,sans-serif"}}/>
-            <textarea placeholder="के पढाइयो?" value={form.taught} onChange={(e)=>setForm({...form,taught:e.target.value})} rows={2} style={{border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 12px",fontSize:16.5,fontFamily:"Inter,sans-serif",resize:"vertical"}}/>
-            <textarea placeholder="के गाह्रो भयो?" value={form.difficulty} onChange={(e)=>setForm({...form,difficulty:e.target.value})} rows={2} style={{border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 12px",fontSize:16.5,fontFamily:"Inter,sans-serif",resize:"vertical"}}/>
-            <textarea placeholder="अर्को पटककालागि सुझाव" value={form.idea} onChange={(e)=>setForm({...form,idea:e.target.value})} rows={2} style={{border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 12px",fontSize:16.5,fontFamily:"Inter,sans-serif",resize:"vertical"}}/>
+            <input placeholder="आजको पाठ" value={form.lesson_title} onChange={(e)=>setForm({...form,lesson_title:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+            <textarea placeholder="के पढाइयो?" value={form.taught} onChange={(e)=>setForm({...form,taught:e.target.value})} rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
+            <textarea placeholder="के गाह्रो भयो?" value={form.difficulty} onChange={(e)=>setForm({...form,difficulty:e.target.value})} rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
+            <textarea placeholder="अर्को पटककालागि सुझाव" value={form.idea} onChange={(e)=>setForm({...form,idea:e.target.value})} rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
             <div style={{display:"flex",gap:8}}>
-              {Object.entries(MOOD_META).map(([key,m])=>{const Icon=m.icon;return<button key={key} onClick={()=>setForm({...form,mood:key})} style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:5,padding:"8px",borderRadius:10,border:form.mood===key?`2px solid ${m.color}`:`1px solid ${BORDER}`,background:form.mood===key?m.color+"15":"#fff",color:m.color,fontSize:15,fontWeight:700,cursor:"pointer"}}><Icon size={13}/>{m.label}</button>;})}
+              {Object.entries(MOOD_META).map(([key,m])=>{const Icon=m.icon;return<button key={key} onClick={()=>setForm({...form,mood:key})} style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:5,padding:"8px",borderRadius:10,border:form.mood===key?`2px solid ${m.color}`:`1px solid ${BORDER}`,background:form.mood===key?m.color+"15":SURFACE,color:m.color,fontSize:15,fontWeight:700,cursor:"pointer"}}><Icon size={13}/>{m.label}</button>;})}
             </div>
             <div style={{display:"flex",gap:8}}>
               <button onClick={()=>setShowForm(false)} style={{flex:1,padding:"10px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer"}}>रद्द</button>
@@ -954,7 +979,7 @@ function TeachingJournal() {
           </div>
         </Card>
       )}
-      {loading?<Spinner/>:entries.length===0?<div style={{textAlign:"center",color:INK_SOFT,padding:40}}>कुनै प्रविष्टि छैन।</div>:(
+      {loading?<Spinner/>:entries.length===0?<EmptyState icon={Heart} text="कुनै प्रविष्टि छैन।"/>:(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {entries.map((e)=>{const mood=MOOD_META[e.mood]||MOOD_META.okay;const MIcon=mood.icon;return(
             <Card key={e.id}>
@@ -1015,7 +1040,7 @@ function AIAssistant({ lessons }) {
       <div style={{flex:1,overflowY:"auto",padding:"6px 16px"}}>
         {messages.map((m,i)=>(
           <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",marginBottom:10}}>
-            <div style={{maxWidth:"88%",background:m.role==="user"?ACCENT:"#fff",color:m.role==="user"?"#fff":INK,border:m.role==="ai"?`1px solid ${BORDER}`:"none",borderRadius:14,padding:"11px 14px",fontSize:16.5,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{m.text}</div>
+            <div style={{maxWidth:"88%",background:m.role==="user"?ACCENT:SURFACE,color:m.role==="user"?"#fff":INK,border:m.role==="ai"?`1px solid ${BORDER}`:"none",borderRadius:14,padding:"11px 14px",fontSize:16.5,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{m.text}</div>
           </div>
         ))}
         {loading&&<div style={{display:"flex",marginBottom:10}}><div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:14,padding:"11px 14px",color:INK_SOFT,fontSize:16.5}}>सोच्दै छु...</div></div>}
@@ -1025,7 +1050,7 @@ function AIAssistant({ lessons }) {
         {QUICK.map((q)=><button key={q} onClick={()=>send(q)} style={{flexShrink:0,background:WARN_BG,color:MARIGOLD_DARK,border:"none",borderRadius:999,padding:"7px 12px",fontSize:15,fontWeight:600,whiteSpace:"nowrap",cursor:"pointer"}}>{q}</button>)}
       </div>
       <div style={{display:"flex",gap:8,padding:"8px 16px 16px"}}>
-        <input value={input} onChange={(e)=>setInput(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&send(input)} placeholder="आफ्नो प्रश्न लेख्नुहोस्..." style={{flex:1,border:`1px solid ${BORDER}`,borderRadius:999,padding:"12px 16px",fontSize:16.5,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+        <input value={input} onChange={(e)=>setInput(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&send(input)} placeholder="आफ्नो प्रश्न लेख्नुहोस्..." style={{flex:1,border:`1px solid ${BORDER}`,borderRadius:999,padding:"12px 16px",fontSize:16.5,outline:"none",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
         <button onClick={()=>send(input)} style={{background:ACCENT,color:"#fff",border:"none",borderRadius:"50%",width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}><Send size={17}/></button>
       </div>
     </div>
@@ -1093,10 +1118,10 @@ function QuestionBank({ chapters, onAddChapter }) {
           <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title}/>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} chapters={chapters||[]} onAddChapter={onAddChapter} placeholder="— अध्याय छान्नुहोस् (AI का लागि अनिवार्य) —"/>
-            <textarea placeholder="प्रश्न (म्यानुअल)" value={form.text} onChange={(e)=>setForm({...form,text:e.target.value})} rows={3} style={{border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 12px",fontSize:16.5,fontFamily:"Inter,sans-serif",resize:"vertical"}}/>
+            <textarea placeholder="प्रश्न (म्यानुअल)" value={form.text} onChange={(e)=>setForm({...form,text:e.target.value})} rows={3} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
             <div style={{display:"flex",gap:8}}>
-              <select value={form.type} onChange={(e)=>setForm({...form,type:e.target.value})} style={{flex:1,border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 12px",fontSize:16.5,fontFamily:"Inter,sans-serif"}}>{TYPES.map((t)=><option key={t}>{t}</option>)}</select>
-              <select value={form.difficulty} onChange={(e)=>setForm({...form,difficulty:e.target.value})} style={{flex:1,border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 12px",fontSize:16.5,fontFamily:"Inter,sans-serif"}}>{"सजिलो,मध्यम,कठिन".split(",").map((d)=><option key={d}>{d}</option>)}</select>
+              <select value={form.type} onChange={(e)=>setForm({...form,type:e.target.value})} className="ss-field" style={{flex:1,borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}>{TYPES.map((t)=><option key={t}>{t}</option>)}</select>
+              <select value={form.difficulty} onChange={(e)=>setForm({...form,difficulty:e.target.value})} className="ss-field" style={{flex:1,borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}>{"सजिलो,मध्यम,कठिन".split(",").map((d)=><option key={d}>{d}</option>)}</select>
             </div>
             <div style={{display:"flex",gap:8}}>
               <button onClick={()=>setShowForm(false)} style={{flex:1,padding:"10px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer"}}>रद्द</button>
@@ -1107,12 +1132,12 @@ function QuestionBank({ chapters, onAddChapter }) {
       )}
       <div style={{display:"flex",alignItems:"center",gap:8,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"10px 14px",marginBottom:10}}>
         <Search size={16} color={INK_SOFT}/>
-        <input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="प्रश्न खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:16.5,flex:1,background:"transparent",fontFamily:"Inter,sans-serif"}}/>
+        <input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="प्रश्न खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:16.5,flex:1,background:"transparent",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
       </div>
       <div style={{display:"flex",gap:7,overflowX:"auto",marginBottom:14}}>
-        {DIFFS.map((d)=><button key={d} onClick={()=>setDiffFilter(d)} style={{padding:"6px 12px",borderRadius:999,background:diffFilter===d?ACCENT:"#fff",color:diffFilter===d?"#fff":INK,fontWeight:600,fontSize:15.5,whiteSpace:"nowrap",cursor:"pointer",border:"1px solid "+(diffFilter===d?ACCENT:BORDER)}}>{d}</button>)}
+        {DIFFS.map((d)=><button key={d} onClick={()=>setDiffFilter(d)} style={{padding:"6px 12px",borderRadius:999,background:diffFilter===d?ACCENT:SURFACE,color:diffFilter===d?"#fff":INK,fontWeight:600,fontSize:15.5,whiteSpace:"nowrap",cursor:"pointer",border:"1px solid "+(diffFilter===d?ACCENT:BORDER)}}>{d}</button>)}
       </div>
-      {loading?<Spinner/>:filtered.length===0?<div style={{textAlign:"center",color:INK_SOFT,padding:40}}>कुनै प्रश्न छैन।</div>:(
+      {loading?<Spinner/>:filtered.length===0?<EmptyState icon={HelpCircle} text="कुनै प्रश्न छैन।"/>:(
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           {filtered.map((q)=>{const isSel=selected.includes(q.id);return(
             <Card key={q.id} onClick={()=>toggle(q.id)} style={{display:"flex",gap:10}}>
@@ -1206,13 +1231,13 @@ function AssessmentBuilder({ chapters, onAddChapter }) {
           {error&&<ErrorMsg msg={error}/>}
           <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title}/>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            <input placeholder="शीर्षक *" value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} style={{border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 12px",fontSize:16.5,fontFamily:"Inter,sans-serif"}}/>
+            <input placeholder="शीर्षक *" value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
             <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} chapters={chapters||[]} onAddChapter={onAddChapter} placeholder="— अध्याय छान्नुहोस् (AI का लागि) —"/>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7}}>
-              {TYPES.map((t)=>{const Icon=t.icon;return<button key={t.id} onClick={()=>setForm({...form,type:t.id})} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"10px 6px",borderRadius:10,border:`2px solid ${form.type===t.id?ACCENT:BORDER}`,background:form.type===t.id?"#E4EFE6":"#fff",color:form.type===t.id?ACCENT:INK,fontWeight:600,fontSize:14.5,cursor:"pointer"}}><Icon size={15}/>{t.label}</button>;})}
+              {TYPES.map((t)=>{const Icon=t.icon;return<button key={t.id} onClick={()=>setForm({...form,type:t.id})} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"10px 6px",borderRadius:10,border:`2px solid ${form.type===t.id?ACCENT:BORDER}`,background:form.type===t.id?ACCENT_LIGHT:SURFACE,color:form.type===t.id?ACCENT:INK,fontWeight:600,fontSize:14.5,cursor:"pointer"}}><Icon size={15}/>{t.label}</button>;})}
             </div>
-            <textarea placeholder={"मापदण्ड:\nउत्कृष्ट: ...\nराम्रो: ...\nसहयोग आवश्यक: ..."} value={form.rubric_text} onChange={(e)=>setForm({...form,rubric_text:e.target.value})} rows={4} style={{border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 12px",fontSize:16.5,fontFamily:"Inter,sans-serif",resize:"vertical"}}/>
-            <input type="date" value={form.due_date} onChange={(e)=>setForm({...form,due_date:e.target.value})} style={{border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 12px",fontSize:16.5,fontFamily:"Inter,sans-serif"}}/>
+            <textarea placeholder={"मापदण्ड:\nउत्कृष्ट: ...\nराम्रो: ...\nसहयोग आवश्यक: ..."} value={form.rubric_text} onChange={(e)=>setForm({...form,rubric_text:e.target.value})} rows={4} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
+            <input type="date" value={form.due_date} onChange={(e)=>setForm({...form,due_date:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
             <div style={{display:"flex",gap:8}}>
               <button onClick={()=>setShowForm(false)} style={{flex:1,padding:"10px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer"}}>रद्द</button>
               <button onClick={save} disabled={saving} style={{flex:1,padding:"10px",borderRadius:10,border:"none",background:ACCENT,color:"#fff",fontWeight:700,cursor:"pointer"}}>{saving?"...":"सुरक्षित"}</button>
@@ -1287,12 +1312,12 @@ function ActivitiesLibrary({ chapters, onAddChapter }) {
           <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title}/>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} chapters={chapters||[]} onAddChapter={onAddChapter} placeholder="— अध्याय छान्नुहोस् (AI का लागि अनिवार्य) —"/>
-            <input placeholder="क्रियाकलापको नाम" value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} style={{border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 12px",fontSize:16.5,fontFamily:"Inter,sans-serif"}}/>
-            <input placeholder="क्षमता" value={form.competency} onChange={(e)=>setForm({...form,competency:e.target.value})} style={{border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 12px",fontSize:16.5,fontFamily:"Inter,sans-serif"}}/>
-            <input placeholder="समय" value={form.duration} onChange={(e)=>setForm({...form,duration:e.target.value})} style={{border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 12px",fontSize:16.5,fontFamily:"Inter,sans-serif"}}/>
-            <textarea placeholder="विवरण" value={form.description} onChange={(e)=>setForm({...form,description:e.target.value})} rows={3} style={{border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 12px",fontSize:16.5,fontFamily:"Inter,sans-serif",resize:"vertical"}}/>
+            <input placeholder="क्रियाकलापको नाम" value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+            <input placeholder="क्षमता" value={form.competency} onChange={(e)=>setForm({...form,competency:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+            <input placeholder="समय" value={form.duration} onChange={(e)=>setForm({...form,duration:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+            <textarea placeholder="विवरण" value={form.description} onChange={(e)=>setForm({...form,description:e.target.value})} rows={3} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
-              {TYPES.map((t)=>{const Icon=t.icon;return<button key={t.id} onClick={()=>setForm({...form,type:t.id})} style={{display:"flex",alignItems:"center",gap:6,padding:"9px 10px",borderRadius:10,border:`2px solid ${form.type===t.id?ACCENT:BORDER}`,background:form.type===t.id?"#E4EFE6":"#fff",color:form.type===t.id?ACCENT:INK,fontWeight:600,fontSize:15.5,cursor:"pointer"}}><Icon size={14}/>{t.label}</button>;})}
+              {TYPES.map((t)=>{const Icon=t.icon;return<button key={t.id} onClick={()=>setForm({...form,type:t.id})} style={{display:"flex",alignItems:"center",gap:6,padding:"9px 10px",borderRadius:10,border:`2px solid ${form.type===t.id?ACCENT:BORDER}`,background:form.type===t.id?ACCENT_LIGHT:SURFACE,color:form.type===t.id?ACCENT:INK,fontWeight:600,fontSize:15.5,cursor:"pointer"}}><Icon size={14}/>{t.label}</button>;})}
             </div>
             <div style={{display:"flex",gap:8}}>
               <button onClick={()=>setShowForm(false)} style={{flex:1,padding:"10px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer"}}>रद्द</button>
@@ -1302,10 +1327,10 @@ function ActivitiesLibrary({ chapters, onAddChapter }) {
         </Card>
       )}
       <div style={{display:"flex",gap:7,overflowX:"auto",marginBottom:14}}>
-        <button onClick={()=>setTypeFilter("सबै")} style={{padding:"6px 12px",borderRadius:999,background:typeFilter==="सबै"?ACCENT:"#fff",color:typeFilter==="सबै"?"#fff":INK,fontWeight:600,fontSize:15.5,whiteSpace:"nowrap",cursor:"pointer",border:"1px solid "+(typeFilter==="सबै"?ACCENT:BORDER)}}>सबै</button>
-        {TYPES.map((t)=>{const Icon=t.icon;return<button key={t.id} onClick={()=>setTypeFilter(t.id)} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:999,background:typeFilter===t.id?ACCENT:"#fff",color:typeFilter===t.id?"#fff":INK,fontWeight:600,fontSize:15.5,whiteSpace:"nowrap",cursor:"pointer",border:"1px solid "+(typeFilter===t.id?ACCENT:BORDER)}}><Icon size={13}/>{t.label}</button>;})}
+        <button onClick={()=>setTypeFilter("सबै")} style={{padding:"6px 12px",borderRadius:999,background:typeFilter==="सबै"?ACCENT:SURFACE,color:typeFilter==="सबै"?"#fff":INK,fontWeight:600,fontSize:15.5,whiteSpace:"nowrap",cursor:"pointer",border:"1px solid "+(typeFilter==="सबै"?ACCENT:BORDER)}}>सबै</button>
+        {TYPES.map((t)=>{const Icon=t.icon;return<button key={t.id} onClick={()=>setTypeFilter(t.id)} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:999,background:typeFilter===t.id?ACCENT:SURFACE,color:typeFilter===t.id?"#fff":INK,fontWeight:600,fontSize:15.5,whiteSpace:"nowrap",cursor:"pointer",border:"1px solid "+(typeFilter===t.id?ACCENT:BORDER)}}><Icon size={13}/>{t.label}</button>;})}
       </div>
-      {loading?<Spinner/>:filtered.length===0?<div style={{textAlign:"center",color:INK_SOFT,padding:40}}>कुनै क्रियाकलाप छैन।</div>:(
+      {loading?<Spinner/>:filtered.length===0?<EmptyState icon={Gamepad2} text="कुनै क्रियाकलाप छैन।"/>:(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {filtered.map((a)=>{const typeInfo=TYPES.find((t)=>t.id===a.type)||TYPES[0];const Icon=typeInfo.icon;return(
             <Card key={a.id}>
@@ -1401,7 +1426,7 @@ function ResourceCreator({ lessons }) {
             {!generating&&generatedText&&<button onClick={()=>window.print()} style={{display:"flex",alignItems:"center",gap:5,background:MARIGOLD,color:"#2A1E07",border:"none",borderRadius:10,padding:"7px 12px",fontWeight:700,fontSize:16,cursor:"pointer"}}><Printer size={14}/>प्रिन्ट</button>}
           </div>
           {generating?<div style={{display:"flex",alignItems:"center",gap:8,color:INK_SOFT,fontSize:16.5,padding:20}}><Spinner small/>AI बनाउँदैछ...</div>:(
-            <pre style={{background:SURFACE_2,borderRadius:10,padding:14,fontSize:16,color:INK,lineHeight:1.7,whiteSpace:"pre-wrap",fontFamily:"Inter,sans-serif",maxHeight:400,overflowY:"auto"}}>{generatedText}</pre>
+            <pre style={{background:SURFACE_2,borderRadius:10,padding:14,fontSize:16,color:INK,lineHeight:1.7,whiteSpace:"pre-wrap",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif",maxHeight:400,overflowY:"auto"}}>{generatedText}</pre>
           )}
         </Card>
       )}
@@ -1434,7 +1459,7 @@ function DocumentSearch({ lessons, homework }) {
       <div style={{fontSize:20,fontWeight:700,color:INK,marginBottom:4}}>सबैतिर खोज</div>
       <div style={{display:"flex",alignItems:"center",gap:8,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:14,padding:"12px 14px",marginBottom:14,marginTop:10}}>
         <Search size={17} color={INK_SOFT}/>
-        <input autoFocus value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:17,flex:1,background:"transparent",fontFamily:"Inter,sans-serif"}}/>
+        <input autoFocus value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:17,flex:1,background:"transparent",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
       </div>
       {!query.trim()?<div style={{textAlign:"center",color:INK_SOFT,padding:40,fontSize:16.5}}>टाइप गर्नुहोस्...</div>:results.length===0?<div style={{textAlign:"center",color:INK_SOFT,padding:40}}>"{query}" फेला परेन।</div>:(
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -1463,10 +1488,10 @@ function CalendarView({ lessons, homework }) {
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
           <button onClick={()=>{if(month===0){setMonth(11);setYear(y=>y-1);}else setMonth(m=>m-1);}} style={{background:WARN_BG,border:"none",borderRadius:8,padding:"6px 12px",fontWeight:700,cursor:"pointer",color:ACCENT,fontSize:18}}>‹</button>
           <div style={{textAlign:"center"}}>
-            <select value={month} onChange={(e)=>setMonth(Number(e.target.value))} style={{border:"none",fontWeight:700,fontSize:18,color:INK,cursor:"pointer",background:"transparent",fontFamily:"Inter,sans-serif"}}>
+            <select value={month} onChange={(e)=>setMonth(Number(e.target.value))} style={{border:"none",fontWeight:700,fontSize:18,color:INK,cursor:"pointer",background:"transparent",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}>
               {MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}
             </select>
-            <select value={year} onChange={(e)=>setYear(Number(e.target.value))} style={{border:"none",fontWeight:700,fontSize:18,color:INK,cursor:"pointer",background:"transparent",fontFamily:"Inter,sans-serif",marginLeft:4}}>
+            <select value={year} onChange={(e)=>setYear(Number(e.target.value))} style={{border:"none",fontWeight:700,fontSize:18,color:INK,cursor:"pointer",background:"transparent",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif",marginLeft:4}}>
               {Array.from({length:5},(_,i)=>today.getFullYear()-1+i).map((y)=><option key={y} value={y}>{y}</option>)}
             </select>
           </div>
@@ -1480,7 +1505,7 @@ function CalendarView({ lessons, homework }) {
           {Array.from({length:daysInMonth},(_,i)=>i+1).map((day)=>{
             const isToday=day===today.getDate()&&month===today.getMonth()&&year===today.getFullYear();
             const isSel=day===selected;
-            return<button key={day} onClick={()=>setSelected(day)} style={{aspectRatio:1,borderRadius:8,border:"none",background:isToday?ACCENT:isSel?"#E4EFE6":"transparent",color:isToday?"#fff":isSel?ACCENT:INK,fontWeight:isToday||isSel?700:400,fontSize:16.5,cursor:"pointer"}}>{day}</button>;
+            return<button key={day} onClick={()=>setSelected(day)} style={{aspectRatio:1,borderRadius:8,border:"none",background:isToday?ACCENT:isSel?ACCENT_LIGHT:"transparent",color:isToday?"#fff":isSel?ACCENT:INK,fontWeight:isToday||isSel?700:400,fontSize:16.5,cursor:"pointer"}}>{day}</button>;
           })}
         </div>
       </Card>
@@ -1499,7 +1524,7 @@ function CalendarView({ lessons, homework }) {
   );
 }
 
-function Settings({ session, sections, onSectionAdded, theme, onToggleTheme }) {
+function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, installPrompt, isStandalone, isIOS, onInstall }) {
   const [name,setName]=useState("");
   const [saving,setSaving]=useState(false);
   const [msg,setMsg]=useState("");
@@ -1546,6 +1571,27 @@ function Settings({ session, sections, onSectionAdded, theme, onToggleTheme }) {
     <div style={{padding:"20px 20px 130px",maxWidth:680,margin:"0 auto"}}>
       <div style={{fontSize:20,fontWeight:700,color:INK,marginBottom:16,display:"flex",alignItems:"center",gap:8}}><SettingsIcon size={20} color={ACCENT}/>सेटिङ</div>
 
+      {!isStandalone&&(
+        <Card style={{marginBottom:14,background:`linear-gradient(135deg, ${TEAL}14, ${ACCENT}08)`,border:`1.5px solid ${ACCENT_LIGHT}`}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
+            <div style={{width:44,height:44,borderRadius:12,background:`linear-gradient(135deg, ${TEAL}, ${ACCENT})`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:SHADOW.accent}}><Zap size={21} color="#fff"/></div>
+            <div>
+              <div style={{fontWeight:800,fontSize:17,color:INK}}>फोन र कम्प्युटरमा एप झैं इन्स्टल गर्नुहोस्</div>
+              <div style={{fontSize:15,color:INK_SOFT,marginTop:1}}>ब्राउजर बिना, होम स्क्रिनबाट सिधै खोल्नुहोस्</div>
+            </div>
+          </div>
+          {isIOS?(
+            <div style={{fontSize:15.5,color:INK,lineHeight:1.7,background:SURFACE,borderRadius:12,padding:"12px 14px"}}>
+              iPhone/iPad मा: तल्लो Share बटन थिच्नुहोस् (वर्गाकार + माथितिरको बाण) → <b>"Add to Home Screen"</b> छान्नुहोस् → <b>"Add"</b> थिच्नुहोस्।
+            </div>
+          ):installPrompt?(
+            <Button variant="primary" icon={Zap} onClick={onInstall} style={{width:"100%"}}>अहिले इन्स्टल गर्नुहोस्</Button>
+          ):(
+            <div style={{fontSize:15,color:INK_SOFT,lineHeight:1.6}}>तपाईंको ब्राउजरको एड्रेस बार वा मेनुमा रहेको "इन्स्टल" वा "Add to Home Screen" विकल्प प्रयोग गर्नुहोस्।</div>
+          )}
+        </Card>
+      )}
+
       <Card style={{marginBottom:14}}>
         <SectionLabel>देखावट (उज्यालो / गाढा)</SectionLabel>
         <div style={{display:"flex",gap:8}}>
@@ -1589,7 +1635,7 @@ function Settings({ session, sections, onSectionAdded, theme, onToggleTheme }) {
           {sections.length===0?<div style={{fontSize:16,color:INK_SOFT}}>कुनै सेक्सन छैन।</div>:sections.map((s)=><div key={s.id} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",background:SURFACE_2,borderRadius:8}}><div style={{width:8,height:8,borderRadius:"50%",background:ACCENT}}/><div style={{fontSize:16.5,fontWeight:600,color:INK}}>{s.name}</div></div>)}
         </div>
         <div style={{display:"flex",gap:8}}>
-          <input value={name} onChange={(e)=>setName(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&addSection()} placeholder="नयाँ सेक्सन (जस्तै: कक्षा ५ ख)" style={{flex:1,border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 12px",fontSize:16.5,fontFamily:"Inter,sans-serif",outline:"none"}}/>
+          <input value={name} onChange={(e)=>setName(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&addSection()} placeholder="नयाँ सेक्सन (जस्तै: कक्षा ५ ख)" className="ss-field" style={{flex:1,borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,outline:"none"}}/>
           <button onClick={addSection} disabled={saving} style={{background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontWeight:700,fontSize:16.5,cursor:"pointer"}}>{saving?"...":"थप"}</button>
         </div>
       </Card>
@@ -1617,6 +1663,32 @@ export default function App() {
   const [synced,setSynced]=useState(false);
   const [chapters,setChapters]=useState([]);
 
+  // NEW — installability. Chrome/Edge on both desktop and Android fire
+  // "beforeinstallprompt" instead of showing their own UI automatically once
+  // a PWA qualifies (valid manifest + service worker); we catch it, hold onto
+  // it, and trigger it ourselves from a real "एप इन्स्टल गर्नुहोस्" button so
+  // the option is actually visible instead of hiding in a browser menu.
+  // iOS Safari never fires this event at all — there is no programmatic
+  // install API there — so it gets manual "Add to Home Screen" steps instead.
+  const [installPrompt,setInstallPrompt]=useState(null);
+  const [isStandalone,setIsStandalone]=useState(false);
+  const isIOS = typeof navigator!=="undefined" && /iphone|ipad|ipod/i.test(navigator.userAgent);
+  useEffect(()=>{
+    const checkStandalone=()=>setIsStandalone(window.matchMedia?.("(display-mode: standalone)")?.matches || window.navigator.standalone===true);
+    checkStandalone();
+    const onBIP=(e)=>{ e.preventDefault(); setInstallPrompt(e); };
+    const onInstalled=()=>{ setInstallPrompt(null); setIsStandalone(true); };
+    window.addEventListener("beforeinstallprompt", onBIP);
+    window.addEventListener("appinstalled", onInstalled);
+    return()=>{ window.removeEventListener("beforeinstallprompt", onBIP); window.removeEventListener("appinstalled", onInstalled); };
+  },[]);
+  const promptInstall=async()=>{
+    if(!installPrompt)return;
+    installPrompt.prompt();
+    await installPrompt.userChoice;
+    setInstallPrompt(null);
+  };
+
   // NEW — dark/light mode. The actual color values live in CSS variables
   // (see the <style> block below); this just toggles which set applies,
   // and remembers the choice for next time.
@@ -1636,9 +1708,9 @@ export default function App() {
     const style=document.createElement("style");
     style.id="ss-theme-vars";
     style.textContent=`
-      [data-theme="light"]{--bg:#F7F4EC;--surface:#FFFFFF;--surface-2:#FDFBF6;--ink:#211E1A;--ink-soft:#6B6557;--border:#E7E1D3;--accent:#1F4D3D;--accent-dark:#153728;--accent-light:#E8F3EC;--marigold:#D98E2B;--marigold-dark:#B9741A;--teal:#0E8A87;--teal-light:#E1F5F3;--violet:#7A4FC2;--violet-light:#F0E9FA;--blue:#2E6FBE;--blue-light:#E8F1FC;--rose:#C4436B;--rose-light:#FBE9EF;--danger:#B3402C;--danger-bg:#FBEAE6;--warn:#9A5B12;--warn-bg:#FCF0DA;--shadow-rgb:33,30,26;}
-      [data-theme="dark"]{--bg:#14181A;--surface:#1E2528;--surface-2:#242C2F;--ink:#EDEAE3;--ink-soft:#A39C90;--border:#333C3F;--accent:#3FAE8F;--accent-dark:#276954;--accent-light:#1C3833;--marigold:#E8A44A;--marigold-dark:#C98A34;--teal:#3FC2BD;--teal-light:#173B39;--violet:#A886E8;--violet-light:#2B2242;--blue:#6FA3E8;--blue-light:#1E2E42;--rose:#E58AA8;--rose-light:#3A2028;--danger:#E5715A;--danger-bg:#3A2320;--warn:#E0A94E;--warn-bg:#3A2E18;--shadow-rgb:0,0,0;}
-      html,body{background:var(--bg);}
+      [data-theme="light"]{--bg:#F6F3EA;--bg-grad:#EFE9D8;--surface:#FFFFFF;--surface-2:#FDFBF6;--ink:#201D19;--ink-soft:#6B6557;--border:#E6E0D1;--accent:#164A38;--accent-dark:#0F3627;--accent-light:#E4F1EA;--marigold:#D98E2B;--marigold-dark:#B9741A;--teal:#0E8A87;--teal-light:#E1F5F3;--violet:#7A4FC2;--violet-light:#F0E9FA;--blue:#2E6FBE;--blue-light:#E8F1FC;--rose:#C4436B;--rose-light:#FBE9EF;--danger:#B3402C;--danger-bg:#FBEAE6;--warn:#9A5B12;--warn-bg:#FCF0DA;--shadow-rgb:32,29,25;}
+      [data-theme="dark"]{--bg:#12171A;--bg-grad:#1A2225;--surface:#1D2427;--surface-2:#232B2E;--ink:#F1EEE7;--ink-soft:#A8A192;--border:#323B3E;--accent:#45BB9A;--accent-dark:#2C7C63;--accent-light:#1B332C;--marigold:#E8A44A;--marigold-dark:#C98A34;--teal:#3FC2BD;--teal-light:#173B39;--violet:#B294EE;--violet-light:#2B2242;--blue:#79ABEE;--blue-light:#1E2E42;--rose:#E58AA8;--rose-light:#3A2028;--danger:#E5715A;--danger-bg:#3A2320;--warn:#E0A94E;--warn-bg:#3A2E18;--shadow-rgb:0,0,0;}
+      html,body{background:radial-gradient(1100px 620px at 12% -8%, var(--bg-grad), var(--bg) 55%);}
     `;
     document.head.appendChild(style);
     document.documentElement.setAttribute("data-theme", theme);
@@ -1705,7 +1777,7 @@ export default function App() {
   if(!session)return<LoginScreen onLogin={setSession}/>;
 
   return(
-    <div data-theme={theme} style={{fontFamily:"Inter,sans-serif",background:PAPER,minHeight:"100vh",color:INK,fontSize:17,transition:"background .2s ease, color .2s ease"}}>
+    <div data-theme={theme} style={{fontFamily:"'Inter','Noto Sans Devanagari',sans-serif",background:PAPER,minHeight:"100vh",color:INK,fontSize:17,transition:"background .2s ease, color .2s ease"}}>
       <style>{`
         *{box-sizing:border-box;}body{margin:0;-webkit-font-smoothing:antialiased;}
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
@@ -1714,9 +1786,9 @@ export default function App() {
            reads these via var(--x), so toggling data-theme instantly
            re-colors the whole app with no per-component logic needed. */
         [data-theme="light"]{
-          --bg:#F7F4EC; --surface:#FFFFFF; --surface-2:#FDFBF6;
-          --ink:#211E1A; --ink-soft:#6B6557; --border:#E7E1D3;
-          --accent:#1F4D3D; --accent-dark:#153728; --accent-light:#E8F3EC;
+          --bg:#F6F3EA; --bg-grad:#EFE9D8; --surface:#FFFFFF; --surface-2:#FDFBF6;
+          --ink:#201D19; --ink-soft:#6B6557; --border:#E6E0D1;
+          --accent:#164A38; --accent-dark:#0F3627; --accent-light:#E4F1EA;
           --marigold:#D98E2B; --marigold-dark:#B9741A;
           --teal:#0E8A87; --teal-light:#E1F5F3;
           --violet:#7A4FC2; --violet-light:#F0E9FA;
@@ -1724,16 +1796,16 @@ export default function App() {
           --rose:#C4436B; --rose-light:#FBE9EF;
           --danger:#B3402C; --danger-bg:#FBEAE6;
           --warn:#9A5B12; --warn-bg:#FCF0DA;
-          --shadow-rgb:33,30,26;
+          --shadow-rgb:32,29,25;
         }
         [data-theme="dark"]{
-          --bg:#14181A; --surface:#1E2528; --surface-2:#242C2F;
-          --ink:#EDEAE3; --ink-soft:#A39C90; --border:#333C3F;
-          --accent:#3FAE8F; --accent-dark:#276954; --accent-light:#1C3833;
+          --bg:#12171A; --bg-grad:#1A2225; --surface:#1D2427; --surface-2:#232B2E;
+          --ink:#F1EEE7; --ink-soft:#A8A192; --border:#323B3E;
+          --accent:#45BB9A; --accent-dark:#2C7C63; --accent-light:#1B332C;
           --marigold:#E8A44A; --marigold-dark:#C98A34;
           --teal:#3FC2BD; --teal-light:#173B39;
-          --violet:#A886E8; --violet-light:#2B2242;
-          --blue:#6FA3E8; --blue-light:#1E2E42;
+          --violet:#B294EE; --violet-light:#2B2242;
+          --blue:#79ABEE; --blue-light:#1E2E42;
           --rose:#E58AA8; --rose-light:#3A2028;
           --danger:#E5715A; --danger-bg:#3A2320;
           --warn:#E0A94E; --warn-bg:#3A2E18;
@@ -1742,29 +1814,60 @@ export default function App() {
 
         @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
         @keyframes ss-fade-up{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
-        .main-content > *{animation:ss-fade-up .28s ease both;}
+        .main-content > *{animation:ss-fade-up .32s cubic-bezier(.2,.7,.2,1) both;}
+
+        /* Devanagari script needs more breathing room than Latin text to read
+           well — matras and conjuncts clip against tight leading. */
+        body,[data-theme]{line-height:1.55;}
 
         /* Elevated card + hover lift */
-        .ss-card{transition:box-shadow .2s ease, transform .2s ease, background .2s ease;}
-        .ss-card-hover:hover{box-shadow:${SHADOW.lg};transform:translateY(-2px);}
+        .ss-card{transition:box-shadow .2s ease, transform .2s ease, background .2s ease, border-color .2s ease;}
+        .ss-card-hover:hover{box-shadow:${SHADOW.lg};transform:translateY(-3px);border-color:color-mix(in srgb, ${ACCENT} 25%, var(--border));}
         .ss-card-hover:active{transform:translateY(0px) scale(0.995);}
 
         /* Buttons — real hover/active feedback via CSS, not just JS */
         .ss-btn{transition:transform .12s ease, box-shadow .12s ease, filter .12s ease; -webkit-tap-highlight-color:transparent;}
-        .ss-btn:hover:not(:disabled){transform:translateY(-1px);filter:brightness(1.04);}
+        .ss-btn:hover:not(:disabled){transform:translateY(-1px);filter:brightness(1.05);}
         .ss-btn:active:not(:disabled){transform:translateY(0px) scale(0.97);filter:brightness(0.98);}
         .ss-btn:focus-visible{outline:2px solid ${MARIGOLD};outline-offset:2px;}
 
-        /* Inputs — consistent focus ring across the app */
-        input,select,textarea{transition:border-color .15s ease, box-shadow .15s ease;}
+        /* Inputs — consistent, modern resting + focus appearance across the
+           whole app: rounded, softly bordered, with a visible focus ring
+           instead of the harsh default browser outline. Scoped with
+           :not([type=file]) so hidden upload inputs are untouched, and the
+           handful of deliberately-borderless search/chat/calendar fields
+           (which set background:transparent inline) are left alone since
+           inline styles win over these defaults anyway. */
+        input:not([type=file]),select,textarea{
+          transition:border-color .15s ease, box-shadow .15s ease, background .15s ease;
+          font-family:'Inter','Noto Sans Devanagari',sans-serif;
+        }
+        input::placeholder,textarea::placeholder{color:${INK_SOFT};opacity:0.75;}
         input:focus,select:focus,textarea:focus{outline:none;border-color:${ACCENT} !important;box-shadow:0 0 0 3px ${ACCENT_LIGHT};}
+        input:hover:not(:focus):not(:disabled),textarea:hover:not(:focus):not(:disabled){border-color:${INK_SOFT};}
+
+        /* Native <select> — replace the default OS arrow with a themed
+           chevron and give it room to breathe; the stock browser arrow next
+           to hand-styled borders/radii is what made dropdowns look cheap. */
+        select{
+          appearance:none; -webkit-appearance:none; -moz-appearance:none;
+          background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236B6557' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+          background-repeat:no-repeat; background-position:right 12px center;
+          padding-right:34px !important; cursor:pointer;
+        }
+
+        /* Shared "field" look for standard form inputs/selects/textareas —
+           a soft tinted fill (instead of stark white-on-white) makes it
+           obvious at a glance where to type, which was missing before. */
+        .ss-field{background:var(--surface-2);color:var(--ink);}
+        .ss-field:focus{background:var(--surface);}
 
         /* Chips / filter pills */
-        .ss-chip{transition:transform .12s ease, background .15s ease, color .15s ease;}
+        .ss-chip{transition:transform .12s ease, background .15s ease, color .15s ease, border-color .15s ease;}
         .ss-chip:hover{transform:translateY(-1px);}
         .ss-chip:active{transform:translateY(0) scale(0.96);}
 
-        ::-webkit-scrollbar{height:8px;width:8px;}
+        ::-webkit-scrollbar{height:9px;width:9px;}
         ::-webkit-scrollbar-track{background:transparent;}
 
         /* NEW — printing. Anything with class "no-print" (header, nav,
@@ -1777,7 +1880,8 @@ export default function App() {
           body,[data-theme]{background:#fff !important;color:#000 !important;}
           .ss-print-area{box-shadow:none !important;border:none !important;}
         }
-        ::-webkit-scrollbar-thumb{background:#D8CFB8;border-radius:99px;}
+        ::-webkit-scrollbar-thumb{background:${INK_SOFT};opacity:0.35;border-radius:99px;}
+        ::-webkit-scrollbar-thumb:hover{background:${INK_SOFT};}
 
         .desktop-sidebar{display:none;}
         .mobile-bottom-nav{display:flex;}
@@ -1789,18 +1893,18 @@ export default function App() {
         }
       `}</style>
 
-      <div className="no-print" style={{background:`linear-gradient(180deg, ${SURFACE} 0%, ${SURFACE_2} 100%)`,borderBottom:`1px solid ${BORDER}`,padding:"14px 18px",display:"flex",alignItems:"center",gap:12,position:"sticky",top:0,zIndex:10,boxShadow:SHADOW.sm}}>
-        <div style={{width:38,height:38,borderRadius:11,background:`linear-gradient(135deg, ${TEAL} 0%, ${ACCENT} 55%, ${ACCENT_DARK} 100%)`,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:18,boxShadow:SHADOW.accent,flexShrink:0}}>सि</div>
-        <div style={{minWidth:0,overflow:"hidden"}}><div style={{fontWeight:800,fontSize:18,letterSpacing:"-0.01em",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>शिक्षा साथी</div><div style={{fontSize:15,color:INK_SOFT,fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>कक्षा ५ · सामाजिक अध्ययन</div></div>
-        <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-          <div title={lessonsLoading?"सिंक हुँदैछ...":synced?"सिंक भयो":"सिंक भएको"} style={{display:"flex",alignItems:"center",gap:4,fontSize:14.5,color:synced?ACCENT:INK_SOFT,fontWeight:700,transition:"color .3s",whiteSpace:"nowrap"}}>
-            <RefreshCw size={14} style={{animation:lessonsLoading?"spin 1s linear infinite":"none",flexShrink:0}}/>
+      <div className="no-print" style={{background:`color-mix(in srgb, ${SURFACE} 88%, transparent)`,backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",borderBottom:`1px solid ${BORDER}`,padding:"13px 18px",display:"flex",alignItems:"center",gap:12,position:"sticky",top:0,zIndex:10,boxShadow:SHADOW.sm}}>
+        <img src="/icons/icon-64.png" alt="शिक्षा साथी" width={40} height={40} style={{borderRadius:12,boxShadow:SHADOW.accent,flexShrink:0}}/>
+        <div style={{minWidth:0,overflow:"hidden"}}><div style={{fontWeight:800,fontSize:18.5,letterSpacing:"-0.015em",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>शिक्षा साथी</div><div style={{fontSize:14.5,color:INK_SOFT,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>कक्षा ५ · सामाजिक अध्ययन</div></div>
+        <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+          <div title={lessonsLoading?"सिंक हुँदैछ...":synced?"सिंक भयो":"सिंक भएको"} style={{display:"flex",alignItems:"center",gap:4,fontSize:13.5,color:synced?ACCENT:INK_SOFT,fontWeight:700,transition:"color .3s",whiteSpace:"nowrap",background:synced?ACCENT_LIGHT:"transparent",padding:"5px 9px",borderRadius:999}}>
+            <RefreshCw size={13} style={{animation:lessonsLoading?"spin 1s linear infinite":"none",flexShrink:0}}/>
             <span className="ss-sync-label">{lessonsLoading?"सिंक...":synced?"सिंक भयो ✓":"सिंक भएको"}</span>
           </div>
-          <button onClick={toggleTheme} title={theme==="light"?"गाढा मोडमा जानुहोस्":"उज्यालो मोडमा जानुहोस्"} style={{background:BORDER,border:"none",borderRadius:9,width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:INK,flexShrink:0}}>
+          <button onClick={toggleTheme} title={theme==="light"?"गाढा मोडमा जानुहोस्":"उज्यालो मोडमा जानुहोस्"} className="ss-btn" style={{background:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:INK,flexShrink:0}}>
             {theme==="light"?<Moon size={16}/>:<Sun size={16}/>}
           </button>
-          <button onClick={()=>setScreen("settings")} style={{background:"none",border:"none",cursor:"pointer",color:screen==="settings"?ACCENT:INK_SOFT,flexShrink:0}}><SettingsIcon size={19}/></button>
+          <button onClick={()=>setScreen("settings")} className="ss-btn" style={{background:screen==="settings"?ACCENT_LIGHT:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:screen==="settings"?ACCENT:INK_SOFT,flexShrink:0}}><SettingsIcon size={17}/></button>
         </div>
       </div>
 
@@ -1810,9 +1914,9 @@ export default function App() {
 
       <div className="no-print"><SectionSelector sections={sections} current={currentSection} onChange={setCurrentSection} onAdd={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}}/></div>
 
-      <div className="desktop-sidebar no-print" style={{position:"fixed",top:0,left:0,bottom:0,width:232,background:SURFACE,borderRight:`1px solid ${BORDER}`,flexDirection:"column",paddingTop:118,paddingLeft:10,paddingRight:10,zIndex:5,overflowY:"auto",gap:3}}>
+      <div className="desktop-sidebar no-print" style={{position:"fixed",top:0,left:0,bottom:0,width:232,background:SURFACE,borderRight:`1px solid ${BORDER}`,flexDirection:"column",paddingTop:118,paddingLeft:12,paddingRight:12,zIndex:5,overflowY:"auto",gap:2}}>
         {[...nav,...navMore].map((n)=>{const Icon=n.icon;const active=screen===n.id;return(
-          <button key={n.id} onClick={()=>setScreen(n.id)} className="ss-btn" style={{display:"flex",alignItems:"center",gap:11,padding:"11px 14px",border:"none",background:active?`linear-gradient(135deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`:"transparent",color:active?"#fff":INK_SOFT,fontWeight:active?700:600,fontSize:16.5,cursor:"pointer",textAlign:"left",width:"100%",borderRadius:12,boxShadow:active?SHADOW.accent:"none"}}>
+          <button key={n.id} onClick={()=>setScreen(n.id)} className="ss-btn" style={{display:"flex",alignItems:"center",gap:11,padding:"11px 14px",border:"none",background:active?`linear-gradient(135deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`:"transparent",color:active?"#fff":INK_SOFT,fontWeight:active?700:600,fontSize:16,cursor:"pointer",textAlign:"left",width:"100%",borderRadius:12,boxShadow:active?SHADOW.accent:"none"}}>
             <Icon size={18}/>{n.label}
           </button>
         );})}
@@ -1828,23 +1932,31 @@ export default function App() {
         {screen==="aitools"&&<AITools lessons={lessons} chapters={chapters} onAddChapter={addChapter}/>}
         {screen==="search"&&<DocumentSearch lessons={lessons} homework={homework}/>}
         {screen==="calendar"&&<CalendarView lessons={lessons} homework={homework}/>}
-        {screen==="settings"&&<Settings session={session} sections={sections} onSectionAdded={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}} theme={theme} onToggleTheme={toggleTheme}/>}
+        {screen==="settings"&&<Settings session={session} sections={sections} onSectionAdded={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}} theme={theme} onToggleTheme={toggleTheme} installPrompt={installPrompt} isStandalone={isStandalone} isIOS={isIOS} onInstall={promptInstall}/>}
       </div>
 
-      <div className="mobile-bottom-nav no-print" style={{position:"fixed",bottom:0,left:0,right:0,background:SURFACE,borderTop:`1px solid ${BORDER}`,justifyContent:"space-around",padding:"8px 4px",zIndex:10,boxShadow:"0 -4px 16px rgba(33,30,26,0.06)"}}>
-        {nav.map((n)=>{const Icon=n.icon;const active=screen===n.id;return<button key={n.id} onClick={()=>setScreen(n.id)} style={{background:"none",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:3,color:active?ACCENT:INK_SOFT,fontSize:13.5,fontWeight:700,cursor:"pointer",padding:"4px 6px",flex:1,transition:"color .15s"}}><Icon size={20}/>{n.label}</button>;})}
-        <button onClick={()=>setShowMore(true)} style={{background:"none",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:3,color:navMore.some((n)=>n.id===screen)?ACCENT:INK_SOFT,fontSize:13.5,fontWeight:700,cursor:"pointer",padding:"4px 6px",flex:1}}><Layers size={20}/>थप</button>
+      <div className="mobile-bottom-nav no-print" style={{position:"fixed",bottom:0,left:0,right:0,background:`color-mix(in srgb, ${SURFACE} 94%, transparent)`,backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",borderTop:`1px solid ${BORDER}`,justifyContent:"space-around",padding:"7px 6px calc(7px + env(safe-area-inset-bottom))",zIndex:10,boxShadow:"0 -6px 20px rgba(0,0,0,0.07)"}}>
+        {nav.map((n)=>{const Icon=n.icon;const active=screen===n.id;return(
+          <button key={n.id} onClick={()=>setScreen(n.id)} className="ss-btn" style={{background:"none",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:active?ACCENT:INK_SOFT,fontSize:12.5,fontWeight:700,cursor:"pointer",padding:"5px 8px 3px",flex:1,borderRadius:14}}>
+            <div style={{width:44,height:26,borderRadius:999,background:active?ACCENT_LIGHT:"transparent",display:"flex",alignItems:"center",justifyContent:"center",transition:"background .15s ease"}}><Icon size={19}/></div>
+            {n.label}
+          </button>
+        );})}
+        <button onClick={()=>setShowMore(true)} className="ss-btn" style={{background:"none",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:navMore.some((n)=>n.id===screen)?ACCENT:INK_SOFT,fontSize:12.5,fontWeight:700,cursor:"pointer",padding:"5px 8px 3px",flex:1,borderRadius:14}}>
+          <div style={{width:44,height:26,borderRadius:999,background:navMore.some((n)=>n.id===screen)?ACCENT_LIGHT:"transparent",display:"flex",alignItems:"center",justifyContent:"center"}}><Layers size={19}/></div>
+          थप
+        </button>
       </div>
 
       {showMore&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.6)",zIndex:60,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={()=>setShowMore(false)}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:"22px 22px 0 0",padding:20,maxWidth:480,width:"100%",paddingBottom:44,boxShadow:SHADOW.lg}}>
+        <div style={{position:"fixed",inset:0,background:"rgba(15,13,10,0.55)",backdropFilter:"blur(2px)",WebkitBackdropFilter:"blur(2px)",zIndex:60,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={()=>setShowMore(false)}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:"24px 24px 0 0",padding:20,maxWidth:480,width:"100%",paddingBottom:"calc(40px + env(safe-area-inset-bottom))",boxShadow:SHADOW.lg}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
               <div style={{fontSize:18,fontWeight:800}}>थप विशेषताहरू</div>
               <button onClick={()=>setShowMore(false)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><X size={22}/></button>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
-              {navMore.map((n)=>{const Icon=n.icon;const active=screen===n.id;return<button key={n.id} onClick={()=>{setScreen(n.id);setShowMore(false);}} className="ss-btn" style={{display:"flex",flexDirection:"column",alignItems:"center",gap:7,padding:"16px 6px",borderRadius:14,border:`1.5px solid ${active?ACCENT:BORDER}`,background:active?ACCENT_LIGHT:"#fff",color:active?ACCENT:INK,cursor:"pointer",fontSize:15.5,fontWeight:700,boxShadow:active?SHADOW.sm:"none"}}><Icon size={22}/>{n.label}</button>;})}
+              {navMore.map((n)=>{const Icon=n.icon;const active=screen===n.id;return<button key={n.id} onClick={()=>{setScreen(n.id);setShowMore(false);}} className="ss-btn" style={{display:"flex",flexDirection:"column",alignItems:"center",gap:7,padding:"16px 6px",borderRadius:14,border:`1.5px solid ${active?ACCENT:BORDER}`,background:active?ACCENT_LIGHT:SURFACE,color:active?ACCENT:INK,cursor:"pointer",fontSize:15.5,fontWeight:700,boxShadow:active?SHADOW.sm:"none"}}><Icon size={22}/>{n.label}</button>;})}
             </div>
           </div>
         </div>

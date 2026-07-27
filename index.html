@@ -13,15 +13,28 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="शिक्षा साथी" />
 
-    <!-- NEW — dark/light theme colors, defined here (not just inside App.jsx)
+    <!-- Fonts — Inter for Latin/numerals, Noto Sans Devanagari for Nepali
+         script. Loaded here (not just @import'd inside App.jsx) so text is
+         never rendered in the browser's fallback font, even for a split
+         second: fallback Devanagari rendering on most OSes is thin, badly
+         spaced, and hard to read, which was the single biggest readability
+         problem in the app. preconnect speeds up the first paint. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Devanagari:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+    <!-- NEW — light/dark theme colors, defined here (not just inside App.jsx)
          so they exist from the very first paint: the login screen and the
          loading spinner render before React finishes mounting the themed
-         wrapper, and would otherwise have no colors to use at all. -->
+         wrapper, and would otherwise have no colors to use at all.
+         Slightly richer/deeper palette than before, plus a subtle two-tone
+         backdrop gradient instead of a flat fill, for a less "flat html
+         page" and more "designed app" first impression. -->
     <style>
       [data-theme="light"]{
-        --bg:#F7F4EC; --surface:#FFFFFF; --surface-2:#FDFBF6;
-        --ink:#211E1A; --ink-soft:#6B6557; --border:#E7E1D3;
-        --accent:#1F4D3D; --accent-dark:#153728; --accent-light:#E8F3EC;
+        --bg:#F6F3EA; --bg-grad:#EFE9D8; --surface:#FFFFFF; --surface-2:#FDFBF6;
+        --ink:#201D19; --ink-soft:#6B6557; --border:#E6E0D1;
+        --accent:#164A38; --accent-dark:#0F3627; --accent-light:#E4F1EA;
         --marigold:#D98E2B; --marigold-dark:#B9741A;
         --teal:#0E8A87; --teal-light:#E1F5F3;
         --violet:#7A4FC2; --violet-light:#F0E9FA;
@@ -29,22 +42,26 @@
         --rose:#C4436B; --rose-light:#FBE9EF;
         --danger:#B3402C; --danger-bg:#FBEAE6;
         --warn:#9A5B12; --warn-bg:#FCF0DA;
-        --shadow-rgb:33,30,26;
+        --shadow-rgb:32,29,25;
       }
       [data-theme="dark"]{
-        --bg:#14181A; --surface:#1E2528; --surface-2:#242C2F;
-        --ink:#EDEAE3; --ink-soft:#A39C90; --border:#333C3F;
-        --accent:#3FAE8F; --accent-dark:#276954; --accent-light:#1C3833;
+        --bg:#12171A; --bg-grad:#1A2225; --surface:#1D2427; --surface-2:#232B2E;
+        --ink:#F1EEE7; --ink-soft:#A8A192; --border:#323B3E;
+        --accent:#45BB9A; --accent-dark:#2C7C63; --accent-light:#1B332C;
         --marigold:#E8A44A; --marigold-dark:#C98A34;
         --teal:#3FC2BD; --teal-light:#173B39;
-        --violet:#A886E8; --violet-light:#2B2242;
-        --blue:#6FA3E8; --blue-light:#1E2E42;
+        --violet:#B294EE; --violet-light:#2B2242;
+        --blue:#79ABEE; --blue-light:#1E2E42;
         --rose:#E58AA8; --rose-light:#3A2028;
         --danger:#E5715A; --danger-bg:#3A2320;
         --warn:#E0A94E; --warn-bg:#3A2E18;
         --shadow-rgb:0,0,0;
       }
-      html, body { background: var(--bg); color: var(--ink); }
+      html, body {
+        background: radial-gradient(1100px 620px at 12% -8%, var(--bg-grad), var(--bg) 55%);
+        color: var(--ink);
+        font-family: 'Inter','Noto Sans Devanagari',sans-serif;
+      }
     </style>
     <script>
       // Apply the saved theme choice immediately, before React loads, so
