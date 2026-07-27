@@ -44,6 +44,8 @@ const DANGER = "var(--danger)";
 const DANGER_BG = "var(--danger-bg)";
 const WARN = "var(--warn)";
 const WARN_BG = "var(--warn-bg)";
+const SUCCESS = "var(--success)";
+const SUCCESS_BG = "var(--success-bg)";
 
 // Elevation scale — used for the "premium, elevated" card/button look.
 const SHADOW = {
@@ -171,7 +173,7 @@ function SectionLabel({ children }) {
   return <div style={{ ...TEXT.caption, textTransform:"uppercase", color:INK_SOFT, marginBottom:11 }}>{children}</div>;
 }
 function StatusPill({ status }) {
-  const map = { ready:{label:"तयार",bg:ACCENT_LIGHT,color:ACCENT}, prep:{label:"तयारी चाहिने",bg:WARN_BG,color:WARN}, missing:{label:"सुरु नभएको",bg:DANGER_BG,color:DANGER} };
+  const map = { ready:{label:"तयार",bg:SUCCESS_BG,color:SUCCESS}, prep:{label:"तयारी चाहिने",bg:WARN_BG,color:WARN}, missing:{label:"सुरु नभएको",bg:DANGER_BG,color:DANGER} };
   const s = map[status]||map.prep;
   return <span style={{ background:s.bg, color:s.color, ...TEXT.label, letterSpacing:0, padding:"4px 12px", borderRadius:R.pill }}>{s.label}</span>;
 }
@@ -1741,8 +1743,8 @@ export default function App() {
     const style=document.createElement("style");
     style.id="ss-theme-vars";
     style.textContent=`
-      [data-theme="light"]{--bg:#F1EEE1;--bg-grad:#E7DFC5;--surface:#FFFFFF;--surface-2:#FBF8F0;--ink:#23201B;--ink-soft:#6D6656;--border:#E1D8C0;--accent:#26415C;--accent-dark:#162A3C;--accent-light:#E3EAF0;--marigold:#E08A1E;--marigold-dark:#B76B0E;--teal:#1B8C78;--teal-light:#DDF2EC;--violet:#7B4FA6;--violet-light:#F0E7F7;--blue:#3568A6;--blue-light:#E5EEF7;--rose:#B23A56;--rose-light:#F8E5EA;--danger:#B23327;--danger-bg:#FBE8E4;--warn:#9C5B10;--warn-bg:#FBF0DD;--shadow-rgb:35,32,27;}
-      [data-theme="dark"]{--bg:#141920;--bg-grad:#1B222B;--surface:#1E262F;--surface-2:#242D37;--ink:#EDEAE0;--ink-soft:#A39C89;--border:#303A46;--accent:#7FA8D6;--accent-dark:#4A6F99;--accent-light:#1E2F42;--marigold:#F0A63E;--marigold-dark:#C9862B;--teal:#3FBBA8;--teal-light:#16332E;--violet:#B592DE;--violet-light:#2B2140;--blue:#7FA8E0;--blue-light:#1E2C3E;--rose:#DD7F94;--rose-light:#3A2028;--danger:#E27A63;--danger-bg:#3A231D;--warn:#E0A94E;--warn-bg:#3A2E15;--shadow-rgb:0,0,0;}
+      [data-theme="light"]{--bg:#F5EFE0;--bg-grad:#ECE0C0;--surface:#FFFFFF;--surface-2:#FBF7ED;--ink:#211B14;--ink-soft:#726A57;--border:#E6D9BC;--accent:#B0134A;--accent-dark:#7C0D34;--accent-light:#FBE6ED;--marigold:#E0980C;--marigold-dark:#B87509;--teal:#0E8FA0;--teal-light:#DDF3F6;--violet:#7C3AAD;--violet-light:#F1E7FA;--blue:#2168C9;--blue-light:#E4EEFC;--rose:#D6427A;--rose-light:#FCE8F0;--danger:#D93A2B;--danger-bg:#FCEAE6;--warn:#B4790A;--warn-bg:#FBF0D8;--success:#1F9D5A;--success-bg:#E1F5E9;--shadow-rgb:33,27,20;}
+      [data-theme="dark"]{--bg:#12151C;--bg-grad:#191D26;--surface:#1B1F29;--surface-2:#20252F;--ink:#F0ECE2;--ink-soft:#9CA0AF;--border:#2E3440;--accent:#E8547E;--accent-dark:#B0134A;--accent-light:#3A1B28;--marigold:#F0B429;--marigold-dark:#C98F1D;--teal:#2FC4D9;--teal-light:#153238;--violet:#B57BE0;--violet-light:#2C1F3A;--blue:#5B9CF0;--blue-light:#1C2C42;--rose:#F07AA8;--rose-light:#3A2028;--danger:#F0574A;--danger-bg:#3A1E1A;--warn:#F0B429;--warn-bg:#3A2E14;--success:#3FCB7E;--success-bg:#173A28;--shadow-rgb:0,0,0;}
       html,body{background:radial-gradient(1100px 620px at 12% -8%, var(--bg-grad), var(--bg) 55%);}
     `;
     document.head.appendChild(style);
@@ -1819,29 +1821,31 @@ export default function App() {
            reads these via var(--x), so toggling data-theme instantly
            re-colors the whole app with no per-component logic needed. */
         [data-theme="light"]{
-          --bg:#F1EEE1; --bg-grad:#E7DFC5; --surface:#FFFFFF; --surface-2:#FBF8F0;
-          --ink:#23201B; --ink-soft:#6D6656; --border:#E1D8C0;
-          --accent:#26415C; --accent-dark:#162A3C; --accent-light:#E3EAF0;
-          --marigold:#E08A1E; --marigold-dark:#B76B0E;
-          --teal:#1B8C78; --teal-light:#DDF2EC;
-          --violet:#7B4FA6; --violet-light:#F0E7F7;
-          --blue:#3568A6; --blue-light:#E5EEF7;
-          --rose:#B23A56; --rose-light:#F8E5EA;
-          --danger:#B23327; --danger-bg:#FBE8E4;
-          --warn:#9C5B10; --warn-bg:#FBF0DD;
-          --shadow-rgb:35,32,27;
+          --bg:#F5EFE0; --bg-grad:#ECE0C0; --surface:#FFFFFF; --surface-2:#FBF7ED;
+          --ink:#211B14; --ink-soft:#726A57; --border:#E6D9BC;
+          --accent:#B0134A; --accent-dark:#7C0D34; --accent-light:#FBE6ED;
+          --marigold:#E0980C; --marigold-dark:#B87509;
+          --teal:#0E8FA0; --teal-light:#DDF3F6;
+          --violet:#7C3AAD; --violet-light:#F1E7FA;
+          --blue:#2168C9; --blue-light:#E4EEFC;
+          --rose:#D6427A; --rose-light:#FCE8F0;
+          --danger:#D93A2B; --danger-bg:#FCEAE6;
+          --warn:#B4790A; --warn-bg:#FBF0D8;
+          --success:#1F9D5A; --success-bg:#E1F5E9;
+          --shadow-rgb:33,27,20;
         }
         [data-theme="dark"]{
-          --bg:#141920; --bg-grad:#1B222B; --surface:#1E262F; --surface-2:#242D37;
-          --ink:#EDEAE0; --ink-soft:#A39C89; --border:#303A46;
-          --accent:#7FA8D6; --accent-dark:#4A6F99; --accent-light:#1E2F42;
-          --marigold:#F0A63E; --marigold-dark:#C9862B;
-          --teal:#3FBBA8; --teal-light:#16332E;
-          --violet:#B592DE; --violet-light:#2B2140;
-          --blue:#7FA8E0; --blue-light:#1E2C3E;
-          --rose:#DD7F94; --rose-light:#3A2028;
-          --danger:#E27A63; --danger-bg:#3A231D;
-          --warn:#E0A94E; --warn-bg:#3A2E15;
+          --bg:#12151C; --bg-grad:#191D26; --surface:#1B1F29; --surface-2:#20252F;
+          --ink:#F0ECE2; --ink-soft:#9CA0AF; --border:#2E3440;
+          --accent:#E8547E; --accent-dark:#B0134A; --accent-light:#3A1B28;
+          --marigold:#F0B429; --marigold-dark:#C98F1D;
+          --teal:#2FC4D9; --teal-light:#153238;
+          --violet:#B57BE0; --violet-light:#2C1F3A;
+          --blue:#5B9CF0; --blue-light:#1C2C42;
+          --rose:#F07AA8; --rose-light:#3A2028;
+          --danger:#F0574A; --danger-bg:#3A1E1A;
+          --warn:#F0B429; --warn-bg:#3A2E14;
+          --success:#3FCB7E; --success-bg:#173A28;
           --shadow-rgb:0,0,0;
         }
 
