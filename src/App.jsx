@@ -56,7 +56,7 @@ const SHADOW = {
   // physical, tappable objects instead of flat rectangles.
   raised: "inset 0 1px 0 var(--card-sheen), 0 1px 2px rgba(var(--shadow-rgb),0.06), 0 8px 18px rgba(var(--shadow-rgb),0.13), 0 2px 5px rgba(var(--shadow-rgb),0.09)",
   raisedHover: "inset 0 1px 0 var(--card-sheen), 0 14px 30px rgba(var(--shadow-rgb),0.20), 0 4px 10px rgba(var(--shadow-rgb),0.12)",
-  accent: "0 8px 20px rgba(163,36,47,0.30)",
+  accent: "0 8px 20px rgba(31,122,92,0.30)",
   marigold: "0 8px 20px rgba(201,151,28,0.34)",
 };
 
@@ -322,7 +322,7 @@ function LoginScreen({ onLogin }) {
         <div style={{textAlign:"center",marginBottom:32}}>
           <img src="/icons/icon-192.png" alt="शिक्षा साथी" width={76} height={76} style={{borderRadius:22,margin:"0 auto 18px",display:"block",boxShadow:SHADOW.accent}}/>
           <div style={{fontSize:30,fontWeight:800,color:INK,letterSpacing:"-0.02em"}}>शिक्षा साथी</div>
-          <div style={{fontSize:16.5,color:INK_SOFT,marginTop:6,fontWeight:600}}>कक्षा ५ · सामाजिक अध्ययन शिक्षकको साथी</div>
+          <div style={{fontSize:16.5,color:INK_SOFT,marginTop:6,fontWeight:600}}>जुनसुकै कक्षा र विषयका शिक्षकको साथी</div>
         </div>
 
         <Card style={{boxShadow:SHADOW.lg,padding:8,border:`1px solid ${BORDER}`}}>
@@ -534,7 +534,7 @@ function Dashboard({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, sec
   );
 }
 
-function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters, onAddChapter }) {
+function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters, onAddChapter, classContext }) {
   const [showForm,setShowForm]=useState(false);
   const [form,setForm]=useState({title:"",status:"missing",chapter_title:"",objectives:"",vocabulary:"",sequence:"",key_questions:"",activities:"",homework:"",notes:""});
   const [saving,setSaving]=useState(false);
@@ -550,7 +550,7 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
       // NEW: pulls in the global textbook PDF *and* every material tagged to this chapter
       const ctx=await getMaterialContext(chapter);
       setMatchedCount(ctx.matchedCount||0);
-      const result=await gemini.generateLessonPlan(chapter,ctx);
+      const result=await gemini.generateLessonPlan(chapter,ctx,classContext);
       if(result){
         setForm((prev)=>({...prev,
           objectives:(result.objectives||[]).join("\n"),
@@ -1046,7 +1046,7 @@ function TeachingJournal() {
   );
 }
 
-function AIAssistant({ lessons }) {
+function AIAssistant({ lessons, classContext }) {
   const lesson=lessons[0];
   const chapterTitle=lesson?.chapters?.title||lesson?.chapter_title||"";
   const [messages,setMessages]=useState([{role:"ai",text:lesson?`नमस्ते! म "${lesson.title}" पाठ, ट्याग गरिएका सामग्री, र पाठ्यपुस्तकबाट उत्तर दिन्छु। तलका छिटो प्रश्न थिच्नुहोस्।`:"नमस्ते! पहिले पाठ योजनामा एउटा पाठ थप्नुहोस्।"}]);
@@ -1071,7 +1071,7 @@ function AIAssistant({ lessons }) {
       const context=lesson?`पाठ: ${lesson.title}\nअध्याय: ${lesson.chapters?.title||lesson.chapter_title||""}\nउद्देश्य: ${(lesson.objectives||[]).join(", ")}\nशब्दावली: ${(lesson.vocabulary||[]).join(", ")}\nक्रियाकलाप: ${(lesson.activities||[]).join(", ")}\nगृहकार्य: ${lesson.homework||""}`: "कुनै पाठ छैन।";
       // NEW: pull in materials tagged to this lesson's chapter, alongside the global textbook
       const ctx=await getMaterialContext(chapterTitle);
-      const reply=await gemini.chatWithAI(t,context,ctx);
+      const reply=await gemini.chatWithAI(t,context,ctx,classContext);
       setMessages((prev)=>[...prev,{role:"ai",text:reply}]);
     }catch(e){setMessages((prev)=>[...prev,{role:"ai",text:"AI सँग जोडिन सकिएन: "+e.message}]);}
     setLoading(false);
@@ -1129,7 +1129,7 @@ function AIAssistant({ lessons }) {
   );
 }
 
-function QuestionBank({ chapters, onAddChapter }) {
+function QuestionBank({ chapters, onAddChapter, classContext }) {
   const [questions,setQuestions]=useState([]);
   const [loading,setLoading]=useState(true);
   const [showForm,setShowForm]=useState(false);
@@ -1153,7 +1153,7 @@ function QuestionBank({ chapters, onAddChapter }) {
     try{
       const ctx=await getMaterialContext(form.chapter_title);
       setMatchedCount(ctx.matchedCount||0);
-      const results=await gemini.generateQuestions(form.chapter_title,ctx);
+      const results=await gemini.generateQuestions(form.chapter_title,ctx,classContext);
       if(results?.length){
         for(const q of results)await db.upsertQuestion({text:q.text,type:q.type||"छोटो उत्तर",difficulty:q.difficulty||"सजिलो",bloom_level:q.bloom||"सम्झना",chapter_title:form.chapter_title,options:q.options||[],correct_option:q.correct_option??null});
         load();setShowForm(false);
@@ -1254,7 +1254,7 @@ function QuestionBank({ chapters, onAddChapter }) {
   );
 }
 
-function AssessmentBuilder({ chapters, onAddChapter }) {
+function AssessmentBuilder({ chapters, onAddChapter, classContext }) {
   const [assessments,setAssessments]=useState([]);
   const [loading,setLoading]=useState(true);
   const [showForm,setShowForm]=useState(false);
@@ -1273,7 +1273,7 @@ function AssessmentBuilder({ chapters, onAddChapter }) {
     try{
       const ctx=await getMaterialContext(chapter);
       setMatchedCount(ctx.matchedCount||0);
-      const prompt=`नेपाल कक्षा ५ "${chapter}" का लागि ${form.type} मूल्याङ्कन मापदण्ड भएको JSON array मात्र: [{"level":"उत्कृष्ट","desc":"..."},{"level":"राम्रो","desc":"..."},{"level":"सहयोग आवश्यक","desc":"..."}]`;
+      const prompt=`नेपाल ${classContext} "${chapter}" का लागि ${form.type} मूल्याङ्कन मापदण्ड भएको JSON array मात्र: [{"level":"उत्कृष्ट","desc":"..."},{"level":"राम्रो","desc":"..."},{"level":"सहयोग आवश्यक","desc":"..."}]`;
       const rubric=await gemini.generateRubric(prompt,ctx);
       if(rubric)setForm((prev)=>({...prev,rubric_text:rubric.map((r)=>`${r.level}: ${r.desc}`).join("\n")}));
       else setError("मूल्याङ्कन बनाउन सकिएन।");
@@ -1338,7 +1338,7 @@ function AssessmentBuilder({ chapters, onAddChapter }) {
   );
 }
 
-function ActivitiesLibrary({ chapters, onAddChapter }) {
+function ActivitiesLibrary({ chapters, onAddChapter, classContext }) {
   const [activities,setActivities]=useState([]);
   const [loading,setLoading]=useState(true);
   const [showForm,setShowForm]=useState(false);
@@ -1358,7 +1358,7 @@ function ActivitiesLibrary({ chapters, onAddChapter }) {
     try{
       const ctx=await getMaterialContext(form.chapter_title);
       setMatchedCount(ctx.matchedCount||0);
-      const results=await gemini.generateActivities(form.chapter_title,ctx);
+      const results=await gemini.generateActivities(form.chapter_title,ctx,classContext);
       if(results?.length){for(const a of results)await db.upsertActivity({title:a.title,type:a.type||"game",duration:a.duration,competency:a.competency,description:a.description,chapter_title:form.chapter_title});load();setShowForm(false);}
       else setError("क्रियाकलाप बनाउन सकिएन।");
     }catch(e){setError("AI त्रुटि: "+e.message);}
@@ -1429,7 +1429,7 @@ function ActivitiesLibrary({ chapters, onAddChapter }) {
 // Assessment, Resources) behind one nav item with internal tabs, instead of
 // four separate items cluttering the "थप" menu. Same screens underneath,
 // just fewer places to hunt for them.
-function AITools({ lessons, chapters, onAddChapter }) {
+function AITools({ lessons, chapters, onAddChapter, classContext }) {
   const [tab,setTab]=useState("questions");
   const TABS=[
     {id:"questions",label:"प्रश्न बैंक",icon:HelpCircle,color:VIOLET,bg:VIOLET_LIGHT},
@@ -1444,15 +1444,15 @@ function AITools({ lessons, chapters, onAddChapter }) {
           <button key={t.id} onClick={()=>setTab(t.id)} style={{display:"flex",alignItems:"center",gap:7,padding:"13px 18px",border:"none",background:active?t.bg:"none",borderBottom:active?`3px solid ${t.color}`:"3px solid transparent",color:active?t.color:INK_SOFT,fontWeight:700,fontSize:16,cursor:"pointer",whiteSpace:"nowrap",transition:"background .15s"}}><Icon size={16}/>{t.label}</button>
         );})}
       </div>
-      {tab==="questions"&&<QuestionBank chapters={chapters} onAddChapter={onAddChapter}/>}
-      {tab==="activities"&&<ActivitiesLibrary chapters={chapters} onAddChapter={onAddChapter}/>}
-      {tab==="assessment"&&<AssessmentBuilder chapters={chapters} onAddChapter={onAddChapter}/>}
-      {tab==="resources"&&<ResourceCreator lessons={lessons}/>}
+      {tab==="questions"&&<QuestionBank chapters={chapters} onAddChapter={onAddChapter} classContext={classContext}/>}
+      {tab==="activities"&&<ActivitiesLibrary chapters={chapters} onAddChapter={onAddChapter} classContext={classContext}/>}
+      {tab==="assessment"&&<AssessmentBuilder chapters={chapters} onAddChapter={onAddChapter} classContext={classContext}/>}
+      {tab==="resources"&&<ResourceCreator lessons={lessons} classContext={classContext}/>}
     </div>
   );
 }
 
-function ResourceCreator({ lessons }) {
+function ResourceCreator({ lessons, classContext }) {
   const [active,setActive]=useState(null);
   const [generating,setGenerating]=useState(false);
   const [generatedText,setGeneratedText]=useState("");
@@ -1460,8 +1460,8 @@ function ResourceCreator({ lessons }) {
   const lesson=lessons[0];
   const chapterTitle=lesson?.chapters?.title||lesson?.chapter_title||"";
   const TEMPLATES=[
-    {id:"worksheet",title:"कार्यपत्र",icon:FileText,prompt:(l)=>`कक्षा ५ सामाजिक अध्ययन "${l?.title||""}" पाठका लागि अभ्यास कार्यपत्र नेपालीमा बनाउनुहोस्। उद्देश्य: ${(l?.objectives||[]).join(", ")}`},
-    {id:"revision",title:"पुनरावलोकन",icon:ClipboardList,prompt:(l)=>`कक्षा ५ "${l?.title||""}" पाठको पुनरावलोकन पाना बनाउनुहोस्। मुख्य बुँदा, शब्दावली र प्रश्नहरू।`},
+    {id:"worksheet",title:"कार्यपत्र",icon:FileText,prompt:(l)=>`${classContext} "${l?.title||""}" पाठका लागि अभ्यास कार्यपत्र नेपालीमा बनाउनुहोस्। उद्देश्य: ${(l?.objectives||[]).join(", ")}`},
+    {id:"revision",title:"पुनरावलोकन",icon:ClipboardList,prompt:(l)=>`${classContext} "${l?.title||""}" पाठको पुनरावलोकन पाना बनाउनुहोस्। मुख्य बुँदा, शब्दावली र प्रश्नहरू।`},
     {id:"flashcard",title:"फ्ल्यासकार्ड",icon:Copy,prompt:(l)=>`"${l?.title||""}" पाठका शब्दावलीहरू: ${(l?.vocabulary||[]).join(", ")} — फ्ल्यासकार्ड बनाउनुहोस्।`},
     {id:"mindmap",title:"अवधारणा नक्सा",icon:Brain,prompt:(l)=>`"${l?.title||""}" पाठको अवधारणा नक्सा (text format) बनाउनुहोस्।`},
     {id:"vocab",title:"शब्दावली सूची",icon:Tag,prompt:(l)=>`"${l?.title||""}" पाठका शब्दावलीहरू अर्थ र वाक्य प्रयोगसहित: ${(l?.vocabulary||[]).join(", ")}`},
@@ -1596,7 +1596,10 @@ function CalendarView({ lessons, homework }) {
   );
 }
 
-function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, installPrompt, isStandalone, isIOS, onInstall }) {
+function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, installPrompt, isStandalone, isIOS, onInstall, classLabel, subjectLabel, onClassChange, onSubjectChange }) {
+  const [classDraft,setClassDraft]=useState(classLabel);
+  const [subjectDraft,setSubjectDraft]=useState(subjectLabel);
+  const [classMsg,setClassMsg]=useState("");
   const [name,setName]=useState("");
   const [saving,setSaving]=useState(false);
   const [msg,setMsg]=useState("");
@@ -1608,6 +1611,13 @@ function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, ins
       if(b64){window.__textbookPDF__=b64;setPdfLoaded(true);}
     });
   },[]);
+
+  const saveClassSubject=()=>{
+    onClassChange(classDraft.trim()||"कक्षा ५");
+    onSubjectChange(subjectDraft.trim()||"सामाजिक अध्ययन");
+    setClassMsg("सुरक्षित भयो!");
+    setTimeout(()=>setClassMsg(""),2000);
+  };
 
   const addSection=async()=>{
     if(!name.trim())return;setSaving(true);
@@ -1665,6 +1675,23 @@ function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, ins
       )}
 
       <Card style={{marginBottom:14}}>
+        <SectionLabel>कक्षा र विषय</SectionLabel>
+        <div style={{fontSize:15,color:INK_SOFT,marginBottom:12,lineHeight:1.6}}>यहाँ बदल्दा एपभर (होम स्क्रिन, AI उत्पन्न सामग्री, पाठ योजना, प्रश्न, कार्यपत्र...) सोही कक्षा र विषय अनुसार लागू हुन्छ।</div>
+        <div style={{display:"flex",gap:8,marginBottom:8}}>
+          <div style={{flex:1}}>
+            <div style={{fontSize:14,color:INK_SOFT,fontWeight:600,marginBottom:5}}>कक्षा</div>
+            <input value={classDraft} onChange={(e)=>setClassDraft(e.target.value)} placeholder="जस्तै: कक्षा ६" className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,outline:"none"}}/>
+          </div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:14,color:INK_SOFT,fontWeight:600,marginBottom:5}}>विषय</div>
+            <input value={subjectDraft} onChange={(e)=>setSubjectDraft(e.target.value)} placeholder="जस्तै: विज्ञान" className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,outline:"none"}}/>
+          </div>
+        </div>
+        <Button variant="primary" size="sm" onClick={saveClassSubject}>सुरक्षित गर्नुहोस्</Button>
+        {classMsg&&<div style={{marginTop:8,fontSize:15,color:ACCENT,fontWeight:600}}>{classMsg}</div>}
+      </Card>
+
+      <Card style={{marginBottom:14}}>
         <SectionLabel>देखावट (उज्यालो / गाढा)</SectionLabel>
         <div style={{display:"flex",gap:8}}>
           <button onClick={()=>theme!=="light"&&onToggleTheme()} className="ss-chip" style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"13px",borderRadius:12,border:`2px solid ${theme==="light"?ACCENT:BORDER}`,background:theme==="light"?ACCENT_LIGHT:SURFACE,color:theme==="light"?ACCENT:INK_SOFT,fontWeight:700,fontSize:16,cursor:"pointer"}}><Sun size={17}/>उज्यालो</button>
@@ -1696,7 +1723,7 @@ function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, ins
         <SectionLabel>खाता</SectionLabel>
         <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
           <div style={{width:46,height:46,borderRadius:"50%",background:ACCENT,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18.5,fontWeight:700,flexShrink:0}}>{session?.user?.email?.[0]?.toUpperCase()||"श"}</div>
-          <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,color:INK,fontSize:16.5,overflowWrap:"break-word",wordBreak:"break-word"}}>{session?.user?.email||""}</div><div style={{fontSize:15,color:INK_SOFT}}>कक्षा ५ · सामाजिक अध्ययन</div></div>
+          <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,color:INK,fontSize:16.5,overflowWrap:"break-word",wordBreak:"break-word"}}>{session?.user?.email||""}</div><div style={{fontSize:15,color:INK_SOFT}}>{classLabel} · {subjectLabel}</div></div>
         </div>
         <button onClick={()=>db.signOut()} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"10px",borderRadius:10,border:`1px solid ${DANGER_BG}`,background:DANGER_BG,color:DANGER,fontWeight:700,fontSize:16.5,cursor:"pointer"}}><LogOut size={15}/>लगआउट</button>
       </Card>
@@ -1771,6 +1798,21 @@ export default function App() {
   const toggleTheme=()=>setTheme((t)=>t==="light"?"dark":"light");
   useEffect(()=>{ document.documentElement.setAttribute("data-theme", theme); },[theme]);
 
+  // NEW — class/subject are no longer hardcoded. They're stored locally per
+  // device (same pattern as the theme toggle above) and editable from
+  // Settings, so the same app works for any class and any subject instead of
+  // being permanently "कक्षा ५ · सामाजिक अध्ययन". Every AI prompt that used to
+  // hardcode that string now reads classContext instead.
+  const [classLabel,setClassLabelState]=useState(()=>{
+    try{ return localStorage.getItem("ss-class")||"कक्षा ५"; }catch{ return "कक्षा ५"; }
+  });
+  const [subjectLabel,setSubjectLabelState]=useState(()=>{
+    try{ return localStorage.getItem("ss-subject")||"सामाजिक अध्ययन"; }catch{ return "सामाजिक अध्ययन"; }
+  });
+  const setClassLabel=(v)=>{setClassLabelState(v);try{localStorage.setItem("ss-class",v);}catch{}};
+  const setSubjectLabel=(v)=>{setSubjectLabelState(v);try{localStorage.setItem("ss-subject",v);}catch{}};
+  const classContext=`${classLabel} ${subjectLabel}`.trim();
+
   // NEW — inject the theme's CSS variables directly, once, on first mount.
   // This runs before the login screen or spinner ever renders (hooks always
   // run before the early `return`s below), so colors exist immediately no
@@ -1780,8 +1822,8 @@ export default function App() {
     const style=document.createElement("style");
     style.id="ss-theme-vars";
     style.textContent=`
-      [data-theme="light"]{--bg:#F6F3EA;--bg-grad:#EFE9D8;--surface:#FFFFFF;--surface-2:#FDFBF6;--ink:#201D19;--ink-soft:#6B6557;--border:#E6E0D1;--accent:#164A38;--accent-dark:#0F3627;--accent-light:#E4F1EA;--marigold:#D98E2B;--marigold-dark:#B9741A;--teal:#0E8A87;--teal-light:#E1F5F3;--violet:#7A4FC2;--violet-light:#F0E9FA;--blue:#2E6FBE;--blue-light:#E8F1FC;--rose:#C4436B;--rose-light:#FBE9EF;--danger:#B3402C;--danger-bg:#FBEAE6;--warn:#9A5B12;--warn-bg:#FCF0DA;--shadow-rgb:32,29,25;}
-      [data-theme="dark"]{--bg:#12171A;--bg-grad:#1A2225;--surface:#1D2427;--surface-2:#232B2E;--ink:#F1EEE7;--ink-soft:#A8A192;--border:#323B3E;--accent:#45BB9A;--accent-dark:#2C7C63;--accent-light:#1B332C;--marigold:#E8A44A;--marigold-dark:#C98A34;--teal:#3FC2BD;--teal-light:#173B39;--violet:#B294EE;--violet-light:#2B2242;--blue:#79ABEE;--blue-light:#1E2E42;--rose:#E58AA8;--rose-light:#3A2028;--danger:#E5715A;--danger-bg:#3A2320;--warn:#E0A94E;--warn-bg:#3A2E18;--shadow-rgb:0,0,0;}
+      [data-theme="light"]{--bg:#FAF6EC;--bg-grad:#F1E8D2;--surface:#FFFFFF;--surface-2:#FBF7ED;--ink:#221A12;--ink-soft:#7A6C5C;--border:#E7DEC9;--accent:#1F7A5C;--accent-dark:#155C45;--accent-light:#E1F2EA;--marigold:#C9971C;--marigold-dark:#96690E;--teal:#2E8C86;--teal-light:#E4F2F1;--violet:#7A5A9E;--violet-light:#F1EAF7;--blue:#3E5C8C;--blue-light:#E8EBF5;--rose:#BE6A4A;--rose-light:#F8E9DE;--danger:#B3261E;--danger-bg:#FBEAE6;--warn:#96690E;--warn-bg:#FBF0DA;--shadow-rgb:29,26,20;--card-sheen:rgba(255,255,255,0.75);}
+      [data-theme="dark"]{--bg:#141B19;--bg-grad:#1A2422;--surface:#1E2725;--surface-2:#26302D;--ink:#EDEAE1;--ink-soft:#A6A092;--border:#333E3B;--accent:#4FBF9B;--accent-dark:#2F8F70;--accent-light:#1C332B;--marigold:#E8B84B;--marigold-dark:#C99A3A;--teal:#5FC2BC;--teal-light:#1B3634;--violet:#C6A3DE;--violet-light:#332740;--blue:#7C93C9;--blue-light:#212A3C;--rose:#E0A17E;--rose-light:#3B2A1D;--danger:#E5766D;--danger-bg:#3A211E;--warn:#E0A94E;--warn-bg:#3A2E18;--shadow-rgb:0,0,0;--card-sheen:rgba(255,255,255,0.06);}
       html,body{background:radial-gradient(1100px 620px at 12% -8%, var(--bg-grad), var(--bg) 55%);}
     `;
     document.head.appendChild(style);
@@ -1858,28 +1900,28 @@ export default function App() {
            reads these via var(--x), so toggling data-theme instantly
            re-colors the whole app with no per-component logic needed. */
         [data-theme="light"]{
-          --bg:#FAF3E7; --bg-grad:#F1E3C9; --surface:#FFFFFF; --surface-2:#FBF4E8;
-          --ink:#251712; --ink-soft:#7C6C5B; --border:#EADCC3;
-          --accent:#A3242F; --accent-dark:#78141E; --accent-light:#F7E2DF;
+          --bg:#FAF6EC; --bg-grad:#F1E8D2; --surface:#FFFFFF; --surface-2:#FBF7ED;
+          --ink:#221A12; --ink-soft:#7A6C5C; --border:#E7DEC9;
+          --accent:#1F7A5C; --accent-dark:#155C45; --accent-light:#E1F2EA;
           --marigold:#C9971C; --marigold-dark:#96690E;
-          --teal:#33437A; --teal-light:#E8EAF6;
-          --violet:#7A4468; --violet-light:#F6E7EF;
-          --blue:#3E6089; --blue-light:#E8EFF6;
-          --rose:#B5502E; --rose-light:#F8E8DE;
+          --teal:#2E8C86; --teal-light:#E4F2F1;
+          --violet:#7A5A9E; --violet-light:#F1EAF7;
+          --blue:#3E5C8C; --blue-light:#E8EBF5;
+          --rose:#BE6A4A; --rose-light:#F8E9DE;
           --danger:#B3261E; --danger-bg:#FBEAE6;
           --warn:#96690E; --warn-bg:#FBF0DA;
-          --shadow-rgb:37,23,18;
+          --shadow-rgb:29,26,20;
           --card-sheen:rgba(255,255,255,0.75);
         }
         [data-theme="dark"]{
-          --bg:#171320; --bg-grad:#1F1A2B; --surface:#221D2F; --surface-2:#2B2439;
-          --ink:#F3E9DD; --ink-soft:#AFA192; --border:#3C3449;
-          --accent:#E2626B; --accent-dark:#B23A44; --accent-light:#3A1F23;
+          --bg:#141B19; --bg-grad:#1A2422; --surface:#1E2725; --surface-2:#26302D;
+          --ink:#EDEAE1; --ink-soft:#A6A092; --border:#333E3B;
+          --accent:#4FBF9B; --accent-dark:#2F8F70; --accent-light:#1C332B;
           --marigold:#E8B84B; --marigold-dark:#C99A3A;
-          --teal:#8393D6; --teal-light:#262B47;
-          --violet:#D391B8; --violet-light:#3A2233;
-          --blue:#8FB4DE; --blue-light:#212A3C;
-          --rose:#E2825C; --rose-light:#3C2419;
+          --teal:#5FC2BC; --teal-light:#1B3634;
+          --violet:#C6A3DE; --violet-light:#332740;
+          --blue:#7C93C9; --blue-light:#212A3C;
+          --rose:#E0A17E; --rose-light:#3B2A1D;
           --danger:#E5766D; --danger-bg:#3A211E;
           --warn:#E0A94E; --warn-bg:#3A2E18;
           --shadow-rgb:0,0,0;
@@ -1972,7 +2014,7 @@ export default function App() {
 
       <div className="no-print" style={{background:`color-mix(in srgb, ${SURFACE} 88%, transparent)`,backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",borderBottom:`1px solid ${BORDER}`,padding:"13px 18px",display:"flex",alignItems:"center",gap:12,position:"sticky",top:0,zIndex:10,boxShadow:SHADOW.sm}}>
         <img src="/icons/icon-64.png" alt="शिक्षा साथी" width={40} height={40} style={{borderRadius:12,boxShadow:SHADOW.accent,flexShrink:0}}/>
-        <div style={{minWidth:0,overflow:"hidden"}}><div style={{fontWeight:800,fontSize:18.5,letterSpacing:"-0.015em",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>शिक्षा साथी</div><div style={{fontSize:14.5,color:INK_SOFT,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>कक्षा ५ · सामाजिक अध्ययन</div></div>
+        <div style={{minWidth:0,overflow:"hidden"}}><div style={{fontWeight:800,fontSize:18.5,letterSpacing:"-0.015em",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>शिक्षा साथी</div><div style={{fontSize:14.5,color:INK_SOFT,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{classLabel} · {subjectLabel}</div></div>
         <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
           <div title={lessonsLoading?"सिंक हुँदैछ...":synced?"सिंक भयो":"सिंक भएको"} style={{display:"flex",alignItems:"center",gap:4,fontSize:13.5,color:synced?ACCENT:INK_SOFT,fontWeight:700,transition:"color .3s",whiteSpace:"nowrap",background:synced?ACCENT_LIGHT:"transparent",padding:"5px 9px",borderRadius:999}}>
             <RefreshCw size={13} style={{animation:lessonsLoading?"spin 1s linear infinite":"none",flexShrink:0}}/>
@@ -1999,15 +2041,15 @@ export default function App() {
 
       <div className="main-content">
         {screen==="dashboard"&&<Dashboard onOpenLesson={setActiveLesson} onGoPlanner={()=>setScreen("planner")} onGoHomework={()=>setScreen("homework")} onGoMaterials={()=>setScreen("materials")} section={currentSection} lessons={lessons} homework={homework} loading={lessonsLoading} chapters={chapters}/>}
-        {screen==="planner"&&<Planner onOpenLesson={setActiveLesson} section={currentSection} lessons={lessons} loading={lessonsLoading} onRefresh={loadLessons} chapters={chapters} onAddChapter={addChapter}/>}
+        {screen==="planner"&&<Planner onOpenLesson={setActiveLesson} section={currentSection} lessons={lessons} loading={lessonsLoading} onRefresh={loadLessons} chapters={chapters} onAddChapter={addChapter} classContext={classContext}/>}
         {screen==="materials"&&<Materials chapters={chapters} onAddChapter={addChapter} onChaptersChanged={loadChapters}/>}
-        {screen==="ai"&&<AIAssistant lessons={lessons}/>}
+        {screen==="ai"&&<AIAssistant lessons={lessons} classContext={classContext}/>}
         {screen==="homework"&&<HomeworkManager section={currentSection} loading={hwLoading} homework={homework} onRefresh={loadHomework}/>}
         {screen==="journal"&&<TeachingJournal/>}
-        {screen==="aitools"&&<AITools lessons={lessons} chapters={chapters} onAddChapter={addChapter}/>}
+        {screen==="aitools"&&<AITools lessons={lessons} chapters={chapters} onAddChapter={addChapter} classContext={classContext}/>}
         {screen==="search"&&<DocumentSearch lessons={lessons} homework={homework}/>}
         {screen==="calendar"&&<CalendarView lessons={lessons} homework={homework}/>}
-        {screen==="settings"&&<Settings session={session} sections={sections} onSectionAdded={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}} theme={theme} onToggleTheme={toggleTheme} installPrompt={installPrompt} isStandalone={isStandalone} isIOS={isIOS} onInstall={promptInstall}/>}
+        {screen==="settings"&&<Settings session={session} sections={sections} onSectionAdded={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}} theme={theme} onToggleTheme={toggleTheme} installPrompt={installPrompt} isStandalone={isStandalone} isIOS={isIOS} onInstall={promptInstall} classLabel={classLabel} subjectLabel={subjectLabel} onClassChange={setClassLabel} onSubjectChange={setSubjectLabel}/>}
       </div>
 
       <div className="mobile-bottom-nav no-print" style={{position:"fixed",bottom:0,left:0,right:0,background:`color-mix(in srgb, ${SURFACE} 94%, transparent)`,backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",borderTop:`1px solid ${BORDER}`,justifyContent:"space-around",padding:"7px 6px calc(7px + env(safe-area-inset-bottom))",zIndex:10,boxShadow:"0 -6px 20px rgba(0,0,0,0.07)"}}>

@@ -191,8 +191,8 @@ async function runPromptJSON(prompt, ctx) {
 }
 
 // ─── High-level generation helpers ───────────────────────────────────────────
-export const generateLessonPlan = async (chapterTitle, ctx = null) => {
-  const prompt = `तपाईं नेपालको कक्षा ५ सामाजिक अध्ययनका लागि पाठ योजना बनाउँदै हुनुहुन्छ।
+export const generateLessonPlan = async (chapterTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन") => {
+  const prompt = `तपाईं नेपालको ${classContext}का लागि पाठ योजना बनाउँदै हुनुहुन्छ।
 अध्याय: "${chapterTitle}"
 यो ठ्याक्कै यो JSON संरचनामा मात्र जवाफ दिनुहोस्:
 {
@@ -214,8 +214,8 @@ export const generateLessonPlan = async (chapterTitle, ctx = null) => {
   return result;
 };
 
-export const generateQuestions = async (chapterTitle, ctx = null) => {
-  const prompt = `नेपालको कक्षा ५ सामाजिक अध्ययन "${chapterTitle}" अध्यायका लागि १० विभिन्न प्रकारका प्रश्नहरू भएको JSON array मात्र:
+export const generateQuestions = async (chapterTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन") => {
+  const prompt = `नेपालको ${classContext} "${chapterTitle}" अध्यायका लागि १० विभिन्न प्रकारका प्रश्नहरू भएको JSON array मात्र:
 [{"text":"प्रश्न?","type":"छोटो उत्तर","difficulty":"सजिलो","bloom":"सम्झना","answer":"उत्तर"},
 {"text":"प्रश्न?","type":"बहुविकल्पीय","difficulty":"मध्यम","bloom":"बुझाई","options":["क) विकल्प","ख) विकल्प","ग) विकल्प","घ) विकल्प"],"correct_option":0,"answer":"उत्तर"}]`;
   const text = await runPromptJSON(prompt, ctx);
@@ -227,8 +227,8 @@ export const generateQuestions = async (chapterTitle, ctx = null) => {
   return result;
 };
 
-export const generateActivities = async (chapterTitle, ctx = null) => {
-  const prompt = `नेपाल कक्षा ५ "${chapterTitle}" का लागि ५ कक्षागत क्रियाकलाप भएको JSON array मात्र:
+export const generateActivities = async (chapterTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन") => {
+  const prompt = `नेपाल ${classContext} "${chapterTitle}" का लागि ५ कक्षागत क्रियाकलाप भएको JSON array मात्र:
 [{"title":"नाम","type":"game","duration":"१५ मिनेट","competency":"क्षमता","description":"विवरण"}]
 प्रकार: game, roleplay, project, map, debate, presentation`;
   const text = await runPromptJSON(prompt, ctx);
@@ -247,8 +247,8 @@ export const generateRubric = async (prompt, ctx = null) => {
   return parseJSON(text);
 };
 
-export const chatWithAI = async (userMessage, lessonContext, ctx = null) => {
-  const prompt = `तपाईं नेपालको कक्षा ५ सामाजिक अध्ययनका शिक्षकको AI सहायक हुनुहुन्छ। नेपालीमा उत्तर दिनुहोस्।
+export const chatWithAI = async (userMessage, lessonContext, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन") => {
+  const prompt = `तपाईं नेपालको ${classContext}का शिक्षकको AI सहायक हुनुहुन्छ। नेपालीमा उत्तर दिनुहोस्।
 
 पाठ सन्दर्भ:
 ${lessonContext}
