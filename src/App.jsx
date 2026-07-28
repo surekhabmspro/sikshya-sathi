@@ -496,92 +496,206 @@ function StatCard({ icon:Icon, value, label, color, onClick, accent }) {
   );
 }
 
-function Dashboard({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, section, lessons, homework, loading, chapters, teacherName }) {
-  const today=lessons.find((l)=>l.status==="ready")||lessons[0];
-  const pending=lessons.filter((l)=>l.status!=="ready").slice(0,4);
-  const hwPending=homework.filter((h)=>h.checked_count<h.total_students).slice(0,4);
-  const readyCount=lessons.filter((l)=>l.status==="ready").length;
-  const [materialsCount,setMaterialsCount]=useState(0);
-  const [briefing,setBriefing]=useState("");
-  const [briefingLoading,setBriefingLoading]=useState(false);
-  useEffect(()=>{ db.getMaterials().then(({data})=>setMaterialsCount((data||[]).length)); },[]);
-  useEffect(()=>{ setBriefing(""); },[today?.id]);
+// NEW — the things a one-click "prepare this chapter" run produces. The
+// lesson plan and any presentation/PPT come from what the teacher already
+// uploaded (shown separately below) — this only fills in what AI is
+// actually useful for: questions, activities, and an assessment rubric.
+const PREP_STEPS=[
+  {id:"questions",label:"प्रश्नहरू"},
+  {id:"activities",label:"क्रियाकलाप"},
+  {id:"assessment",label:"मूल्याङ्कन"},
+];
+function PrepStepRow({ label, state }) {
+  const color=state==="done"?ACCENT:state==="error"?DANGER:state==="loading"?MARIGOLD_DARK:INK_SOFT;
+  const bg=state==="done"?ACCENT_LIGHT:state==="error"?DANGER_BG:state==="loading"?WARN_BG:SURFACE_2;
+  return(
+    <div style={{display:"flex",alignItems:"center",gap:10,padding:"7px 2px"}}>
+      <div style={{width:24,height:24,borderRadius:"50%",background:bg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+        {state==="loading"?<Loader size={12} color={color} style={{animation:"spin 1s linear infinite"}}/>
+          :state==="done"?<CheckCircle2 size={13} color={color}/>
+          :state==="error"?<AlertCircle size={13} color={color}/>
+          :<div style={{width:6,height:6,borderRadius:"50%",background:color}}/>}
+      </div>
+      <div style={{fontSize:16,fontWeight:600,color:state==="idle"?INK_SOFT:INK}}>{label}</div>
+    </div>
+  );
+}
 
-  const generateBriefing=async()=>{
-    if(!today)return;
-    setBriefingLoading(true);setBriefing("");
+// NEW — shows what the teacher has already uploaded for this chapter
+// (lesson plan, PPT, etc., tagged by category in Materials). This is the
+// source of truth for the lesson plan/presentation — AI never overwrites
+// these, it only reads them for context.
+function ChapterMaterialsList({ materials, onGoMaterials }) {
+  if(!materials||materials.length===0){
+    return(
+      <div style={{display:"flex",alignItems:"center",gap:8,fontSize:15,color:WARN,background:WARN_BG,borderRadius:10,padding:"9px 12px",marginBottom:10}}>
+        <FileText size={14}/>
+        <span style={{flex:1}}>यो अध्यायमा अझै पाठ योजना/PPT थपिएको छैन।</span>
+        <button onClick={onGoMaterials} style={{background:"none",border:"none",color:MARIGOLD_DARK,fontWeight:700,fontSize:14.5,cursor:"pointer",textDecoration:"underline",flexShrink:0}}>थप्नुहोस्</button>
+      </div>
+    );
+  }
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:5,marginBottom:10}}>
+      {materials.map((m)=>{
+        const meta=CATEGORY_META[m.category]||CATEGORY_META.other;
+        const Icon=meta.icon;
+        return(
+          <div key={m.id} style={{display:"flex",alignItems:"center",gap:8,fontSize:15,color:INK,background:SURFACE_2,borderRadius:8,padding:"7px 10px"}}>
+            <Icon size={14} color={meta.color} style={{flexShrink:0}}/>
+            <span style={{fontWeight:700,color:meta.color,fontSize:13.5,flexShrink:0}}>{meta.label}</span>
+            <span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.name}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// NEW — HomeScreen replaces the old Dashboard. The lesson plan and teaching
+// materials (PPT, worksheets, etc.) are uploaded once by the teacher —
+// tagged to a chapter in Materials. From there, picking that chapter here
+// and tapping one button prepares everything AI can usefully add on top —
+// questions, activities, and an assessment rubric — reading the teacher's
+// own uploaded lesson plan/PPT and the textbook as its source, never
+// replacing them. This is meant to be the only screen a teacher needs to
+// touch on a normal day.
+function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, onGoAITools, onGoSettings, section, lessons, homework, loading, chapters, teacherName, onAddChapter, classContext }) {
+  const today=lessons.find((l)=>l.status==="ready")||lessons[0];
+  const [materialsCount,setMaterialsCount]=useState(0);
+  const [prepChapter,setPrepChapter]=useState("");
+  const [chapterMaterials,setChapterMaterials]=useState([]);
+  const [stepState,setStepState]=useState({});
+  const [preparing,setPreparing]=useState(false);
+  const [prepError,setPrepError]=useState("");
+  const [prepResult,setPrepResult]=useState(null);
+  const textbookReady=!!getTextbookPDF();
+
+  useEffect(()=>{ db.getMaterials().then(({data})=>setMaterialsCount((data||[]).length)); },[]);
+  useEffect(()=>{
+    if(!prepChapter){setChapterMaterials([]);return;}
+    let cancelled=false;
+    db.getChapterIdByTitle(prepChapter).then((id)=>{
+      if(!id){if(!cancelled)setChapterMaterials([]);return;}
+      db.getMaterialsByChapter(id).then(({data})=>{if(!cancelled)setChapterMaterials(data||[]);});
+    });
+    return ()=>{cancelled=true;};
+  },[prepChapter]);
+
+  const prepareChapter=async()=>{
+    const chapter=prepChapter.trim();
+    if(!chapter){setPrepError("पहिले अध्याय छान्नुहोस्।");return;}
+    setPreparing(true);setPrepError("");setPrepResult(null);
+    setStepState({questions:"loading",activities:"idle",assessment:"idle"});
+    let qCount=0,aCount=0,gotRubric=false;
+    // NEW: this pulls in the teacher's own uploaded lesson plan/PPT/materials
+    // for this chapter (plus the textbook) as the source AI reads from.
+    const ctx=await getMaterialContext(chapter);
+
     try{
-      const chapterTitle=today.chapters?.title||today.chapter_title||"";
-      const ctx=await getMaterialContext(chapterTitle);
-      const prompt=`तपाईं एक शिक्षकलाई कक्षा सुरु हुनुभन्दा पहिले छिटो याद दिलाउँदै हुनुहुन्छ। पाठ: "${today.title}" (अध्याय: "${chapterTitle}")। उद्देश्य: ${(today.objectives||[]).join(", ")||"उल्लेख छैन"}। ३-४ वाक्यमा छोटो, व्यावहारिक ब्रिफिङ दिनुहोस् — के मुख्य कुरा सम्झाउने, कुन गतिविधि सुरु गर्ने, र विद्यार्थीलाई के सोध्ने। सिधै नेपालीमा लेख्नुहोस्, कुनै heading नराख्नुहोस्।`;
-      const text=(ctx.materialParts.length||ctx.pdfBase64)?await gemini.generateWithMaterials(prompt,ctx.materialParts,ctx.pdfBase64):await gemini.generateText(prompt);
-      setBriefing(text.trim());
-    }catch(e){setBriefing("AI ब्रिफिङ ल्याउन सकिएन: "+e.message);}
-    setBriefingLoading(false);
+      const qs=await gemini.generateQuestions(chapter,ctx,classContext);
+      if(qs?.length){
+        for(const q of qs)await db.upsertQuestion({text:q.text,type:q.type||"छोटो उत्तर",difficulty:q.difficulty||"सजिलो",bloom_level:q.bloom||"सम्झना",chapter_title:chapter,options:q.options||[],correct_option:q.correct_option??null});
+        qCount=qs.length;
+        setStepState((s)=>({...s,questions:"done",activities:"loading"}));
+      }else setStepState((s)=>({...s,questions:"error",activities:"loading"}));
+    }catch(e){setStepState((s)=>({...s,questions:"error",activities:"loading"}));}
+
+    try{
+      const acts=await gemini.generateActivities(chapter,ctx,classContext);
+      if(acts?.length){
+        for(const a of acts)await db.upsertActivity({title:a.title,type:a.type||"game",duration:a.duration,competency:a.competency,description:a.description,chapter_title:chapter});
+        aCount=acts.length;
+        setStepState((s)=>({...s,activities:"done",assessment:"loading"}));
+      }else setStepState((s)=>({...s,activities:"error",assessment:"loading"}));
+    }catch(e){setStepState((s)=>({...s,activities:"error",assessment:"loading"}));}
+
+    try{
+      const prompt=`नेपाल ${classContext} "${chapter}" का लागि अवलोकन मूल्याङ्कन मापदण्ड भएको JSON array मात्र: [{"level":"उत्कृष्ट","desc":"..."},{"level":"राम्रो","desc":"..."},{"level":"सहयोग आवश्यक","desc":"..."}]`;
+      const rubric=await gemini.generateRubric(prompt,ctx);
+      if(rubric?.length){
+        await db.upsertAssessment({title:`${chapter} — मूल्याङ्कन`,type:"observation",rubric,due_date:null,status:"pending"});
+        gotRubric=true;
+        setStepState((s)=>({...s,assessment:"done"}));
+      }else setStepState((s)=>({...s,assessment:"error"}));
+    }catch(e){setStepState((s)=>({...s,assessment:"error"}));}
+
+    setPrepResult({chapter,questions:qCount,activities:aCount,rubric:gotRubric});
+    setPreparing(false);
   };
 
   if(loading)return<Spinner/>;
   const hour=new Date().getHours();
   const timeGreeting=hour<11?"शुभ प्रभात":hour<16?"नमस्ते":"शुभ साँझ";
-  return(
-    <div style={{padding:"18px 18px 130px",maxWidth:1040,margin:"0 auto"}}>
-      {teacherName&&<div style={{fontSize:16.5,fontWeight:700,color:INK,marginBottom:10}}>{timeGreeting}, {teacherName} जी 👋</div>}
-      <GetStartedCard chapters={chapters||[]} materialsCount={materialsCount} lessons={lessons} onGoMaterials={onGoMaterials} onGoPlanner={onGoPlanner}/>
 
-      {today?(
-        <div style={{background:`linear-gradient(120deg,${TEAL} 0%, ${ACCENT} 65%, ${ACCENT_DARK} 100%)`,borderRadius:18,padding:"16px 18px",color:"#fff",marginBottom:16,boxShadow:SHADOW.accent,position:"relative",overflow:"hidden"}}>
-          <div style={{position:"absolute",top:-30,right:-30,width:110,height:110,borderRadius:"50%",background:"rgba(255,255,255,0.07)"}}/>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap",position:"relative"}}>
-            <div style={{minWidth:0}}>
-              <div style={{fontSize:13,opacity:0.8,fontWeight:600,letterSpacing:"0.03em",textTransform:"uppercase"}}>{today.chapters?.title||today.chapter_title||""}</div>
-              <div style={{fontSize:19.5,fontWeight:800,margin:"2px 0 0",letterSpacing:"-0.01em",overflowWrap:"break-word"}}>{today.title}</div>
-            </div>
-            <div style={{display:"flex",gap:8,flexShrink:0}}>
-              <Button variant="marigold" size="sm" icon={Sparkles} onClick={()=>onOpenLesson(today)}>आजको पाठ सुरु</Button>
-              <button onClick={generateBriefing} disabled={briefingLoading} className="ss-btn" title="AI ब्रिफिङ" style={{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,0.16)",color:"#fff",border:"1.5px solid rgba(255,255,255,0.35)",borderRadius:10,padding:"10px 14px",fontWeight:700,fontSize:14.5,cursor:briefingLoading?"wait":"pointer"}}>
-                {briefingLoading?<Spinner small/>:<Lightbulb size={15}/>}<span className="ss-sync-label">AI ब्रिफिङ</span>
-              </button>
-            </div>
+  return(
+    <div style={{padding:"18px 18px 130px",maxWidth:760,margin:"0 auto"}}>
+      {teacherName&&<div style={{fontSize:16.5,fontWeight:700,color:INK,marginBottom:10}}>{timeGreeting}, {teacherName} जी 👋</div>}
+
+      {!textbookReady&&(
+        <Card onClick={onGoSettings} style={{marginBottom:16,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}>
+          <div style={{width:38,height:38,borderRadius:11,background:WARN_BG,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><BookMarked size={18} color={MARIGOLD_DARK}/></div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:700,fontSize:16.5,color:INK}}>पहिले पाठ्यपुस्तक अपलोड गर्नुहोस्</div>
+            <div style={{fontSize:14.5,color:INK_SOFT}}>सेटिङमा गएर PDF थप्नुहोस् — त्यसपछि मात्र AI ले तयार गर्न सक्छ</div>
           </div>
-          {briefing&&(
-            <div style={{marginTop:12,background:"rgba(255,255,255,0.14)",borderRadius:12,padding:13,fontSize:15,lineHeight:1.6,backdropFilter:"blur(2px)"}}>
-              {briefing}
-            </div>
-          )}
-        </div>
-      ):(
-        <Card style={{marginBottom:16,textAlign:"center",padding:22}}>
-          <div style={{color:INK_SOFT,fontSize:16,marginBottom:11}}>{section?"पाठ योजनामा पाठ थप्नुहोस्।":"माथिबाट सेक्सन छान्नुहोस्।"}</div>
-          <Button variant="primary" size="sm" icon={Plus} onClick={onGoPlanner}>पाठ थप्नुहोस्</Button>
+          <ChevronRight size={18} color={INK_SOFT} style={{flexShrink:0}}/>
         </Card>
       )}
+
+      {today&&(
+        <div style={{background:`linear-gradient(120deg,${TEAL} 0%, ${ACCENT} 65%, ${ACCENT_DARK} 100%)`,borderRadius:18,padding:"16px 18px",color:"#fff",marginBottom:16,boxShadow:SHADOW.accent,position:"relative",overflow:"hidden"}}>
+          <div style={{position:"absolute",top:-30,right:-30,width:110,height:110,borderRadius:"50%",background:"rgba(255,255,255,0.07)"}}/>
+          <div style={{position:"relative",minWidth:0}}>
+            <div style={{fontSize:13,opacity:0.8,fontWeight:600,letterSpacing:"0.03em",textTransform:"uppercase"}}>{today.chapters?.title||today.chapter_title||""}</div>
+            <div style={{fontSize:19.5,fontWeight:800,margin:"2px 0 12px",letterSpacing:"-0.01em",overflowWrap:"break-word"}}>{today.title}</div>
+            <Button variant="marigold" size="sm" icon={Sparkles} onClick={()=>onOpenLesson(today)}>आजको पाठ सुरु</Button>
+          </div>
+        </div>
+      )}
+
+      <Card style={{marginBottom:16}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+          <div style={{width:38,height:38,borderRadius:11,background:ACCENT_LIGHT,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Wand2 size={18} color={ACCENT}/></div>
+          <div style={{fontWeight:800,fontSize:18,color:INK}}>कक्षा तयार गर्नुहोस्</div>
+        </div>
+        <div style={{fontSize:15,color:INK_SOFT,marginBottom:12,lineHeight:1.5}}>अध्याय छान्नुहोस् — तपाईंले अपलोड गरेको पाठ योजना र सामग्री (जस्तै PPT) प्रयोग गरेर प्रश्न, क्रियाकलाप र मूल्याङ्कन एकैचोटि तयार हुनेछ।</div>
+
+        <ChapterPicker value={prepChapter} onChange={setPrepChapter} chapters={chapters||[]} onAddChapter={onAddChapter} placeholder="— अध्याय छान्नुहोस् —"/>
+        {prepChapter.trim()&&<div style={{marginTop:8}}><ChapterMaterialsList materials={chapterMaterials} onGoMaterials={onGoMaterials}/></div>}
+
+        {prepError&&<ErrorMsg msg={prepError}/>}
+
+        <Button variant="primary" size="lg" icon={preparing?undefined:Zap} disabled={preparing||!prepChapter.trim()} onClick={prepareChapter} style={{width:"100%",marginTop:6}}>
+          {preparing?<><Spinner small/> तयार हुँदै...</>:"यो अध्याय तयार गर्नुहोस्"}
+        </Button>
+
+        {(preparing||prepResult)&&(
+          <div style={{marginTop:14,borderTop:`1px solid ${BORDER}`,paddingTop:8}}>
+            {PREP_STEPS.map((s)=><PrepStepRow key={s.id} label={s.label} state={stepState[s.id]||"idle"}/>)}
+          </div>
+        )}
+
+        {prepResult&&(
+          <div style={{marginTop:12,background:ACCENT_LIGHT,borderRadius:12,padding:14}}>
+            <div style={{fontWeight:700,color:ACCENT,fontSize:16.5,marginBottom:6}}>"{prepResult.chapter}" तयार भयो ✓</div>
+            <div style={{fontSize:15,color:INK,marginBottom:10}}>{prepResult.questions} प्रश्न · {prepResult.activities} क्रियाकलाप{prepResult.rubric?" · मूल्याङ्कन मापदण्ड":""} बनाइयो</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <Button variant="secondary" size="sm" onClick={onGoAITools}>प्रश्न/क्रियाकलाप हेर्नुहोस्</Button>
+              <Button variant="secondary" size="sm" onClick={onGoMaterials}>सामग्री हेर्नुहोस्</Button>
+            </div>
+          </div>
+        )}
+      </Card>
 
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:16}}>
         <StatCard icon={BookOpen} value={chapters?.length||0} label="अध्यायहरू" color={ACCENT} accent onClick={onGoMaterials}/>
         <StatCard icon={FileText} value={materialsCount} label="सामग्री फाइल" color={ROSE} accent onClick={onGoMaterials}/>
-        <StatCard icon={ClipboardList} value={lessons.length} label="कुल पाठ" color={MARIGOLD} accent onClick={onGoPlanner}/>
-        <StatCard icon={CheckCircle2} value={readyCount} label="तयार पाठ" color={TEAL} accent onClick={onGoPlanner}/>
+        <StatCard icon={CheckCircle2} value={lessons.filter((l)=>l.status==="ready").length} label="तयार पाठ" color={TEAL} accent onClick={onGoPlanner}/>
         <StatCard icon={ListChecks} value={homework.length} label="गृहकार्य" color={VIOLET} accent onClick={onGoHomework}/>
       </div>
 
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:16}}>
-        <Card>
-          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}><ClipboardList size={17} color={ACCENT}/><div style={{fontWeight:700,color:INK,fontSize:17}}>तयारी चाहिने</div></div>
-          {pending.length===0?<div style={{fontSize:16,color:INK_SOFT}}>सबै तयार! ✓</div>:pending.map((l)=>(
-            <div key={l.id} onClick={onGoPlanner} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"10px 2px",borderTop:`1px solid ${BORDER}`,cursor:"pointer"}}>
-              <div style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:16.5,color:INK,fontWeight:600}}>{l.title}</div><div style={{flexShrink:0}}><StatusPill status={l.status}/></div>
-            </div>
-          ))}
-        </Card>
-        <Card>
-          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}><CheckCircle2 size={17} color={ACCENT}/><div style={{fontWeight:700,color:INK,fontSize:17}}>जाँच्नुपर्ने गृहकार्य</div></div>
-          {hwPending.length===0?<div style={{fontSize:16,color:INK_SOFT}}>सबै जाँच भयो! ✓</div>:hwPending.map((h)=>(
-            <div key={h.id} onClick={onGoHomework} style={{display:"flex",justifyContent:"space-between",gap:8,padding:"10px 2px",borderTop:`1px solid ${BORDER}`,cursor:"pointer"}}>
-              <div style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:16.5,color:INK}}>{h.title}</div><div style={{fontSize:15.5,color:INK_SOFT,fontWeight:700,flexShrink:0}}>{h.checked_count}/{h.total_students}</div>
-            </div>
-          ))}
-        </Card>
-      </div>
+      <GetStartedCard chapters={chapters||[]} materialsCount={materialsCount} lessons={lessons} onGoMaterials={onGoMaterials} onGoPlanner={onGoPlanner}/>
     </div>
   );
 }
@@ -2146,7 +2260,7 @@ export default function App() {
       </div>
 
       <div className="main-content">
-        {screen==="dashboard"&&<Dashboard onOpenLesson={setActiveLesson} onGoPlanner={()=>setScreen("planner")} onGoHomework={()=>setScreen("homework")} onGoMaterials={()=>setScreen("materials")} section={currentSection} lessons={lessons} homework={homework} loading={lessonsLoading} chapters={chapters} teacherName={teacherName}/>}
+        {screen==="dashboard"&&<HomeScreen onOpenLesson={setActiveLesson} onGoPlanner={()=>setScreen("planner")} onGoHomework={()=>setScreen("homework")} onGoMaterials={()=>setScreen("materials")} onGoAITools={()=>setScreen("aitools")} onGoSettings={()=>setScreen("settings")} section={currentSection} lessons={lessons} homework={homework} loading={lessonsLoading} chapters={chapters} teacherName={teacherName} onAddChapter={addChapter} classContext={classContext}/>}
         {screen==="planner"&&<Planner onOpenLesson={setActiveLesson} section={currentSection} lessons={lessons} loading={lessonsLoading} onRefresh={loadLessons} chapters={chapters} onAddChapter={addChapter} classContext={classContext}/>}
         {screen==="materials"&&<Materials chapters={chapters} onAddChapter={addChapter} onChaptersChanged={loadChapters}/>}
         {screen==="ai"&&<AIAssistant lessons={lessons} classContext={classContext}/>}
