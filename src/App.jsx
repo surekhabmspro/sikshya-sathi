@@ -8,7 +8,7 @@ import {
   Meh, Frown, Heart, Gamepad2, FolderKanban, Map as MapIcon, Wand2,
   Brain, Copy, ChevronRight, LogOut, User, AlertCircle, Loader,
   Settings as SettingsIcon, Trash2, RefreshCw, BookMarked, Zap,
-  Sun, Moon, Lightbulb,
+  Sun, Moon, Lightbulb, Paperclip, ChevronDown,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import * as db from "./db";
@@ -207,8 +207,8 @@ function PageHeader({ icon:Icon, title, subtitle, action }) {
     </div>
   );
 }
-function AIButton({ label, onClick, loading }) {
-  return <Button variant="ghost" size="sm" onClick={onClick} disabled={loading} icon={loading?undefined:Zap}>{loading?<><Spinner small/> {label}</>:label}</Button>;
+function AIButton({ label, onClick, loading, style }) {
+  return <Button variant="ghost" size="sm" onClick={onClick} disabled={loading} icon={loading?undefined:Zap} style={style}>{loading?<><Spinner small/> {label}</>:label}</Button>;
 }
 function MaterialsHint({ count, chapterTitle }) {
   if (!chapterTitle || !chapterTitle.trim()) return null;
@@ -216,6 +216,55 @@ function MaterialsHint({ count, chapterTitle }) {
     <div style={{ fontSize:15, color: count>0?ACCENT:WARN, background: count>0?ACCENT_LIGHT:WARN_BG, borderRadius:8, padding:"6px 10px", marginBottom:8, display:"flex", alignItems:"center", gap:6 }}>
       <FileText size={13}/>
       {count>0?`"${chapterTitle}" मा ट्याग गरिएका ${count} फाइल AI ले प्रयोग गर्दैछ`:`"${chapterTitle}" मा कुनै सामग्री ट्याग गरिएको छैन`}
+    </div>
+  );
+}
+
+// NEW — shared "attach a material to this chapter without leaving the form"
+// widget. Used by Planner, Question Bank, Activities and Assessment so none
+// of them require a separate trip to the Materials tab just to give the AI
+// something to read from.
+function MaterialAttach({ chapterTitle }) {
+  const [attaching,setAttaching]=useState(false);
+  const [attachedNames,setAttachedNames]=useState([]);
+  const [attachError,setAttachError]=useState("");
+
+  const attachMaterial=async(e)=>{
+    const file=e.target.files[0];if(!file)return;
+    if(!chapterTitle||!chapterTitle.trim()){setAttachError("पहिले माथि अध्याय छान्नुहोस्।");e.target.value="";return;}
+    setAttaching(true);setAttachError("");
+    const{data:{user}}=await supabase.auth.getUser();
+    const ext=file.name.split(".").pop().toLowerCase();
+    const typeMap={pdf:"pdf",pptx:"pptx",ppt:"pptx",doc:"doc",docx:"doc",xlsx:"sheet",xls:"sheet",csv:"sheet",jpg:"image",jpeg:"image",png:"image",mp4:"video",mp3:"audio"};
+    const fileType=typeMap[ext]||"doc";
+    let extracted_text="",extraction_status="not_needed";
+    if(["docx","pptx","xlsx","xls","csv"].includes(ext)){
+      const res=await extractTextFromFile(file);
+      extracted_text=res.text;extraction_status=res.status;
+    }else if(ext==="doc"){
+      extraction_status="failed";
+      setAttachError(`पुरानो .doc ढाँचा समर्थित छैन — ".docx" बनाएर फेरि प्रयास गर्नुहोस्।`);
+    }
+    const chapterId=await db.getOrCreateChapterId(chapterTitle.trim());
+    const{path,error:upErr}=await db.uploadMaterialFile(file,user.id);
+    if(upErr){setAttachError(upErr.message);setAttaching(false);return;}
+    await db.insertMaterial({name:file.name,storage_path:path,file_type:fileType,size_bytes:file.size,tags:[],chapter_id:chapterId,category:"other",extracted_text,extraction_status});
+    setAttachedNames((prev)=>[...prev,file.name]);
+    setAttaching(false);e.target.value="";
+  };
+
+  return (
+    <div style={{marginBottom:8}}>
+      {attachedNames.length>0&&(
+        <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:6}}>
+          {attachedNames.map((n,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:6,fontSize:15,color:ACCENT,fontWeight:600}}><CheckCircle2 size={14}/><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n}</span></div>)}
+        </div>
+      )}
+      {attachError&&<div style={{fontSize:14.5,color:DANGER,marginBottom:6}}>{attachError}</div>}
+      <label style={{display:"inline-flex",alignItems:"center",gap:7,background:chapterTitle?.trim()?ACCENT_LIGHT:SURFACE_2,color:chapterTitle?.trim()?ACCENT:INK_SOFT,border:`1.5px dashed ${chapterTitle?.trim()?ACCENT:BORDER}`,borderRadius:10,padding:"9px 14px",fontWeight:700,fontSize:15,cursor:chapterTitle?.trim()?"pointer":"not-allowed"}}>
+        {attaching?<Spinner small/>:<Paperclip size={15}/>}{attaching?"अपलोड हुँदै...":"सामग्री थप्नुहोस्"}
+        <input type="file" onChange={attachMaterial} disabled={!chapterTitle?.trim()||attaching} style={{display:"none"}}/>
+      </label>
     </div>
   );
 }
@@ -447,7 +496,7 @@ function StatCard({ icon:Icon, value, label, color, onClick, accent }) {
   );
 }
 
-function Dashboard({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, section, lessons, homework, loading, chapters }) {
+function Dashboard({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, section, lessons, homework, loading, chapters, teacherName }) {
   const today=lessons.find((l)=>l.status==="ready")||lessons[0];
   const pending=lessons.filter((l)=>l.status!=="ready").slice(0,4);
   const hwPending=homework.filter((h)=>h.checked_count<h.total_students).slice(0,4);
@@ -472,8 +521,11 @@ function Dashboard({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, sec
   };
 
   if(loading)return<Spinner/>;
+  const hour=new Date().getHours();
+  const timeGreeting=hour<11?"शुभ प्रभात":hour<16?"नमस्ते":"शुभ साँझ";
   return(
     <div style={{padding:"18px 18px 130px",maxWidth:1040,margin:"0 auto"}}>
+      {teacherName&&<div style={{fontSize:16.5,fontWeight:700,color:INK,marginBottom:10}}>{timeGreeting}, {teacherName} जी 👋</div>}
       <GetStartedCard chapters={chapters||[]} materialsCount={materialsCount} lessons={lessons} onGoMaterials={onGoMaterials} onGoPlanner={onGoPlanner}/>
 
       {today?(
@@ -482,7 +534,7 @@ function Dashboard({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, sec
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap",position:"relative"}}>
             <div style={{minWidth:0}}>
               <div style={{fontSize:13,opacity:0.8,fontWeight:600,letterSpacing:"0.03em",textTransform:"uppercase"}}>{today.chapters?.title||today.chapter_title||""}</div>
-              <div style={{fontSize:19.5,fontWeight:800,margin:"2px 0 0",letterSpacing:"-0.01em"}}>{today.title}</div>
+              <div style={{fontSize:19.5,fontWeight:800,margin:"2px 0 0",letterSpacing:"-0.01em",overflowWrap:"break-word"}}>{today.title}</div>
             </div>
             <div style={{display:"flex",gap:8,flexShrink:0}}>
               <Button variant="marigold" size="sm" icon={Sparkles} onClick={()=>onOpenLesson(today)}>आजको पाठ सुरु</Button>
@@ -516,16 +568,16 @@ function Dashboard({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, sec
         <Card>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}><ClipboardList size={17} color={ACCENT}/><div style={{fontWeight:700,color:INK,fontSize:17}}>तयारी चाहिने</div></div>
           {pending.length===0?<div style={{fontSize:16,color:INK_SOFT}}>सबै तयार! ✓</div>:pending.map((l)=>(
-            <div key={l.id} onClick={onGoPlanner} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 2px",borderTop:`1px solid ${BORDER}`,cursor:"pointer"}}>
-              <div style={{fontSize:16.5,color:INK,fontWeight:600}}>{l.title}</div><StatusPill status={l.status}/>
+            <div key={l.id} onClick={onGoPlanner} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"10px 2px",borderTop:`1px solid ${BORDER}`,cursor:"pointer"}}>
+              <div style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:16.5,color:INK,fontWeight:600}}>{l.title}</div><div style={{flexShrink:0}}><StatusPill status={l.status}/></div>
             </div>
           ))}
         </Card>
         <Card>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}><CheckCircle2 size={17} color={ACCENT}/><div style={{fontWeight:700,color:INK,fontSize:17}}>जाँच्नुपर्ने गृहकार्य</div></div>
           {hwPending.length===0?<div style={{fontSize:16,color:INK_SOFT}}>सबै जाँच भयो! ✓</div>:hwPending.map((h)=>(
-            <div key={h.id} onClick={onGoHomework} style={{display:"flex",justifyContent:"space-between",padding:"10px 2px",borderTop:`1px solid ${BORDER}`,cursor:"pointer"}}>
-              <div style={{fontSize:16.5,color:INK}}>{h.title}</div><div style={{fontSize:15.5,color:INK_SOFT,fontWeight:700}}>{h.checked_count}/{h.total_students}</div>
+            <div key={h.id} onClick={onGoHomework} style={{display:"flex",justifyContent:"space-between",gap:8,padding:"10px 2px",borderTop:`1px solid ${BORDER}`,cursor:"pointer"}}>
+              <div style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:16.5,color:INK}}>{h.title}</div><div style={{fontSize:15.5,color:INK_SOFT,fontWeight:700,flexShrink:0}}>{h.checked_count}/{h.total_students}</div>
             </div>
           ))}
         </Card>
@@ -541,6 +593,7 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
   const [generating,setGenerating]=useState(false);
   const [error,setError]=useState("");
   const [matchedCount,setMatchedCount]=useState(0);
+  const [showDetails,setShowDetails]=useState(false);
 
   const autoGenerate=async()=>{
     const chapter=form.chapter_title||form.title;
@@ -581,6 +634,7 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
     if(err){setError(err.message);return;}
     setShowForm(false);
     setForm({title:"",status:"missing",chapter_title:"",objectives:"",vocabulary:"",sequence:"",key_questions:"",activities:"",homework:"",notes:""});
+    setShowDetails(false);
     onRefresh();
   };
 
@@ -600,21 +654,47 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
         <Card style={{marginBottom:14}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
             <div style={{fontWeight:700,fontSize:17}}>नयाँ पाठ</div>
-            <AIButton label={generating?"बनाउँदै...":"AI बाट स्वतः बनाउनुहोस्"} onClick={autoGenerate} loading={generating}/>
           </div>
           {error&&<ErrorMsg msg={error}/>}
-          <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title}/>
           <div style={{display:"flex",flexDirection:"column",gap:9}}>
-            {[["title","पाठको नाम *"]].map(([f,p])=>(
-              <input key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
-            ))}
-            <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} chapters={chapters||[]} onAddChapter={onAddChapter} placeholder="— अध्याय छान्नुहोस् —"/>
-            {[["homework","गृहकार्य"],["notes","नोट"]].map(([f,p])=>(
-              <input key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
-            ))}
-            {[["objectives","उद्देश्यहरू (प्रत्येक नयाँ लाइनमा)"],["vocabulary","शब्दावली (कमाले छुट्याउनुहोस्)"],["sequence","पढाउने क्रम (प्रत्येक नयाँ लाइनमा)"],["key_questions","मुख्य प्रश्नहरू (प्रत्येक नयाँ लाइनमा)"],["activities","क्रियाकलापहरू (प्रत्येक नयाँ लाइनमा)"]].map(([f,p])=>(
-              <textarea key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} rows={3} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
-            ))}
+            <div>
+              <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:700,marginBottom:4}}>१. पाठको नाम</div>
+              {[["title","पाठको नाम *"]].map(([f,p])=>(
+                <input key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+              ))}
+            </div>
+            <div>
+              <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:700,marginBottom:4}}>२. अध्याय</div>
+              <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} chapters={chapters||[]} onAddChapter={onAddChapter} placeholder="— अध्याय छान्नुहोस् —"/>
+            </div>
+
+            {/* NEW — attach materials right here instead of needing a separate
+                trip to the Materials tab first. Uses whatever chapter was just
+                picked above. */}
+            <div>
+              <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:700,marginBottom:4}}>३. सामग्री (वैकल्पिक)</div>
+              <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title}/>
+              <MaterialAttach chapterTitle={form.chapter_title}/>
+            </div>
+
+            <div>
+              <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:700,marginBottom:4}}>४. सामग्री तयार गर्नुहोस्</div>
+              <AIButton label={generating?"बनाउँदै...":"AI बाट स्वतः बनाउनुहोस्"} onClick={autoGenerate} loading={generating} style={{width:"100%",justifyContent:"center"}}/>
+            </div>
+
+            <button type="button" onClick={()=>setShowDetails((v)=>!v)} style={{display:"flex",alignItems:"center",gap:5,background:"none",border:"none",color:ACCENT,fontWeight:700,fontSize:15,cursor:"pointer",padding:"6px 0",alignSelf:"flex-start"}}>
+              {showDetails?<ChevronDown size={15}/>:<ChevronRight size={15}/>}विवरण हेर्नुहोस् / सम्पादन गर्नुहोस् (उद्देश्य, शब्दावली, गृहकार्य...)
+            </button>
+            {showDetails&&(
+              <>
+                {[["homework","गृहकार्य"],["notes","नोट"]].map(([f,p])=>(
+                  <input key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+                ))}
+                {[["objectives","उद्देश्यहरू (प्रत्येक नयाँ लाइनमा)"],["vocabulary","शब्दावली (कमाले छुट्याउनुहोस्)"],["sequence","पढाउने क्रम (प्रत्येक नयाँ लाइनमा)"],["key_questions","मुख्य प्रश्नहरू (प्रत्येक नयाँ लाइनमा)"],["activities","क्रियाकलापहरू (प्रत्येक नयाँ लाइनमा)"]].map(([f,p])=>(
+                  <textarea key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} rows={3} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
+                ))}
+              </>
+            )}
             <div style={{display:"flex",gap:8}}>
               {["missing","prep","ready"].map((s)=><button key={s} onClick={()=>setForm({...form,status:s})} style={{flex:1,padding:"8px",borderRadius:10,border:`2px solid ${form.status===s?ACCENT:BORDER}`,background:form.status===s?ACCENT_LIGHT:SURFACE,cursor:"pointer"}}><StatusPill status={s}/></button>)}
             </div>
@@ -629,12 +709,12 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {lessons.map((l)=>(
             <Card key={l.id} onClick={()=>onOpenLesson(l)}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                <div>
-                  <div style={{fontSize:15,color:INK_SOFT,fontWeight:600,marginBottom:2}}>{l.chapters?.title||l.chapter_title||""}</div>
-                  <div style={{fontSize:17.5,fontWeight:700,color:INK}}>{l.title}</div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:15,color:INK_SOFT,fontWeight:600,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.chapters?.title||l.chapter_title||""}</div>
+                  <div style={{fontSize:17.5,fontWeight:700,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.title}</div>
                 </div>
-                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
                   <StatusPill status={l.status}/>
                   <button onClick={(e)=>deleteLesson(l.id,e)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,padding:4}}><Trash2 size={15}/></button>
                 </div>
@@ -856,7 +936,7 @@ function Materials({ chapters, onAddChapter, onChaptersChanged }) {
                 <div style={{fontSize:16,fontWeight:700,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:4}}>{f.name}</div>
                 <div style={{fontSize:14,color:INK_SOFT,marginBottom:6,fontWeight:600}}>{f.file_type?.toUpperCase()}</div>
                 {f.chapters?.title?(
-                  <span style={{fontSize:13.5,background:ACCENT_LIGHT,color:ACCENT,padding:"3px 8px",borderRadius:6,fontWeight:700,display:"inline-block"}}>{f.chapters.title}</span>
+                  <span style={{fontSize:13.5,background:ACCENT_LIGHT,color:ACCENT,padding:"3px 8px",borderRadius:6,fontWeight:700,display:"inline-block",maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",verticalAlign:"bottom"}}>{f.chapters.title}</span>
                 ):(
                   <span style={{fontSize:13.5,background:WARN_BG,color:WARN,padding:"3px 8px",borderRadius:6,fontWeight:700,display:"inline-block"}}>अध्याय छैन</span>
                 )}
@@ -966,9 +1046,9 @@ function HomeworkManager({ section, loading, homework, onRefresh }) {
             const done=h.checked_count>=h.total_students;
             return(
               <Card key={h.id}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-                  <div style={{fontSize:17,fontWeight:700,color:INK}}>{h.title}</div>
-                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <div style={{display:"flex",justifyContent:"space-between",gap:8,marginBottom:8}}>
+                  <div style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:17,fontWeight:700,color:INK}}>{h.title}</div>
+                  <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
                     <span style={{fontSize:15,fontWeight:700,color:done?ACCENT:WARN,background:done?ACCENT_LIGHT:WARN_BG,padding:"3px 8px",borderRadius:999}}>{h.checked_count}/{h.total_students}</span>
                     <button onClick={()=>deleteHw(h)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><Trash2 size={14}/></button>
                   </div>
@@ -1190,6 +1270,7 @@ function QuestionBank({ chapters, onAddChapter, classContext }) {
           <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title}/>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} chapters={chapters||[]} onAddChapter={onAddChapter} placeholder="— अध्याय छान्नुहोस् (AI का लागि अनिवार्य) —"/>
+            <MaterialAttach chapterTitle={form.chapter_title}/>
             <textarea placeholder="प्रश्न (म्यानुअल)" value={form.text} onChange={(e)=>setForm({...form,text:e.target.value})} rows={3} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
             <div style={{display:"flex",gap:8}}>
               <select value={form.type} onChange={(e)=>setForm({...form,type:e.target.value})} className="ss-field" style={{flex:1,borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}>{TYPES.map((t)=><option key={t}>{t}</option>)}</select>
@@ -1305,6 +1386,7 @@ function AssessmentBuilder({ chapters, onAddChapter, classContext }) {
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             <input placeholder="शीर्षक *" value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
             <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} chapters={chapters||[]} onAddChapter={onAddChapter} placeholder="— अध्याय छान्नुहोस् (AI का लागि) —"/>
+            <MaterialAttach chapterTitle={form.chapter_title}/>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7}}>
               {TYPES.map((t)=>{const Icon=t.icon;return<button key={t.id} onClick={()=>setForm({...form,type:t.id})} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"10px 6px",borderRadius:10,border:`2px solid ${form.type===t.id?ACCENT:BORDER}`,background:form.type===t.id?ACCENT_LIGHT:SURFACE,color:form.type===t.id?ACCENT:INK,fontWeight:600,fontSize:14.5,cursor:"pointer"}}><Icon size={15}/>{t.label}</button>;})}
             </div>
@@ -1327,7 +1409,7 @@ function AssessmentBuilder({ chapters, onAddChapter, classContext }) {
             <Card key={a.id}>
               <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:8}}>
                 <div style={{width:36,height:36,borderRadius:8,background:ACCENT_LIGHT,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={17} color={ACCENT}/></div>
-                <div><div style={{fontSize:17,fontWeight:700,color:INK}}>{a.title}</div><div style={{fontSize:15,color:INK_SOFT}}>{typeInfo.label}{a.due_date?` · ${a.due_date}`:""}</div></div>
+                <div style={{minWidth:0,flex:1}}><div style={{fontSize:17,fontWeight:700,color:INK,overflowWrap:"break-word",wordBreak:"break-word"}}>{a.title}</div><div style={{fontSize:15,color:INK_SOFT}}>{typeInfo.label}{a.due_date?` · ${a.due_date}`:""}</div></div>
               </div>
               {a.rubric?.length>0&&a.rubric.map((r,i)=><div key={i} style={{background:SURFACE_2,borderRadius:7,padding:"6px 10px",fontSize:16,marginBottom:5}}><strong style={{color:ACCENT}}>{r.level}:</strong> {r.desc}</div>)}
             </Card>
@@ -1384,6 +1466,7 @@ function ActivitiesLibrary({ chapters, onAddChapter, classContext }) {
           <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title}/>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} chapters={chapters||[]} onAddChapter={onAddChapter} placeholder="— अध्याय छान्नुहोस् (AI का लागि अनिवार्य) —"/>
+            <MaterialAttach chapterTitle={form.chapter_title}/>
             <input placeholder="क्रियाकलापको नाम" value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
             <input placeholder="क्षमता" value={form.competency} onChange={(e)=>setForm({...form,competency:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
             <input placeholder="समय" value={form.duration} onChange={(e)=>setForm({...form,duration:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
@@ -1408,8 +1491,8 @@ function ActivitiesLibrary({ chapters, onAddChapter, classContext }) {
             <Card key={a.id}>
               <div style={{display:"flex",gap:12}}>
                 <div style={{width:40,height:40,borderRadius:10,background:ACCENT_LIGHT,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={19} color={ACCENT}/></div>
-                <div style={{flex:1}}>
-                  <div style={{display:"flex",justifyContent:"space-between"}}><div style={{fontWeight:700,fontSize:16.5,color:INK}}>{a.title}</div>{a.duration&&<span style={{fontSize:15,color:INK_SOFT}}>{a.duration}</span>}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",justifyContent:"space-between",gap:8}}><div style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:700,fontSize:16.5,color:INK}}>{a.title}</div>{a.duration&&<span style={{fontSize:15,color:INK_SOFT,flexShrink:0}}>{a.duration}</span>}</div>
                   {a.description&&<div style={{fontSize:16,color:INK_SOFT,lineHeight:1.5,marginTop:4}}>{a.description}</div>}
                   <div style={{display:"flex",gap:5,marginTop:6,flexWrap:"wrap"}}>
                     {a.chapter_title&&<span style={{fontSize:14,background:WARN_BG,color:MARIGOLD_DARK,padding:"2px 7px",borderRadius:5,fontWeight:600}}>{a.chapter_title}</span>}
@@ -1587,7 +1670,7 @@ function CalendarView({ lessons, homework }) {
           {[...lessons.slice(0,3).map((l)=>({type:"पाठ",title:l.title,color:ACCENT,bg:ACCENT_LIGHT})),...homework.filter((h)=>h.checked_count<h.total_students).slice(0,2).map((h)=>({type:"गृहकार्य",title:h.title,color:WARN,bg:WARN_BG}))].map((item,i)=>(
             <Card key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px"}}>
               <span style={{fontSize:14,fontWeight:700,color:item.color,background:item.bg,padding:"3px 8px",borderRadius:5,flexShrink:0}}>{item.type}</span>
-              <div style={{fontSize:16.5,color:INK,fontWeight:600}}>{item.title}</div>
+              <div style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:16.5,color:INK,fontWeight:600}}>{item.title}</div>
             </Card>
           ))}
         </div>
@@ -1596,7 +1679,9 @@ function CalendarView({ lessons, homework }) {
   );
 }
 
-function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, installPrompt, isStandalone, isIOS, onInstall, classLabel, subjectLabel, onClassChange, onSubjectChange }) {
+function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, installPrompt, isStandalone, isIOS, onInstall, classLabel, subjectLabel, onClassChange, onSubjectChange, teacherName, onTeacherNameChange }) {
+  const [nameDraft,setNameDraft]=useState(teacherName);
+  const [nameMsg,setNameMsg]=useState("");
   const [classDraft,setClassDraft]=useState(classLabel);
   const [subjectDraft,setSubjectDraft]=useState(subjectLabel);
   const [classMsg,setClassMsg]=useState("");
@@ -1611,6 +1696,12 @@ function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, ins
       if(b64){window.__textbookPDF__=b64;setPdfLoaded(true);}
     });
   },[]);
+
+  const saveName=()=>{
+    onTeacherNameChange(nameDraft.trim());
+    setNameMsg("सुरक्षित भयो!");
+    setTimeout(()=>setNameMsg(""),2000);
+  };
 
   const saveClassSubject=()=>{
     onClassChange(classDraft.trim()||"कक्षा ५");
@@ -1722,9 +1813,17 @@ function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, ins
       <Card style={{marginBottom:14}}>
         <SectionLabel>खाता</SectionLabel>
         <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
-          <div style={{width:46,height:46,borderRadius:"50%",background:ACCENT,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18.5,fontWeight:700,flexShrink:0}}>{session?.user?.email?.[0]?.toUpperCase()||"श"}</div>
-          <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,color:INK,fontSize:16.5,overflowWrap:"break-word",wordBreak:"break-word"}}>{session?.user?.email||""}</div><div style={{fontSize:15,color:INK_SOFT}}>{classLabel} · {subjectLabel}</div></div>
+          <div style={{width:46,height:46,borderRadius:"50%",background:ACCENT,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18.5,fontWeight:700,flexShrink:0}}>{(teacherName?.[0]||session?.user?.email?.[0]||"श").toUpperCase()}</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:700,color:INK,fontSize:16.5,overflowWrap:"break-word",wordBreak:"break-word"}}>{teacherName||session?.user?.email||""}</div>
+            <div style={{fontSize:15,color:INK_SOFT,overflowWrap:"break-word",wordBreak:"break-word"}}>{teacherName?session?.user?.email:`${classLabel} · ${subjectLabel}`}</div>
+          </div>
         </div>
+        <div style={{display:"flex",gap:8,marginBottom:8}}>
+          <input value={nameDraft} onChange={(e)=>setNameDraft(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&saveName()} placeholder="तपाईंको नाम" className="ss-field" style={{flex:1,borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,outline:"none"}}/>
+          <button onClick={saveName} style={{background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontWeight:700,fontSize:16.5,cursor:"pointer"}}>सुरक्षित</button>
+        </div>
+        {nameMsg&&<div style={{marginBottom:10,fontSize:15,color:ACCENT,fontWeight:600}}>{nameMsg}</div>}
         <button onClick={()=>db.signOut()} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"10px",borderRadius:10,border:`1px solid ${DANGER_BG}`,background:DANGER_BG,color:DANGER,fontWeight:700,fontSize:16.5,cursor:"pointer"}}><LogOut size={15}/>लगआउट</button>
       </Card>
 
@@ -1812,6 +1911,13 @@ export default function App() {
   const setClassLabel=(v)=>{setClassLabelState(v);try{localStorage.setItem("ss-class",v);}catch{}};
   const setSubjectLabel=(v)=>{setSubjectLabelState(v);try{localStorage.setItem("ss-subject",v);}catch{}};
   const classContext=`${classLabel} ${subjectLabel}`.trim();
+
+  // NEW — teacher's display name, used in Settings and the dashboard greeting
+  // instead of a generic label / the account's raw email.
+  const [teacherName,setTeacherNameState]=useState(()=>{
+    try{ return localStorage.getItem("ss-teacher-name")||""; }catch{ return ""; }
+  });
+  const setTeacherName=(v)=>{setTeacherNameState(v);try{localStorage.setItem("ss-teacher-name",v);}catch{}};
 
   // NEW — inject the theme's CSS variables directly, once, on first mount.
   // This runs before the login screen or spinner ever renders (hooks always
@@ -2040,7 +2146,7 @@ export default function App() {
       </div>
 
       <div className="main-content">
-        {screen==="dashboard"&&<Dashboard onOpenLesson={setActiveLesson} onGoPlanner={()=>setScreen("planner")} onGoHomework={()=>setScreen("homework")} onGoMaterials={()=>setScreen("materials")} section={currentSection} lessons={lessons} homework={homework} loading={lessonsLoading} chapters={chapters}/>}
+        {screen==="dashboard"&&<Dashboard onOpenLesson={setActiveLesson} onGoPlanner={()=>setScreen("planner")} onGoHomework={()=>setScreen("homework")} onGoMaterials={()=>setScreen("materials")} section={currentSection} lessons={lessons} homework={homework} loading={lessonsLoading} chapters={chapters} teacherName={teacherName}/>}
         {screen==="planner"&&<Planner onOpenLesson={setActiveLesson} section={currentSection} lessons={lessons} loading={lessonsLoading} onRefresh={loadLessons} chapters={chapters} onAddChapter={addChapter} classContext={classContext}/>}
         {screen==="materials"&&<Materials chapters={chapters} onAddChapter={addChapter} onChaptersChanged={loadChapters}/>}
         {screen==="ai"&&<AIAssistant lessons={lessons} classContext={classContext}/>}
@@ -2049,7 +2155,7 @@ export default function App() {
         {screen==="aitools"&&<AITools lessons={lessons} chapters={chapters} onAddChapter={addChapter} classContext={classContext}/>}
         {screen==="search"&&<DocumentSearch lessons={lessons} homework={homework}/>}
         {screen==="calendar"&&<CalendarView lessons={lessons} homework={homework}/>}
-        {screen==="settings"&&<Settings session={session} sections={sections} onSectionAdded={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}} theme={theme} onToggleTheme={toggleTheme} installPrompt={installPrompt} isStandalone={isStandalone} isIOS={isIOS} onInstall={promptInstall} classLabel={classLabel} subjectLabel={subjectLabel} onClassChange={setClassLabel} onSubjectChange={setSubjectLabel}/>}
+        {screen==="settings"&&<Settings session={session} sections={sections} onSectionAdded={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}} theme={theme} onToggleTheme={toggleTheme} installPrompt={installPrompt} isStandalone={isStandalone} isIOS={isIOS} onInstall={promptInstall} classLabel={classLabel} subjectLabel={subjectLabel} onClassChange={setClassLabel} onSubjectChange={setSubjectLabel} teacherName={teacherName} onTeacherNameChange={setTeacherName}/>}
       </div>
 
       <div className="mobile-bottom-nav no-print" style={{position:"fixed",bottom:0,left:0,right:0,background:`color-mix(in srgb, ${SURFACE} 94%, transparent)`,backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",borderTop:`1px solid ${BORDER}`,justifyContent:"space-around",padding:"7px 6px calc(7px + env(safe-area-inset-bottom))",zIndex:10,boxShadow:"0 -6px 20px rgba(0,0,0,0.07)"}}>
