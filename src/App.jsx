@@ -148,14 +148,16 @@ function Button({ children, onClick, variant="primary", size="md", disabled, sty
   );
 }
 
-function Card({ children, onClick, style }) {
+function Card({ children, onClick, style, accentColor }) {
   return (
     <div onClick={onClick}
       className={onClick?"ss-card ss-card-hover":"ss-card"}
       style={{
         background:`linear-gradient(165deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 90%, var(--border) 55%) 100%)`,
         border:`1px solid ${BORDER}`, borderRadius:18, padding:18,
-        cursor:onClick?"pointer":"default", boxShadow:SHADOW.raised, ...style,
+        cursor:onClick?"pointer":"default", boxShadow:SHADOW.raised,
+        ...(accentColor?{borderLeft:`4px solid ${accentColor}`,borderTopLeftRadius:8,borderBottomLeftRadius:8}:{}),
+        ...style,
       }}>
       {children}
     </div>
@@ -164,10 +166,10 @@ function Card({ children, onClick, style }) {
 function SectionLabel({ children }) {
   return <div style={{ fontSize:16, letterSpacing:"0.06em", textTransform:"uppercase", color:INK_SOFT, marginBottom:11, fontWeight:700 }}>{children}</div>;
 }
+const STATUS_META = { ready:{label:"तयार",bg:ACCENT_LIGHT,color:ACCENT}, prep:{label:"तयारी चाहिने",bg:WARN_BG,color:WARN}, missing:{label:"सुरु नभएको",bg:DANGER_BG,color:DANGER} };
 function StatusPill({ status }) {
-  const map = { ready:{label:"तयार",bg:ACCENT_LIGHT,color:ACCENT}, prep:{label:"तयारी चाहिने",bg:WARN_BG,color:WARN}, missing:{label:"सुरु नभएको",bg:DANGER_BG,color:DANGER} };
-  const s = map[status]||map.prep;
-  return <span style={{ background:s.bg, color:s.color, fontSize:15.5, fontWeight:700, padding:"4px 12px", borderRadius:999 }}>{s.label}</span>;
+  const s = STATUS_META[status]||STATUS_META.prep;
+  return <span style={{ display:"inline-flex",alignItems:"center",gap:6, background:s.bg, color:s.color, fontSize:15.5, fontWeight:700, padding:"4px 12px", borderRadius:999 }}><span style={{width:7,height:7,borderRadius:"50%",background:s.color,flexShrink:0,boxShadow:`0 0 0 3px color-mix(in srgb, ${s.color} 22%, transparent)`}}/>{s.label}</span>;
 }
 function Spinner({ small }) {
   return <div style={{ display:"flex", justifyContent:"center", alignItems:"center", padding:small?0:40 }}><Loader size={small?18:28} color={ACCENT} style={{ animation:"spin 1s linear infinite" }} /><style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style></div>;
@@ -305,7 +307,7 @@ function ChapterPicker({ value, onChange, chapters, onAddChapter, placeholder })
       </select>
       {showAdd&&(
         <div style={{display:"flex",gap:8,marginTop:8}}>
-          <input autoFocus value={newTitle} onChange={(e)=>setNewTitle(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&submitNew()} placeholder="नयाँ अध्यायको नाम लेख्नुहोस्" className="ss-field" style={{flex:1,borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+          <input autoFocus value={newTitle} onChange={(e)=>setNewTitle(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&submitNew()} placeholder="नयाँ अध्यायको नाम लेख्नुहोस्" className="ss-field" style={{flex:1,minWidth:0,borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
           <button onClick={submitNew} disabled={adding||!newTitle.trim()} style={{background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontWeight:700,fontSize:16,cursor:"pointer"}}>{adding?"...":"थप्नुहोस्"}</button>
         </div>
       )}
@@ -822,7 +824,7 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
       {loading?<Spinner/>:lessons.length===0?<EmptyState icon={ClipboardList} text="कुनै पाठ छैन।"/>:(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {lessons.map((l)=>(
-            <Card key={l.id} onClick={()=>onOpenLesson(l)}>
+            <Card key={l.id} onClick={()=>onOpenLesson(l)} accentColor={STATUS_META[l.status]?.color||STATUS_META.prep.color}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:15,color:INK_SOFT,fontWeight:600,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.chapters?.title||l.chapter_title||""}</div>
@@ -873,6 +875,10 @@ function Materials({ chapters, onAddChapter, onChaptersChanged }) {
   const [retagging,setRetagging]=useState(false);
   const [categoryFilter,setCategoryFilter]=useState("all");
   const [sortBy,setSortBy]=useState("newest");
+  const [showChapterManage,setShowChapterManage]=useState(false);
+  const [editingChapterId,setEditingChapterId]=useState(null);
+  const [chapterEditValue,setChapterEditValue]=useState("");
+  const [chapterBusy,setChapterBusy]=useState(null);
 
   const load=useCallback(async()=>{
     setLoading(true);const{data}=await db.getMaterials();setMaterials(data||[]);setLoading(false);
@@ -884,6 +890,35 @@ function Materials({ chapters, onAddChapter, onChaptersChanged }) {
   const addChapterAndRefresh=async(title)=>{
     await onAddChapter(title);
     if(onChaptersChanged) onChaptersChanged();
+  };
+
+  // NEW — rename/delete an existing chapter. Chapters were previously
+  // add-only (no way to fix a typo or remove a duplicate); this lets a
+  // teacher edit the title in place or delete it entirely. Deleting a
+  // chapter that still has materials tagged to it clears their tag rather
+  // than silently orphaning them, and warns the teacher first.
+  const renameChapter=async(chapter)=>{
+    const title=chapterEditValue.trim();
+    if(!title||title===chapter.title){setEditingChapterId(null);return;}
+    setChapterBusy(chapter.id);
+    await supabase.from("chapters").update({title}).eq("id",chapter.id);
+    setChapterBusy(null);setEditingChapterId(null);
+    if(onChaptersChanged) onChaptersChanged();
+    load();
+  };
+
+  const deleteChapter=async(chapter)=>{
+    const count=materials.filter((m)=>m.chapters?.title===chapter.title).length;
+    const msg=count>0
+      ?`"${chapter.title}" मेटाउने? यसमा ट्याग गरिएका ${count} सामग्री फाइल अब कुनै अध्यायमा तोकिने छैनन्।`
+      :`"${chapter.title}" मेटाउने?`;
+    if(!confirm(msg))return;
+    setChapterBusy(chapter.id);
+    if(count>0) await supabase.from("materials").update({chapter_id:null}).eq("chapter_id",chapter.id);
+    await supabase.from("chapters").delete().eq("id",chapter.id);
+    setChapterBusy(null);
+    if(onChaptersChanged) onChaptersChanged();
+    load();
   };
 
   const upload=async(e)=>{
@@ -1008,6 +1043,38 @@ function Materials({ chapters, onAddChapter, onChaptersChanged }) {
         </div>
       </Card>
 
+      <Card style={{marginBottom:16}}>
+        <div onClick={()=>setShowChapterManage((v)=>!v)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <BookOpen size={17} color={ACCENT}/>
+            <div style={{fontSize:16.5,fontWeight:700,color:INK}}>अध्याय व्यवस्थापन ({(chapters||[]).length})</div>
+          </div>
+          <ChevronDown size={18} color={INK_SOFT} style={{transform:showChapterManage?"rotate(180deg)":"none",transition:"transform 0.15s"}}/>
+        </div>
+        {showChapterManage&&(
+          <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:6}}>
+            {(chapters||[]).length===0&&<div style={{fontSize:15,color:INK_SOFT,padding:"8px 2px"}}>अझै कुनै अध्याय थपिएको छैन।</div>}
+            {(chapters||[]).map((c)=>(
+              <div key={c.id} style={{display:"flex",alignItems:"center",gap:8,background:SURFACE_2,borderRadius:10,padding:"8px 10px"}}>
+                {editingChapterId===c.id?(
+                  <>
+                    <input autoFocus value={chapterEditValue} onChange={(e)=>setChapterEditValue(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&renameChapter(c)} className="ss-field" style={{flex:1,minWidth:0,borderRadius:8,padding:"7px 10px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE}}/>
+                    <button onClick={()=>renameChapter(c)} disabled={chapterBusy===c.id} style={{background:ACCENT,color:"#fff",border:"none",borderRadius:8,padding:"7px 11px",fontWeight:700,fontSize:14.5,cursor:"pointer",flexShrink:0}}>✓</button>
+                    <button onClick={()=>setEditingChapterId(null)} style={{background:"none",border:"none",color:INK_SOFT,fontSize:14.5,cursor:"pointer",flexShrink:0}}>✕</button>
+                  </>
+                ):(
+                  <>
+                    <div style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:15.5,color:INK,fontWeight:600}}>{c.title}</div>
+                    <button onClick={()=>{setEditingChapterId(c.id);setChapterEditValue(c.title);}} disabled={chapterBusy===c.id} style={{background:"none",border:"none",color:INK_SOFT,cursor:"pointer",padding:4,flexShrink:0,display:"flex"}} title="नाम बदल्नुहोस्"><PenSquare size={15}/></button>
+                    <button onClick={()=>deleteChapter(c)} disabled={chapterBusy===c.id} style={{background:"none",border:"none",color:DANGER,cursor:"pointer",padding:4,flexShrink:0,display:"flex"}} title="मेटाउनुहोस्"><Trash2 size={15}/></button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
       <div style={{display:"flex",gap:7,overflowX:"auto",marginBottom:12,paddingBottom:2}}>
         <button onClick={()=>setCategoryFilter("all")} className="ss-chip" style={{padding:"8px 14px",borderRadius:999,background:categoryFilter==="all"?ACCENT:SURFACE,color:categoryFilter==="all"?"#fff":INK,fontWeight:700,fontSize:16,whiteSpace:"nowrap",cursor:"pointer",border:`1.5px solid ${categoryFilter==="all"?ACCENT:BORDER}`,boxShadow:categoryFilter==="all"?SHADOW.sm:"none"}}>सबै ({materials.length})</button>
         {CATEGORY_ORDER.map((key)=>{
@@ -1021,7 +1088,7 @@ function Materials({ chapters, onAddChapter, onChaptersChanged }) {
       <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
         <div style={{flex:1,minWidth:180,display:"flex",alignItems:"center",gap:8,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"11px 14px"}}>
           <Search size={16} color={INK_SOFT}/>
-          <input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="फाइल खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:16.5,flex:1,background:"transparent",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
+          <input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="फाइल खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:16.5,flex:1,minWidth:0,background:"transparent",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
         </div>
         <select value={sortBy} onChange={(e)=>setSortBy(e.target.value)} style={{border:`1px solid ${BORDER}`,borderRadius:12,padding:"11px 14px",fontSize:16,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif",background:SURFACE,color:INK,fontWeight:600}}>
           <option value="newest">नयाँ पहिले</option>
@@ -1159,7 +1226,7 @@ function HomeworkManager({ section, loading, homework, onRefresh }) {
             const pct=h.total_students>0?Math.round((h.checked_count/h.total_students)*100):0;
             const done=h.checked_count>=h.total_students;
             return(
-              <Card key={h.id}>
+              <Card key={h.id} accentColor={done?ACCENT:MARIGOLD}>
                 <div style={{display:"flex",justifyContent:"space-between",gap:8,marginBottom:8}}>
                   <div style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:17,fontWeight:700,color:INK}}>{h.title}</div>
                   <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
@@ -1316,7 +1383,7 @@ function AIAssistant({ lessons, classContext }) {
         </div>
       )}
       <div style={{display:"flex",gap:8,padding:"8px 16px 16px"}}>
-        <input value={input} onChange={(e)=>setInput(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&send(input)} placeholder="आफ्नो प्रश्न लेख्नुहोस्..." style={{flex:1,border:`1px solid ${BORDER}`,borderRadius:999,padding:"12px 16px",fontSize:16.5,outline:"none",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
+        <input value={input} onChange={(e)=>setInput(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&send(input)} placeholder="आफ्नो प्रश्न लेख्नुहोस्..." style={{flex:1,minWidth:0,border:`1px solid ${BORDER}`,borderRadius:999,padding:"12px 16px",fontSize:16.5,outline:"none",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
         <button onClick={()=>send(input)} style={{background:ACCENT,color:"#fff",border:"none",borderRadius:"50%",width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}><Send size={17}/></button>
       </div>
     </div>
@@ -1399,7 +1466,7 @@ function QuestionBank({ chapters, onAddChapter, classContext }) {
       )}
       <div style={{display:"flex",alignItems:"center",gap:8,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"10px 14px",marginBottom:10}}>
         <Search size={16} color={INK_SOFT}/>
-        <input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="प्रश्न खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:16.5,flex:1,background:"transparent",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
+        <input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="प्रश्न खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:16.5,flex:1,minWidth:0,background:"transparent",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
       </div>
       <div style={{display:"flex",gap:7,overflowX:"auto",marginBottom:14}}>
         {DIFFS.map((d)=><button key={d} onClick={()=>setDiffFilter(d)} style={{padding:"6px 12px",borderRadius:999,background:diffFilter===d?ACCENT:SURFACE,color:diffFilter===d?"#fff":INK,fontWeight:600,fontSize:15.5,whiteSpace:"nowrap",cursor:"pointer",border:"1px solid "+(diffFilter===d?ACCENT:BORDER)}}>{d}</button>)}
@@ -1728,7 +1795,7 @@ function DocumentSearch({ lessons, homework }) {
       <div style={{fontSize:20,fontWeight:700,color:INK,marginBottom:4}}>सबैतिर खोज</div>
       <div style={{display:"flex",alignItems:"center",gap:8,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:14,padding:"12px 14px",marginBottom:14,marginTop:10}}>
         <Search size={17} color={INK_SOFT}/>
-        <input autoFocus value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:17,flex:1,background:"transparent",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
+        <input autoFocus value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:17,flex:1,minWidth:0,background:"transparent",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
       </div>
       {!query.trim()?<EmptyState icon={Search} text="टाइप गर्नुहोस्..."/>:results.length===0?<EmptyState icon={Search} text={`"${query}" फेला परेन।`}/>:(
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -1934,7 +2001,7 @@ function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, ins
           </div>
         </div>
         <div style={{display:"flex",gap:8,marginBottom:8}}>
-          <input value={nameDraft} onChange={(e)=>setNameDraft(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&saveName()} placeholder="तपाईंको नाम" className="ss-field" style={{flex:1,borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,outline:"none"}}/>
+          <input value={nameDraft} onChange={(e)=>setNameDraft(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&saveName()} placeholder="तपाईंको नाम" className="ss-field" style={{flex:1,minWidth:0,borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,outline:"none"}}/>
           <button onClick={saveName} style={{background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontWeight:700,fontSize:16.5,cursor:"pointer"}}>सुरक्षित</button>
         </div>
         {nameMsg&&<div style={{marginBottom:10,fontSize:15,color:ACCENT,fontWeight:600}}>{nameMsg}</div>}
@@ -1947,7 +2014,7 @@ function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, ins
           {sections.length===0?<div style={{fontSize:16,color:INK_SOFT}}>कुनै सेक्सन छैन।</div>:sections.map((s)=><div key={s.id} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",background:SURFACE_2,borderRadius:8}}><div style={{width:8,height:8,borderRadius:"50%",background:ACCENT}}/><div style={{fontSize:16.5,fontWeight:600,color:INK}}>{s.name}</div></div>)}
         </div>
         <div style={{display:"flex",gap:8}}>
-          <input value={name} onChange={(e)=>setName(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&addSection()} placeholder="नयाँ सेक्सन (जस्तै: कक्षा ५ ख)" className="ss-field" style={{flex:1,borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,outline:"none"}}/>
+          <input value={name} onChange={(e)=>setName(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&addSection()} placeholder="नयाँ सेक्सन (जस्तै: कक्षा ५ ख)" className="ss-field" style={{flex:1,minWidth:0,borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,outline:"none"}}/>
           <button onClick={addSection} disabled={saving} style={{background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontWeight:700,fontSize:16.5,cursor:"pointer"}}>{saving?"...":"थप"}</button>
         </div>
       </Card>
@@ -2005,7 +2072,7 @@ export default function App() {
   // (see the <style> block below); this just toggles which set applies,
   // and remembers the choice for next time.
   const [theme,setTheme]=useState(()=>{
-    try{ return localStorage.getItem("ss-theme")||"light"; }catch{ return "light"; }
+    try{ return localStorage.getItem("ss-theme")||"dark"; }catch{ return "dark"; }
   });
   useEffect(()=>{ try{ localStorage.setItem("ss-theme", theme); }catch{} },[theme]);
   const toggleTheme=()=>setTheme((t)=>t==="light"?"dark":"light");
