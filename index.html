@@ -61,10 +61,33 @@
         --shadow-rgb:2,4,12;
         --card-sheen:rgba(255,255,255,0.07);
       }
+      [data-theme="light"] { color-scheme: light; }
+      [data-theme="dark"] { color-scheme: dark; }
       html, body {
         background: radial-gradient(1100px 620px at 12% -8%, var(--bg-grad), var(--bg) 55%);
         color: var(--ink);
         font-family: 'Inter','Noto Sans Devanagari',sans-serif;
+      }
+      /* NEW — this stylesheet did not exist at all before, which is why
+         printing produced a blank page: the .no-print class referenced
+         throughout the app had no rule hiding it, and the printable
+         overlays use position:fixed, which most browsers refuse to
+         paginate onto printed pages (they just print blank). Elements
+         tagged .print-area get reset to normal flow so their content
+         actually reaches the page. */
+      @media print {
+        .no-print { display:none !important; }
+        .print-area {
+          position: static !important;
+          inset: auto !important;
+          height: auto !important;
+          min-height: 0 !important;
+          overflow: visible !important;
+          background: #fff !important;
+          color: #000 !important;
+        }
+        .print-area * { overflow: visible !important; color: #000 !important; }
+        html, body { background:#fff !important; }
       }
     </style>
     <script>
