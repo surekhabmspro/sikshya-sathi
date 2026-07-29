@@ -328,3 +328,33 @@ export const saveAIMessage = async (lessonId, role, content) => {
     .insert({ lesson_id: lessonId, role, content, teacher_id: user.id });
   return { error };
 };
+
+// ─── SAVED RESOURCES ─────────────────────────────────────────────────────────
+// NEW — persists AI-generated resources (worksheets, flashcards, revision
+// pages, etc. from the Resource Creator) so they survive navigating away
+// instead of only living in local component state.
+export const getSavedResources = async () => {
+  const { data, error } = await supabase
+    .from("saved_resources")
+    .select("*")
+    .order("created_at", { ascending: false });
+  return { data, error };
+};
+
+export const saveResource = async (resource) => {
+  const { data: { user } } = await supabase.auth.getUser();
+  const { data, error } = await supabase
+    .from("saved_resources")
+    .insert({ ...resource, teacher_id: user.id })
+    .select()
+    .single();
+  return { data, error };
+};
+
+export const deleteSavedResource = async (id) => {
+  const { error } = await supabase
+    .from("saved_resources")
+    .delete()
+    .eq("id", id);
+  return { error };
+};

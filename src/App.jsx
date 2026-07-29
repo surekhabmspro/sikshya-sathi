@@ -8,7 +8,7 @@ import {
   Meh, Frown, Heart, Gamepad2, FolderKanban, Map as MapIcon, Wand2,
   Brain, Copy, ChevronRight, LogOut, User, AlertCircle, Loader,
   Settings as SettingsIcon, Trash2, RefreshCw, BookMarked, Zap,
-  Sun, Moon, Lightbulb, Paperclip, ChevronDown,
+  Sun, Moon, Lightbulb, Paperclip, ChevronDown, Pin, RotateCw,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import * as db from "./db";
@@ -175,6 +175,19 @@ function SectionLabel({ children, icon:Icon, color }) {
     <div style={{ display:"flex",alignItems:"center",gap:7, fontSize:16, letterSpacing:"0.06em", textTransform:"uppercase", color:INK_SOFT, marginBottom:11, fontWeight:700 }}>
       {Icon&&<Icon size={14} color={color||ACCENT}/>}
       {children}
+    </div>
+  );
+}
+
+// NEW — a colourful corkboard-style pushpin for library/material cards, so
+// each tile reads as a physical pinned document rather than a flat row.
+// Rotated slightly and drop-shadowed so it looks stuck-on, not printed-on.
+function PinBadge({ color }) {
+  return (
+    <div style={{position:"absolute",top:-9,left:16,zIndex:3,transform:"rotate(-14deg)",filter:"drop-shadow(0 3px 4px rgba(0,0,0,0.35))"}}>
+      <div style={{width:22,height:22,borderRadius:"50%",background:`radial-gradient(circle at 35% 30%, color-mix(in srgb, ${color} 60%, white) 0%, ${color} 55%, color-mix(in srgb, ${color} 70%, black) 100%)`,border:"2px solid rgba(255,255,255,0.55)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <div style={{width:5,height:5,borderRadius:"50%",background:"rgba(255,255,255,0.85)"}}/>
+      </div>
     </div>
   );
 }
@@ -448,6 +461,30 @@ function SectionSelector({ sections, current, onChange, onAdd }) {
     </div>
   );
 }
+
+// NEW — shared full-screen printable overlay for any single generated/saved
+// document (an activity, a rubric, a saved AI resource). Mirrors the same
+// no-print chrome pattern LessonMode already uses, so window.print() only
+// outputs the actual content, never the nav/header.
+function PrintableSheet({ title, subtitle, chip, chipColor, onClose, children }) {
+  return (
+    <div style={{position:"fixed",inset:0,background:PAPER,zIndex:70,display:"flex",flexDirection:"column"}}>
+      <div className="no-print" style={{background:`linear-gradient(120deg, ${TEAL} 0%, ${ACCENT} 65%, ${ACCENT_DARK} 100%)`,color:"#fff",padding:"14px 16px",display:"flex",alignItems:"center",gap:10}}>
+        <button onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:10,display:"flex",cursor:"pointer"}}><ChevronLeft size={20}/></button>
+        <div style={{flex:1,minWidth:0}}>
+          {subtitle&&<div style={{fontSize:14,opacity:0.75}}>{subtitle}</div>}
+          <div style={{fontSize:18.5,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{title}</div>
+        </div>
+        <button onClick={()=>window.print()} title="प्रिन्ट गर्नुहोस्" style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:10,display:"flex",cursor:"pointer",flexShrink:0}}><Printer size={19}/></button>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:20,maxWidth:720,margin:"0 auto",width:"100%"}}>
+        {chip&&<span style={{fontSize:13.5,background:tint(chipColor||ACCENT,15),color:chipColor||ACCENT,padding:"4px 10px",borderRadius:999,fontWeight:700,display:"inline-block",marginBottom:12}}>{chip}</span>}
+        {children}
+      </div>
+    </div>
+  );
+}
+
 
 function LessonMode({ lesson, onClose }) {
   const [tab,setTab]=useState("sequence");
@@ -877,6 +914,7 @@ function Materials({ chapters, onAddChapter, onChaptersChanged }) {
   const [query,setQuery]=useState("");
   const [preview,setPreview]=useState(null);
   const [previewUrl,setPreviewUrl]=useState("");
+  const [previewError,setPreviewError]=useState("");
   const [error,setError]=useState("");
   const [syncing,setSyncing]=useState(false);
   const [uploadChapter,setUploadChapter]=useState("");
@@ -975,9 +1013,21 @@ function Materials({ chapters, onAddChapter, onChaptersChanged }) {
   };
 
   const openPreview=async(mat)=>{
-    setPreview(mat);setPreviewUrl("");
-    const url=await db.getMaterialUrl(mat.storage_path);
-    setPreviewUrl(url||"");
+    setPreview(mat);setPreviewUrl("");setPreviewError("");
+    try{
+      // NEW: a stuck/never-resolving link fetch used to leave the modal
+      // spinning forever with no feedback ("touch a document, nothing
+      // happens"). This races the real fetch against a 12s timeout so the
+      // teacher always sees either the file or a clear error + retry.
+      const url=await Promise.race([
+        db.getMaterialUrl(mat.storage_path),
+        new Promise((_,reject)=>setTimeout(()=>reject(new Error("timeout")),12000)),
+      ]);
+      if(!url){setPreviewError("यो फाइलको लिङ्क तयार गर्न सकिएन।");return;}
+      setPreviewUrl(url);
+    }catch(e){
+      setPreviewError(e.message==="timeout"?"लिङ्क तयार गर्न धेरै समय लाग्यो। फेरि प्रयास गर्नुहोस्।":"लिङ्क तयार गर्दा त्रुटि भयो। फेरि प्रयास गर्नुहोस्।");
+    }
   };
 
   // NEW: tag (or re-tag) an already-uploaded material's chapter + category.
@@ -1117,21 +1167,22 @@ function Materials({ chapters, onAddChapter, onChaptersChanged }) {
             const catMeta=CATEGORY_META[f.category||"other"];const CatIcon=catMeta.icon;
             const needsExtraction=["doc","sheet","pptx"].includes(f.file_type);
             return(
-              <Card key={f.id} onClick={()=>openPreview(f)} accentColor={catMeta.color} style={{padding:14,paddingTop:46,position:"relative"}}>
+              <Card key={f.id} onClick={()=>openPreview(f)} accentColor={catMeta.color} style={{padding:14,paddingTop:46,position:"relative",overflow:"visible"}}>
+                <PinBadge color={catMeta.color}/>
                 <div style={{position:"absolute",top:6,right:6,display:"flex",gap:2,zIndex:2}}>
                   <button onClick={(e)=>openTagEditor(f,e)} style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,width:40,height:40,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:f.chapters?.title?ACCENT:"#C7A34A",boxShadow:SHADOW.sm}} title="अध्याय/प्रकार तोक्नुहोस्"><Tag size={18}/></button>
                   <button onClick={(e)=>deleteMat(f,e)} style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,width:40,height:40,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:INK_SOFT,boxShadow:SHADOW.sm}}><Trash2 size={18}/></button>
                 </div>
-                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
-                  <div style={{width:36,height:36,borderRadius:9,background:tint(meta.color,16),display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={18} color={meta.color}/></div>
-                  <div style={{fontSize:13.5,background:tint(catMeta.color,15),color:catMeta.color,padding:"3px 8px",borderRadius:6,fontWeight:700,display:"flex",alignItems:"center",gap:4}}><CatIcon size={11}/>{catMeta.label}</div>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:9}}>
+                  <div style={{width:40,height:40,borderRadius:11,background:`linear-gradient(160deg, color-mix(in srgb, ${meta.color} 32%, transparent) 0%, color-mix(in srgb, ${meta.color} 14%, transparent) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 10px color-mix(in srgb, ${meta.color} 25%, transparent)`}}><Icon size={19} color={meta.color}/></div>
+                  <div style={{fontSize:13.5,background:tint(catMeta.color,15),color:catMeta.color,padding:"3px 9px",borderRadius:999,fontWeight:700,display:"flex",alignItems:"center",gap:4,border:`1px solid color-mix(in srgb, ${catMeta.color} 30%, transparent)`}}><CatIcon size={11}/>{catMeta.label}</div>
                 </div>
                 <div style={{fontSize:16,fontWeight:700,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:4}}>{f.name}</div>
                 <div style={{fontSize:14,color:INK_SOFT,marginBottom:6,fontWeight:600}}>{f.file_type?.toUpperCase()}</div>
                 {f.chapters?.title?(
-                  <span style={{fontSize:13.5,background:ACCENT_LIGHT,color:ACCENT,padding:"3px 8px",borderRadius:6,fontWeight:700,display:"inline-block",maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",verticalAlign:"bottom"}}>{f.chapters.title}</span>
+                  <span style={{fontSize:13.5,background:ACCENT_LIGHT,color:ACCENT,padding:"3px 8px",borderRadius:999,fontWeight:700,display:"inline-block",maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",verticalAlign:"bottom"}}>{f.chapters.title}</span>
                 ):(
-                  <span style={{fontSize:13.5,background:WARN_BG,color:WARN,padding:"3px 8px",borderRadius:6,fontWeight:700,display:"inline-block"}}>अध्याय छैन</span>
+                  <span style={{fontSize:13.5,background:WARN_BG,color:WARN,padding:"3px 8px",borderRadius:999,fontWeight:700,display:"inline-block"}}>अध्याय छैन</span>
                 )}
                 {needsExtraction&&f.extraction_status==="done"&&<div style={{fontSize:13.5,color:ACCENT,marginTop:5,fontWeight:700}}>✓ AI तयार</div>}
                 {needsExtraction&&f.extraction_status==="failed"&&<div style={{fontSize:13.5,color:DANGER,marginTop:5,fontWeight:700}}>⚠ टेक्स्ट निकाल्न सकिएन</div>}
@@ -1147,8 +1198,14 @@ function Materials({ chapters, onAddChapter, onChaptersChanged }) {
               <div style={{fontSize:18,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",paddingRight:10}}>{preview.name}</div>
               <button onClick={()=>setPreview(null)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,flexShrink:0}}><X size={20}/></button>
             </div>
-            {!previewUrl?(
-              <div style={{textAlign:"center",padding:20,color:INK_SOFT}}>लिङ्क तयार गर्दै...</div>
+            {!previewUrl&&!previewError?(
+              <div style={{textAlign:"center",padding:20,color:INK_SOFT,display:"flex",flexDirection:"column",alignItems:"center",gap:10}}><Spinner small/>लिङ्क तयार गर्दै...</div>
+            ):previewError?(
+              <div style={{textAlign:"center",padding:20,display:"flex",flexDirection:"column",alignItems:"center",gap:10}}>
+                <AlertCircle size={28} color={DANGER}/>
+                <div style={{color:DANGER,fontSize:16,fontWeight:600}}>{previewError}</div>
+                <button onClick={()=>openPreview(preview)} style={{display:"flex",alignItems:"center",gap:6,background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"9px 16px",fontWeight:700,fontSize:15,cursor:"pointer"}}><RotateCw size={14}/>फेरि प्रयास गर्नुहोस्</button>
+              </div>
             ):(
               <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:12}}>
                 {preview.file_type==="pdf"&&(
@@ -1537,6 +1594,7 @@ function AssessmentBuilder({ chapters, onAddChapter, classContext }) {
   const [form,setForm]=useState({title:"",type:"observation",rubric_text:"",due_date:"",chapter_title:""});
   const [error,setError]=useState("");
   const [matchedCount,setMatchedCount]=useState(0);
+  const [printing,setPrinting]=useState(null);
   const TYPES=[{id:"observation",label:"अवलोकन",icon:ClipboardList},{id:"oral",label:"मौखिक",icon:MessageSquare},{id:"practical",label:"व्यावहारिक",icon:NotebookPen},{id:"project",label:"प्रोजेक्ट",icon:FolderKanban},{id:"activity",label:"क्रियाकलाप",icon:Gamepad2},{id:"portfolio",label:"पोर्टफोलियो",icon:BookOpen}];
   const load=useCallback(async()=>{setLoading(true);const{data}=await db.getAssessments();setAssessments(data||[]);setLoading(false);},[]);
   useEffect(()=>{load();},[load]);
@@ -1603,11 +1661,23 @@ function AssessmentBuilder({ chapters, onAddChapter, classContext }) {
               <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:8}}>
                 <div style={{width:36,height:36,borderRadius:8,background:tint(typeColor,16),display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={17} color={typeColor}/></div>
                 <div style={{minWidth:0,flex:1}}><div style={{fontSize:17,fontWeight:700,color:INK,overflowWrap:"break-word",wordBreak:"break-word"}}>{a.title}</div><div style={{fontSize:15,color:INK_SOFT}}>{typeInfo.label}{a.due_date?` · ${a.due_date}`:""}</div></div>
+                <button onClick={(e)=>{e.stopPropagation();setPrinting(a);}} style={{flexShrink:0,background:"none",border:`1px solid ${BORDER}`,borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",gap:4,color:INK_SOFT,fontSize:13.5,fontWeight:600,cursor:"pointer"}}><Printer size={13}/>प्रिन्ट</button>
               </div>
               {a.rubric?.length>0&&a.rubric.map((r,i)=><div key={i} style={{background:SURFACE_2,borderRadius:7,padding:"6px 10px",fontSize:16,marginBottom:5}}><strong style={{color:ACCENT}}>{r.level}:</strong> {r.desc}</div>)}
             </Card>
           );})}
         </div>
+      )}
+      {printing&&(
+        <PrintableSheet title={printing.title} subtitle={TYPES.find((t)=>t.id===printing.type)?.label} chip={printing.due_date} chipColor={MARIGOLD_DARK} onClose={()=>setPrinting(null)}>
+          {(printing.rubric||[]).map((r,i)=>{const c=r.level==="उत्कृष्ट"?ACCENT:r.level==="सहयोग आवश्यक"?ROSE:MARIGOLD_DARK;return(
+            <div key={i} style={{marginBottom:12}}>
+              <div style={{fontWeight:700,color:c,fontSize:16.5,marginBottom:3}}>{r.level}</div>
+              <div style={{fontSize:16.5,color:INK,lineHeight:1.6}}>{r.desc}</div>
+            </div>
+          );})}
+          {(!printing.rubric||printing.rubric.length===0)&&<div style={{color:INK_SOFT}}>मूल्याङ्कन मापदण्ड थपिएको छैन।</div>}
+        </PrintableSheet>
       )}
     </div>
   );
@@ -1620,6 +1690,7 @@ function ActivitiesLibrary({ chapters, onAddChapter, classContext }) {
   const [saving,setSaving]=useState(false);
   const [generating,setGenerating]=useState(false);
   const [typeFilter,setTypeFilter]=useState("सबै");
+  const [printing,setPrinting]=useState(null);
   const [form,setForm]=useState({title:"",type:"game",competency:"",duration:"",description:"",chapter_title:""});
   const [error,setError]=useState("");
   const [matchedCount,setMatchedCount]=useState(0);
@@ -1687,9 +1758,10 @@ function ActivitiesLibrary({ chapters, onAddChapter, classContext }) {
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{display:"flex",justifyContent:"space-between",gap:8}}><div style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:700,fontSize:16.5,color:INK}}>{a.title}</div>{a.duration&&<span style={{fontSize:15,color:INK_SOFT,flexShrink:0}}>{a.duration}</span>}</div>
                   {a.description&&<div style={{fontSize:16,color:INK_SOFT,lineHeight:1.5,marginTop:4}}>{a.description}</div>}
-                  <div style={{display:"flex",gap:5,marginTop:6,flexWrap:"wrap"}}>
+                  <div style={{display:"flex",gap:5,marginTop:6,flexWrap:"wrap",alignItems:"center"}}>
                     {a.chapter_title&&<span style={{fontSize:14,background:WARN_BG,color:MARIGOLD_DARK,padding:"2px 7px",borderRadius:5,fontWeight:600}}>{a.chapter_title}</span>}
                     {a.competency&&<span style={{fontSize:14,background:ACCENT_LIGHT,color:ACCENT,padding:"2px 7px",borderRadius:5,fontWeight:600}}>{a.competency}</span>}
+                    <button onClick={(e)=>{e.stopPropagation();setPrinting(a);}} style={{marginLeft:"auto",background:"none",border:`1px solid ${BORDER}`,borderRadius:8,padding:"4px 8px",display:"flex",alignItems:"center",gap:4,color:INK_SOFT,fontSize:13.5,fontWeight:600,cursor:"pointer"}}><Printer size={12}/>प्रिन्ट</button>
                   </div>
                 </div>
               </div>
@@ -1697,9 +1769,29 @@ function ActivitiesLibrary({ chapters, onAddChapter, classContext }) {
           );})}
         </div>
       )}
+      {printing&&(
+        <PrintableSheet title={printing.title} subtitle={TYPES.find((t)=>t.id===printing.type)?.label} chip={printing.chapter_title} chipColor={PALETTE[Math.max(TYPES.findIndex((t)=>t.id===printing.type),0)%PALETTE.length]} onClose={()=>setPrinting(null)}>
+          {printing.competency&&<div style={{marginBottom:10,fontSize:16,color:INK_SOFT}}><strong style={{color:INK}}>क्षमता:</strong> {printing.competency}</div>}
+          {printing.duration&&<div style={{marginBottom:14,fontSize:16,color:INK_SOFT}}><strong style={{color:INK}}>समय:</strong> {printing.duration}</div>}
+          <div style={{fontSize:17,color:INK,lineHeight:1.7,whiteSpace:"pre-wrap"}}>{printing.description||"विवरण थपिएको छैन।"}</div>
+        </PrintableSheet>
+      )}
     </div>
   );
 }
+
+// NEW — lifted to module scope (was local to ResourceCreator) so both the
+// generator and the Saved Resources library can share the same icon/color
+// per template type instead of duplicating the list.
+const RESOURCE_TEMPLATES=[
+  {id:"worksheet",title:"कार्यपत्र",icon:FileText,color:ACCENT,prompt:(l,classContext)=>`${classContext} "${l?.title||""}" पाठका लागि अभ्यास कार्यपत्र नेपालीमा बनाउनुहोस्। उद्देश्य: ${(l?.objectives||[]).join(", ")}`},
+  {id:"revision",title:"पुनरावलोकन",icon:ClipboardList,color:TEAL,prompt:(l,classContext)=>`${classContext} "${l?.title||""}" पाठको पुनरावलोकन पाना बनाउनुहोस्। मुख्य बुँदा, शब्दावली र प्रश्नहरू।`},
+  {id:"flashcard",title:"फ्ल्यासकार्ड",icon:Copy,color:VIOLET,prompt:(l)=>`"${l?.title||""}" पाठका शब्दावलीहरू: ${(l?.vocabulary||[]).join(", ")} — फ्ल्यासकार्ड बनाउनुहोस्।`},
+  {id:"mindmap",title:"अवधारणा नक्सा",icon:Brain,color:BLUE,prompt:(l)=>`"${l?.title||""}" पाठको अवधारणा नक्सा (text format) बनाउनुहोस्।`},
+  {id:"vocab",title:"शब्दावली सूची",icon:Tag,color:ROSE,prompt:(l)=>`"${l?.title||""}" पाठका शब्दावलीहरू अर्थ र वाक्य प्रयोगसहित: ${(l?.vocabulary||[]).join(", ")}`},
+  {id:"practice",title:"अभ्यास प्रश्न",icon:PenSquare,color:MARIGOLD_DARK,prompt:(l)=>`"${l?.title||""}" पाठका लागि १५ वटा विभिन्न प्रकारका अभ्यास प्रश्नहरू बनाउनुहोस्।`},
+];
+const resourceTemplateMeta=(id)=>RESOURCE_TEMPLATES.find((t)=>t.id===id)||{title:"स्रोत",icon:Wand2,color:MARIGOLD_DARK};
 
 // NEW — groups the four AI-generation screens (Questions, Activities,
 // Assessment, Resources) behind one nav item with internal tabs, instead of
@@ -1712,10 +1804,11 @@ function AITools({ lessons, chapters, onAddChapter, classContext }) {
     {id:"activities",label:"क्रियाकलाप",icon:Gamepad2,color:TEAL,bg:TEAL_LIGHT},
     {id:"assessment",label:"मूल्याङ्कन",icon:NotebookPen,color:BLUE,bg:BLUE_LIGHT},
     {id:"resources",label:"स्रोत",icon:Wand2,color:MARIGOLD_DARK,bg:WARN_BG},
+    {id:"saved",label:"सुरक्षित",icon:BookMarked,color:ROSE,bg:ROSE_LIGHT},
   ];
   return(
     <div>
-      <div style={{display:"flex",overflowX:"auto",background:SURFACE,borderBottom:`1px solid ${BORDER}`,position:"sticky",top:0,zIndex:8}}>
+      <div className="no-print" style={{display:"flex",overflowX:"auto",background:SURFACE,borderBottom:`1px solid ${BORDER}`,position:"sticky",top:0,zIndex:8}}>
         {TABS.map((t)=>{const Icon=t.icon;const active=tab===t.id;return(
           <button key={t.id} onClick={()=>setTab(t.id)} style={{display:"flex",alignItems:"center",gap:7,padding:"13px 18px",border:"none",background:active?t.bg:"none",borderBottom:active?`3px solid ${t.color}`:"3px solid transparent",color:active?t.color:INK_SOFT,fontWeight:700,fontSize:16,cursor:"pointer",whiteSpace:"nowrap",transition:"background .15s"}}><Icon size={16}/>{t.label}</button>
         );})}
@@ -1724,6 +1817,7 @@ function AITools({ lessons, chapters, onAddChapter, classContext }) {
       {tab==="activities"&&<ActivitiesLibrary chapters={chapters} onAddChapter={onAddChapter} classContext={classContext}/>}
       {tab==="assessment"&&<AssessmentBuilder chapters={chapters} onAddChapter={onAddChapter} classContext={classContext}/>}
       {tab==="resources"&&<ResourceCreator lessons={lessons} classContext={classContext}/>}
+      {tab==="saved"&&<SavedResources/>}
     </div>
   );
 }
@@ -1733,24 +1827,18 @@ function ResourceCreator({ lessons, classContext }) {
   const [generating,setGenerating]=useState(false);
   const [generatedText,setGeneratedText]=useState("");
   const [matchedCount,setMatchedCount]=useState(0);
+  const [saving,setSaving]=useState(false);
+  const [saved,setSaved]=useState(false);
   const lesson=lessons[0];
   const chapterTitle=lesson?.chapters?.title||lesson?.chapter_title||"";
-  const TEMPLATES=[
-    {id:"worksheet",title:"कार्यपत्र",icon:FileText,prompt:(l)=>`${classContext} "${l?.title||""}" पाठका लागि अभ्यास कार्यपत्र नेपालीमा बनाउनुहोस्। उद्देश्य: ${(l?.objectives||[]).join(", ")}`},
-    {id:"revision",title:"पुनरावलोकन",icon:ClipboardList,prompt:(l)=>`${classContext} "${l?.title||""}" पाठको पुनरावलोकन पाना बनाउनुहोस्। मुख्य बुँदा, शब्दावली र प्रश्नहरू।`},
-    {id:"flashcard",title:"फ्ल्यासकार्ड",icon:Copy,prompt:(l)=>`"${l?.title||""}" पाठका शब्दावलीहरू: ${(l?.vocabulary||[]).join(", ")} — फ्ल्यासकार्ड बनाउनुहोस्।`},
-    {id:"mindmap",title:"अवधारणा नक्सा",icon:Brain,prompt:(l)=>`"${l?.title||""}" पाठको अवधारणा नक्सा (text format) बनाउनुहोस्।`},
-    {id:"vocab",title:"शब्दावली सूची",icon:Tag,prompt:(l)=>`"${l?.title||""}" पाठका शब्दावलीहरू अर्थ र वाक्य प्रयोगसहित: ${(l?.vocabulary||[]).join(", ")}`},
-    {id:"practice",title:"अभ्यास प्रश्न",icon:PenSquare,prompt:(l)=>`"${l?.title||""}" पाठका लागि १५ वटा विभिन्न प्रकारका अभ्यास प्रश्नहरू बनाउनुहोस्।`},
-  ];
 
   const generate=async(template)=>{
-    setActive(template);setGenerating(true);setGeneratedText("");
+    setActive(template);setGenerating(true);setGeneratedText("");setSaved(false);
     try{
       // NEW: use materials tagged to this lesson's chapter + the global textbook
       const ctx=await getMaterialContext(chapterTitle);
       setMatchedCount(ctx.matchedCount||0);
-      const prompt=template.prompt(lesson);
+      const prompt=template.prompt(lesson,classContext);
       const text=(ctx.materialParts.length||ctx.pdfBase64)
         ?await gemini.generateWithMaterials(prompt,ctx.materialParts,ctx.pdfBase64)
         :await gemini.generateText(prompt);
@@ -1759,24 +1847,86 @@ function ResourceCreator({ lessons, classContext }) {
     setGenerating(false);
   };
 
+  const save=async()=>{
+    if(!active||!generatedText)return;
+    setSaving(true);
+    const title=lesson?`${active.title} — ${lesson.title}`:active.title;
+    const{error}=await db.saveResource({title,template_id:active.id,chapter_title:chapterTitle||null,content:generatedText});
+    setSaving(false);
+    if(!error)setSaved(true);
+  };
+
   return(
     <div style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
-      <div style={{fontSize:20,fontWeight:700,color:INK,marginBottom:4,display:"flex",alignItems:"center",gap:8}}><Wand2 size={20} color={ACCENT}/>स्रोत निर्माता</div>
-      <div style={{fontSize:16,color:INK_SOFT,marginBottom:16}}>{lesson?`"${lesson.title}" — AI बाट स्वतः बनाइन्छ।`:"पहिले पाठ योजनामा पाठ थप्नुहोस्।"}</div>
-      <MaterialsHint count={matchedCount} chapterTitle={chapterTitle}/>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:20}}>
-        {TEMPLATES.map((t)=>{const Icon=t.icon;return<Card key={t.id} onClick={()=>generate(t)} style={{padding:14,border:active?.id===t.id?`2px solid ${ACCENT}`:`1px solid ${BORDER}`}}><div style={{width:36,height:36,borderRadius:8,background:ACCENT_LIGHT,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:8}}><Icon size={18} color={ACCENT}/></div><div style={{fontWeight:700,fontSize:16,color:INK}}>{t.title}</div></Card>;})}
+      <div className="no-print" style={{fontSize:20,fontWeight:700,color:INK,marginBottom:4,display:"flex",alignItems:"center",gap:8}}><Wand2 size={20} color={ACCENT}/>स्रोत निर्माता</div>
+      <div className="no-print" style={{fontSize:16,color:INK_SOFT,marginBottom:16}}>{lesson?`"${lesson.title}" — AI बाट स्वतः बनाइन्छ।`:"पहिले पाठ योजनामा पाठ थप्नुहोस्।"}</div>
+      <div className="no-print"><MaterialsHint count={matchedCount} chapterTitle={chapterTitle}/></div>
+      <div className="no-print" style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:20}}>
+        {RESOURCE_TEMPLATES.map((t)=>{const Icon=t.icon;return<Card key={t.id} onClick={()=>generate(t)} accentColor={t.color} style={{padding:14,border:active?.id===t.id?`2px solid ${t.color}`:`1px solid ${BORDER}`}}><div style={{width:36,height:36,borderRadius:8,background:tint(t.color,16),display:"flex",alignItems:"center",justifyContent:"center",marginBottom:8}}><Icon size={18} color={t.color}/></div><div style={{fontWeight:700,fontSize:16,color:INK}}>{t.title}</div></Card>;})}
       </div>
       {active&&(
         <Card>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
             <div style={{fontWeight:700,fontSize:17}}>{active.title}</div>
-            {!generating&&generatedText&&<button onClick={()=>window.print()} style={{display:"flex",alignItems:"center",gap:5,background:MARIGOLD,color:"#2A1E07",border:"none",borderRadius:10,padding:"7px 12px",fontWeight:700,fontSize:16,cursor:"pointer"}}><Printer size={14}/>प्रिन्ट</button>}
+            {!generating&&generatedText&&(
+              <div className="no-print" style={{display:"flex",gap:7}}>
+                <button onClick={save} disabled={saving||saved} style={{display:"flex",alignItems:"center",gap:5,background:saved?ACCENT_LIGHT:ACCENT,color:saved?ACCENT:"#fff",border:"none",borderRadius:10,padding:"7px 12px",fontWeight:700,fontSize:16,cursor:saved?"default":"pointer"}}>{saved?<><CheckCircle2 size={14}/>सुरक्षित भयो</>:saving?"...":<><BookMarked size={14}/>सुरक्षित गर्नुहोस्</>}</button>
+                <button onClick={()=>window.print()} style={{display:"flex",alignItems:"center",gap:5,background:MARIGOLD,color:"#2A1E07",border:"none",borderRadius:10,padding:"7px 12px",fontWeight:700,fontSize:16,cursor:"pointer"}}><Printer size={14}/>प्रिन्ट</button>
+              </div>
+            )}
           </div>
           {generating?<div style={{display:"flex",alignItems:"center",gap:8,color:INK_SOFT,fontSize:16.5,padding:20}}><Spinner small/>AI बनाउँदैछ...</div>:(
             <pre style={{background:SURFACE_2,borderRadius:10,padding:14,fontSize:16,color:INK,lineHeight:1.7,whiteSpace:"pre-wrap",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif",maxHeight:400,overflowY:"auto"}}>{generatedText}</pre>
           )}
         </Card>
+      )}
+    </div>
+  );
+}
+
+// NEW — the library of previously-saved AI resources (worksheets, flashcards,
+// mindmaps, etc.) so a generated document survives navigating away instead
+// of vanishing. Decorated the same corkboard-pin way as the Materials library.
+function SavedResources() {
+  const [items,setItems]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [viewing,setViewing]=useState(null);
+  const load=useCallback(async()=>{setLoading(true);const{data}=await db.getSavedResources();setItems(data||[]);setLoading(false);},[]);
+  useEffect(()=>{load();},[load]);
+
+  const remove=async(id,e)=>{
+    e.stopPropagation();
+    if(!confirm("यो सुरक्षित स्रोत मेटाउने?"))return;
+    await db.deleteSavedResource(id);load();
+  };
+
+  return(
+    <div style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
+      <div style={{fontSize:20,fontWeight:700,color:INK,marginBottom:4,display:"flex",alignItems:"center",gap:8}}><BookMarked size={20} color={ROSE}/>सुरक्षित स्रोतहरू</div>
+      <div style={{fontSize:16,color:INK_SOFT,marginBottom:16}}>AI बाट बनाएका र सुरक्षित गरेका कार्यपत्र, फ्ल्यासकार्ड, पुनरावलोकन पाना — पछि हेर्न वा प्रिन्ट गर्न।</div>
+      {loading?<Spinner/>:items.length===0?(
+        <EmptyState icon={BookMarked} text="अझै कुनै स्रोत सुरक्षित गरिएको छैन। स्रोत निर्माताबाट बनाएर 'सुरक्षित गर्नुहोस्' थिच्नुहोस्।"/>
+      ):(
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:12}}>
+          {items.map((r)=>{
+            const meta=resourceTemplateMeta(r.template_id);const Icon=meta.icon;
+            return(
+              <Card key={r.id} onClick={()=>setViewing(r)} accentColor={meta.color} style={{padding:14,paddingTop:46,position:"relative",overflow:"visible"}}>
+                <PinBadge color={meta.color}/>
+                <button onClick={(e)=>remove(r.id,e)} style={{position:"absolute",top:6,right:6,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:INK_SOFT,boxShadow:SHADOW.sm,zIndex:2}}><Trash2 size={16}/></button>
+                <div style={{width:40,height:40,borderRadius:11,background:`linear-gradient(160deg, color-mix(in srgb, ${meta.color} 32%, transparent) 0%, color-mix(in srgb, ${meta.color} 14%, transparent) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:9,boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 10px color-mix(in srgb, ${meta.color} 25%, transparent)`}}><Icon size={19} color={meta.color}/></div>
+                <div style={{fontSize:16,fontWeight:700,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:4}}>{r.title}</div>
+                {r.chapter_title&&<span style={{fontSize:13.5,background:ACCENT_LIGHT,color:ACCENT,padding:"3px 8px",borderRadius:999,fontWeight:700,display:"inline-block",maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.chapter_title}</span>}
+                <div style={{fontSize:13.5,color:INK_SOFT,marginTop:6,fontWeight:600}}>{r.created_at?new Date(r.created_at).toLocaleDateString("ne-NP"):""}</div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+      {viewing&&(
+        <PrintableSheet title={viewing.title} subtitle={resourceTemplateMeta(viewing.template_id).title} chip={viewing.chapter_title} chipColor={resourceTemplateMeta(viewing.template_id).color} onClose={()=>setViewing(null)}>
+          <pre style={{background:SURFACE_2,borderRadius:10,padding:14,fontSize:16,color:INK,lineHeight:1.7,whiteSpace:"pre-wrap",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}>{viewing.content}</pre>
+        </PrintableSheet>
       )}
     </div>
   );
