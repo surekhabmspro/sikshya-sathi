@@ -63,8 +63,8 @@ const SHADOW = {
   // physical, tappable objects instead of flat rectangles.
   raised: "inset 0 1px 0 var(--card-sheen), 0 1px 2px rgba(var(--shadow-rgb),0.06), 0 8px 18px rgba(var(--shadow-rgb),0.13), 0 2px 5px rgba(var(--shadow-rgb),0.09)",
   raisedHover: "inset 0 1px 0 var(--card-sheen), 0 14px 30px rgba(var(--shadow-rgb),0.20), 0 4px 10px rgba(var(--shadow-rgb),0.12)",
-  accent: "0 8px 20px rgba(31,122,92,0.30)",
-  marigold: "0 8px 20px rgba(201,151,28,0.34)",
+  accent: "0 8px 20px color-mix(in srgb, var(--accent) 32%, transparent)",
+  marigold: "0 8px 20px color-mix(in srgb, var(--marigold) 36%, transparent)",
 };
 
 // color+"1A" string-concat only works when color is a literal hex string; it
@@ -78,7 +78,7 @@ const FILE_TYPE_META = {
   doc:   { icon: FileText,        color: "#2C5F9E" },
   image: { icon: ImageIcon,       color: "#9A5B12" },
   video: { icon: Video,           color: "#6B3FA0" },
-  audio: { icon: Music,           color: "#1F4D3D" },
+  audio: { icon: Music,           color: "#7A2E4A" },
   sheet: { icon: FileSpreadsheet, color: "#1B7A4A" },
 };
 
@@ -2121,8 +2121,8 @@ export default function App() {
     const style=document.createElement("style");
     style.id="ss-theme-vars";
     style.textContent=`
-      [data-theme="light"]{--bg:#FAF6EC;--bg-grad:#F1E8D2;--surface:#FFFFFF;--surface-2:#FBF7ED;--ink:#221A12;--ink-soft:#7A6C5C;--border:#E7DEC9;--accent:#1F7A5C;--accent-dark:#155C45;--accent-light:#E1F2EA;--marigold:#C9971C;--marigold-dark:#96690E;--teal:#2E8C86;--teal-light:#E4F2F1;--violet:#7A5A9E;--violet-light:#F1EAF7;--blue:#3E5C8C;--blue-light:#E8EBF5;--rose:#BE6A4A;--rose-light:#F8E9DE;--danger:#B3261E;--danger-bg:#FBEAE6;--warn:#96690E;--warn-bg:#FBF0DA;--shadow-rgb:29,26,20;--card-sheen:rgba(255,255,255,0.75);}
-      [data-theme="dark"]{--bg:#141B19;--bg-grad:#1A2422;--surface:#1E2725;--surface-2:#26302D;--ink:#EDEAE1;--ink-soft:#A6A092;--border:#333E3B;--accent:#4FBF9B;--accent-dark:#2F8F70;--accent-light:#1C332B;--marigold:#E8B84B;--marigold-dark:#C99A3A;--teal:#5FC2BC;--teal-light:#1B3634;--violet:#C6A3DE;--violet-light:#332740;--blue:#7C93C9;--blue-light:#212A3C;--rose:#E0A17E;--rose-light:#3B2A1D;--danger:#E5766D;--danger-bg:#3A211E;--warn:#E0A94E;--warn-bg:#3A2E18;--shadow-rgb:0,0,0;--card-sheen:rgba(255,255,255,0.06);}
+      [data-theme="light"]{--bg:#F7F4EB;--bg-grad:#ECE4CD;--surface:#FFFFFF;--surface-2:#FBF8EF;--ink:#141B2E;--ink-soft:#5B6478;--border:#E1DCC8;--accent:#20388F;--accent-dark:#152867;--accent-light:#E4E9F8;--marigold:#C98A1E;--marigold-dark:#9C6B12;--teal:#1B8C82;--teal-light:#E1F2F0;--violet:#7259B5;--violet-light:#EFE9FA;--blue:#3167B0;--blue-light:#E7EEFA;--rose:#B85C78;--rose-light:#F7E7ED;--danger:#B3261E;--danger-bg:#FBEAE6;--warn:#9C6B12;--warn-bg:#FBF0DA;--shadow-rgb:15,19,36;--card-sheen:rgba(255,255,255,0.8);}
+      [data-theme="dark"]{--bg:#0B0F1A;--bg-grad:#121A2E;--surface:#161F33;--surface-2:#1E2A44;--ink:#EEF1F8;--ink-soft:#9AA3BD;--border:#2A3552;--accent:#4C6FE0;--accent-dark:#3050C4;--accent-light:#1B2647;--marigold:#F5A93F;--marigold-dark:#D68A1E;--teal:#3FB8C9;--teal-light:#122D36;--violet:#A98CE8;--violet-light:#241B3E;--blue:#5C93EA;--blue-light:#152540;--rose:#E88CA0;--rose-light:#3A1F2A;--danger:#F0685A;--danger-bg:#3A1E1A;--warn:#E8A23A;--warn-bg:#3A2A12;--shadow-rgb:2,4,12;--card-sheen:rgba(255,255,255,0.07);}
       html,body{background:radial-gradient(1100px 620px at 12% -8%, var(--bg-grad), var(--bg) 55%);}
     `;
     document.head.appendChild(style);
@@ -2199,32 +2199,32 @@ export default function App() {
            reads these via var(--x), so toggling data-theme instantly
            re-colors the whole app with no per-component logic needed. */
         [data-theme="light"]{
-          --bg:#FAF6EC; --bg-grad:#F1E8D2; --surface:#FFFFFF; --surface-2:#FBF7ED;
-          --ink:#221A12; --ink-soft:#7A6C5C; --border:#E7DEC9;
-          --accent:#1F7A5C; --accent-dark:#155C45; --accent-light:#E1F2EA;
-          --marigold:#C9971C; --marigold-dark:#96690E;
-          --teal:#2E8C86; --teal-light:#E4F2F1;
-          --violet:#7A5A9E; --violet-light:#F1EAF7;
-          --blue:#3E5C8C; --blue-light:#E8EBF5;
-          --rose:#BE6A4A; --rose-light:#F8E9DE;
+          --bg:#F7F4EB; --bg-grad:#ECE4CD; --surface:#FFFFFF; --surface-2:#FBF8EF;
+          --ink:#141B2E; --ink-soft:#5B6478; --border:#E1DCC8;
+          --accent:#20388F; --accent-dark:#152867; --accent-light:#E4E9F8;
+          --marigold:#C98A1E; --marigold-dark:#9C6B12;
+          --teal:#1B8C82; --teal-light:#E1F2F0;
+          --violet:#7259B5; --violet-light:#EFE9FA;
+          --blue:#3167B0; --blue-light:#E7EEFA;
+          --rose:#B85C78; --rose-light:#F7E7ED;
           --danger:#B3261E; --danger-bg:#FBEAE6;
-          --warn:#96690E; --warn-bg:#FBF0DA;
-          --shadow-rgb:29,26,20;
-          --card-sheen:rgba(255,255,255,0.75);
+          --warn:#9C6B12; --warn-bg:#FBF0DA;
+          --shadow-rgb:15,19,36;
+          --card-sheen:rgba(255,255,255,0.8);
         }
         [data-theme="dark"]{
-          --bg:#141B19; --bg-grad:#1A2422; --surface:#1E2725; --surface-2:#26302D;
-          --ink:#EDEAE1; --ink-soft:#A6A092; --border:#333E3B;
-          --accent:#4FBF9B; --accent-dark:#2F8F70; --accent-light:#1C332B;
-          --marigold:#E8B84B; --marigold-dark:#C99A3A;
-          --teal:#5FC2BC; --teal-light:#1B3634;
-          --violet:#C6A3DE; --violet-light:#332740;
-          --blue:#7C93C9; --blue-light:#212A3C;
-          --rose:#E0A17E; --rose-light:#3B2A1D;
-          --danger:#E5766D; --danger-bg:#3A211E;
-          --warn:#E0A94E; --warn-bg:#3A2E18;
-          --shadow-rgb:0,0,0;
-          --card-sheen:rgba(255,255,255,0.06);
+          --bg:#0B0F1A; --bg-grad:#121A2E; --surface:#161F33; --surface-2:#1E2A44;
+          --ink:#EEF1F8; --ink-soft:#9AA3BD; --border:#2A3552;
+          --accent:#4C6FE0; --accent-dark:#3050C4; --accent-light:#1B2647;
+          --marigold:#F5A93F; --marigold-dark:#D68A1E;
+          --teal:#3FB8C9; --teal-light:#122D36;
+          --violet:#A98CE8; --violet-light:#241B3E;
+          --blue:#5C93EA; --blue-light:#152540;
+          --rose:#E88CA0; --rose-light:#3A1F2A;
+          --danger:#F0685A; --danger-bg:#3A1E1A;
+          --warn:#E8A23A; --warn-bg:#3A2A12;
+          --shadow-rgb:2,4,12;
+          --card-sheen:rgba(255,255,255,0.07);
         }
 
         @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
