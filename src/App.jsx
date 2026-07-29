@@ -45,6 +45,13 @@ const DANGER_BG = "var(--danger-bg)";
 const WARN = "var(--warn)";
 const WARN_BG = "var(--warn-bg)";
 
+// NEW — a shared rotating palette (used via PALETTE[i % PALETTE.length]) for
+// lists that don't have a natural status/category color of their own —
+// activity types, assessment types, journal entries, search results — so
+// those screens get the same colorful, distinguishable-at-a-glance look as
+// the ones that already have semantic colors (status, file category, etc).
+const PALETTE = [ACCENT, MARIGOLD_DARK, TEAL, VIOLET, ROSE, BLUE];
+
 // Elevation scale — used for the "premium, elevated" card/button look.
 const SHADOW = {
   sm: "0 1px 2px rgba(var(--shadow-rgb),0.06), 0 1px 1px rgba(var(--shadow-rgb),0.04)",
@@ -163,8 +170,13 @@ function Card({ children, onClick, style, accentColor }) {
     </div>
   );
 }
-function SectionLabel({ children }) {
-  return <div style={{ fontSize:16, letterSpacing:"0.06em", textTransform:"uppercase", color:INK_SOFT, marginBottom:11, fontWeight:700 }}>{children}</div>;
+function SectionLabel({ children, icon:Icon, color }) {
+  return (
+    <div style={{ display:"flex",alignItems:"center",gap:7, fontSize:16, letterSpacing:"0.06em", textTransform:"uppercase", color:INK_SOFT, marginBottom:11, fontWeight:700 }}>
+      {Icon&&<Icon size={14} color={color||ACCENT}/>}
+      {children}
+    </div>
+  );
 }
 const STATUS_META = { ready:{label:"तयार",bg:ACCENT_LIGHT,color:ACCENT}, prep:{label:"तयारी चाहिने",bg:WARN_BG,color:WARN}, missing:{label:"सुरु नभएको",bg:DANGER_BG,color:DANGER} };
 function StatusPill({ status }) {
@@ -448,7 +460,7 @@ function LessonMode({ lesson, onClose }) {
   const rubric=lesson.rubric||[];
   return(
     <div style={{position:"fixed",inset:0,background:PAPER,zIndex:50,display:"flex",flexDirection:"column"}}>
-      <div className="no-print" style={{background:ACCENT,color:"#fff",padding:"14px 16px",display:"flex",alignItems:"center",gap:10}}>
+      <div className="no-print" style={{background:`linear-gradient(120deg, ${TEAL} 0%, ${ACCENT} 65%, ${ACCENT_DARK} 100%)`,color:"#fff",padding:"14px 16px",display:"flex",alignItems:"center",gap:10}}>
         <button onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:10,display:"flex",cursor:"pointer"}}><ChevronLeft size={20}/></button>
         <div style={{flex:1,minWidth:0}}>
           <div style={{fontSize:14,opacity:0.75}}>{lesson.chapters?.title||lesson.chapter_title||""}</div>
@@ -467,11 +479,11 @@ function LessonMode({ lesson, onClose }) {
         {tabs.map((t)=>{const Icon=t.icon;const active=tab===t.id;return<button key={t.id} onClick={()=>setTab(t.id)} style={{display:"flex",alignItems:"center",gap:5,padding:"11px 12px",border:"none",background:"none",borderBottom:active?`3px solid ${ACCENT}`:"3px solid transparent",color:active?ACCENT:INK_SOFT,fontWeight:600,fontSize:16,cursor:"pointer",whiteSpace:"nowrap"}}><Icon size={15}/>{t.label}</button>;})}
       </div>
       <div className="no-print" style={{flex:1,overflowY:"auto",padding:16,maxWidth:720,margin:"0 auto",width:"100%"}}>
-        {tab==="sequence"&&(<div><SectionLabel>पढाउने क्रम</SectionLabel>{sequence.length===0?<div style={{color:INK_SOFT}}>पढाउने क्रम थपिएको छैन।</div>:(<ol style={{margin:0,paddingLeft:0,listStyle:"none"}}>{sequence.map((s,i)=>(<li key={i} style={{display:"flex",gap:12,padding:"12px 0",borderBottom:i<sequence.length-1?`1px solid ${BORDER}`:"none"}}><div style={{width:26,height:26,borderRadius:"50%",background:ACCENT_LIGHT,color:ACCENT,fontWeight:700,fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div><div style={{fontSize:17,color:INK,lineHeight:1.5,paddingTop:2}}>{s}</div></li>))}</ol>)}{lesson.notes&&<div style={{marginTop:14,background:WARN_BG,borderRadius:10,padding:12}}><div style={{fontSize:15,fontWeight:700,color:WARN,marginBottom:3}}>नोट</div><div style={{fontSize:16.5,color:"#5E4622"}}>{lesson.notes}</div></div>}</div>)}
-        {tab==="questions"&&<div><SectionLabel>कक्षामा सोध्नुहोस्</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:8}}>{keyQuestions.length===0?<div style={{color:INK_SOFT}}>प्रश्नहरू थपिएका छैनन्।</div>:keyQuestions.map((q,i)=><Card key={i}><div style={{fontSize:17,color:INK}}>{q}</div></Card>)}</div></div>}
-        {tab==="activities"&&<div><SectionLabel>क्रियाकलापहरू</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:8}}>{activities.length===0?<div style={{color:INK_SOFT}}>क्रियाकलापहरू थपिएका छैनन्।</div>:activities.map((a,i)=><Card key={i}><div style={{fontSize:17,color:INK}}>{a}</div></Card>)}</div></div>}
-        {tab==="homework"&&<div><SectionLabel>दिने गृहकार्य</SectionLabel><Card><div style={{fontSize:17,color:INK,lineHeight:1.6}}>{lesson.homework||"गृहकार्य थपिएको छैन।"}</div></Card></div>}
-        {tab==="rubric"&&<div><SectionLabel>मूल्याङ्कन मापदण्ड</SectionLabel>{rubric.length===0?<div style={{color:INK_SOFT}}>मूल्याङ्कन मापदण्ड थपिएको छैन।</div>:<div style={{display:"flex",flexDirection:"column",gap:8}}>{rubric.map((r,i)=><Card key={i}><div style={{fontWeight:700,color:ACCENT,fontSize:16.5,marginBottom:3}}>{r.level}</div><div style={{fontSize:16.5,color:INK}}>{r.desc}</div></Card>)}</div>}</div>}
+        {tab==="sequence"&&(<div><SectionLabel icon={ClipboardList}>पढाउने क्रम</SectionLabel>{sequence.length===0?<div style={{color:INK_SOFT}}>पढाउने क्रम थपिएको छैन।</div>:(<ol style={{margin:0,paddingLeft:0,listStyle:"none"}}>{sequence.map((s,i)=>(<li key={i} style={{display:"flex",gap:12,padding:"12px 0",borderBottom:i<sequence.length-1?`1px solid ${BORDER}`:"none"}}><div style={{width:26,height:26,borderRadius:"50%",background:ACCENT_LIGHT,color:ACCENT,fontWeight:700,fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div><div style={{fontSize:17,color:INK,lineHeight:1.5,paddingTop:2}}>{s}</div></li>))}</ol>)}{lesson.notes&&<div style={{marginTop:14,background:WARN_BG,borderRadius:10,padding:12}}><div style={{fontSize:15,fontWeight:700,color:WARN,marginBottom:3}}>नोट</div><div style={{fontSize:16.5,color:"#5E4622"}}>{lesson.notes}</div></div>}</div>)}
+        {tab==="questions"&&<div><SectionLabel icon={MessageSquare} color={VIOLET}>कक्षामा सोध्नुहोस्</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:8}}>{keyQuestions.length===0?<div style={{color:INK_SOFT}}>प्रश्नहरू थपिएका छैनन्।</div>:keyQuestions.map((q,i)=><Card key={i} accentColor={PALETTE[i%PALETTE.length]}><div style={{fontSize:17,color:INK}}>{q}</div></Card>)}</div></div>}
+        {tab==="activities"&&<div><SectionLabel icon={Users} color={TEAL}>क्रियाकलापहरू</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:8}}>{activities.length===0?<div style={{color:INK_SOFT}}>क्रियाकलापहरू थपिएका छैनन्।</div>:activities.map((a,i)=><Card key={i} accentColor={PALETTE[i%PALETTE.length]}><div style={{fontSize:17,color:INK}}>{a}</div></Card>)}</div></div>}
+        {tab==="homework"&&<div><SectionLabel icon={PenSquare} color={MARIGOLD_DARK}>दिने गृहकार्य</SectionLabel><Card><div style={{fontSize:17,color:INK,lineHeight:1.6}}>{lesson.homework||"गृहकार्य थपिएको छैन।"}</div></Card></div>}
+        {tab==="rubric"&&<div><SectionLabel icon={Layers} color={ROSE}>मूल्याङ्कन मापदण्ड</SectionLabel>{rubric.length===0?<div style={{color:INK_SOFT}}>मूल्याङ्कन मापदण्ड थपिएको छैन।</div>:<div style={{display:"flex",flexDirection:"column",gap:8}}>{rubric.map((r,i)=>{const c=r.level==="उत्कृष्ट"?ACCENT:r.level==="सहयोग आवश्यक"?ROSE:MARIGOLD_DARK;return<Card key={i} accentColor={c}><div style={{fontWeight:700,color:c,fontSize:16.5,marginBottom:3}}>{r.level}</div><div style={{fontSize:16.5,color:INK}}>{r.desc}</div></Card>;})}</div>}</div>}
       </div>
     </div>
   );
@@ -1105,7 +1117,7 @@ function Materials({ chapters, onAddChapter, onChaptersChanged }) {
             const catMeta=CATEGORY_META[f.category||"other"];const CatIcon=catMeta.icon;
             const needsExtraction=["doc","sheet","pptx"].includes(f.file_type);
             return(
-              <Card key={f.id} onClick={()=>openPreview(f)} style={{padding:14,paddingTop:46,position:"relative"}}>
+              <Card key={f.id} onClick={()=>openPreview(f)} accentColor={catMeta.color} style={{padding:14,paddingTop:46,position:"relative"}}>
                 <div style={{position:"absolute",top:6,right:6,display:"flex",gap:2,zIndex:2}}>
                   <button onClick={(e)=>openTagEditor(f,e)} style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,width:40,height:40,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:f.chapters?.title?ACCENT:"#C7A34A",boxShadow:SHADOW.sm}} title="अध्याय/प्रकार तोक्नुहोस्"><Tag size={18}/></button>
                   <button onClick={(e)=>deleteMat(f,e)} style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,width:40,height:40,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:INK_SOFT,boxShadow:SHADOW.sm}}><Trash2 size={18}/></button>
@@ -1291,7 +1303,7 @@ function TeachingJournal() {
       {loading?<Spinner/>:entries.length===0?<EmptyState icon={Heart} text="कुनै प्रविष्टि छैन।"/>:(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {entries.map((e)=>{const mood=MOOD_META[e.mood]||MOOD_META.okay;const MIcon=mood.icon;return(
-            <Card key={e.id}>
+            <Card key={e.id} accentColor={mood.color}>
               <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
                 <div style={{fontSize:16.5,fontWeight:700,color:INK}}>{e.lessons?.title||e.entry_date}</div>
                 <div style={{display:"flex",alignItems:"center",gap:4,background:tint(mood.color,15),color:mood.color,padding:"3px 9px",borderRadius:999,fontSize:14.5,fontWeight:700}}><MIcon size={12}/>{mood.label}</div>
@@ -1355,13 +1367,13 @@ function AIAssistant({ lessons, classContext }) {
           <div style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"center",gap:14,padding:"6px 2px 18px"}}>
             <div style={{maxWidth:"88%",background:SURFACE,color:INK,border:`1px solid ${BORDER}`,borderRadius:14,padding:"11px 14px",fontSize:16.5,lineHeight:1.6,boxShadow:SHADOW.raised}}>{messages[0]?.text}</div>
             <div>
-              <SectionLabel>छिटो सुरुवात</SectionLabel>
+              <SectionLabel icon={Zap} color={MARIGOLD_DARK}>छिटो सुरुवात</SectionLabel>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(155px,1fr))",gap:9}}>
-                {QUICK.map((q)=>(
-                  <button key={q} onClick={()=>send(q)} className="ss-btn ss-card-hover" style={{textAlign:"left",background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:13,padding:"12px 13px",fontSize:15,fontWeight:600,color:INK,cursor:"pointer",boxShadow:SHADOW.raised,display:"flex",alignItems:"center",gap:8}}>
-                    <Zap size={14} color={MARIGOLD} style={{flexShrink:0}}/>{q}
+                {QUICK.map((q,i)=>{const c=PALETTE[i%PALETTE.length];return(
+                  <button key={q} onClick={()=>send(q)} className="ss-btn ss-card-hover" style={{textAlign:"left",background:SURFACE,border:`1px solid ${BORDER}`,borderLeft:`4px solid ${c}`,borderRadius:13,padding:"12px 13px",fontSize:15,fontWeight:600,color:INK,cursor:"pointer",boxShadow:SHADOW.raised,display:"flex",alignItems:"center",gap:8}}>
+                    <Zap size={14} color={c} style={{flexShrink:0}}/>{q}
                   </button>
-                ))}
+                );})}
               </div>
             </div>
           </div>
@@ -1369,7 +1381,7 @@ function AIAssistant({ lessons, classContext }) {
           <>
             {messages.map((m,i)=>(
               <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",marginBottom:10}}>
-                <div style={{maxWidth:"88%",background:m.role==="user"?ACCENT:SURFACE,color:m.role==="user"?"#fff":INK,border:m.role==="ai"?`1px solid ${BORDER}`:"none",borderRadius:14,padding:"11px 14px",fontSize:16.5,lineHeight:1.6,whiteSpace:"pre-wrap",boxShadow:m.role==="ai"?SHADOW.sm:"none"}}>{m.text}</div>
+                <div style={{maxWidth:"88%",background:m.role==="user"?`linear-gradient(135deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`:SURFACE,color:m.role==="user"?"#fff":INK,border:m.role==="ai"?`1px solid ${BORDER}`:"none",borderRadius:14,padding:"11px 14px",fontSize:16.5,lineHeight:1.6,whiteSpace:"pre-wrap",boxShadow:m.role==="ai"?SHADOW.sm:SHADOW.accent}}>{m.text}</div>
               </div>
             ))}
             {loading&&<div style={{display:"flex",marginBottom:10}}><div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:14,padding:"11px 14px",color:INK_SOFT,fontSize:16.5}}>सोच्दै छु...</div></div>}
@@ -1473,8 +1485,8 @@ function QuestionBank({ chapters, onAddChapter, classContext }) {
       </div>
       {loading?<Spinner/>:filtered.length===0?<EmptyState icon={HelpCircle} text="कुनै प्रश्न छैन।"/>:(
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          {filtered.map((q)=>{const isSel=selected.includes(q.id);return(
-            <Card key={q.id} onClick={()=>toggle(q.id)} style={{display:"flex",gap:10}}>
+          {filtered.map((q)=>{const isSel=selected.includes(q.id);const diffColor=q.difficulty==="सजिलो"?TEAL:q.difficulty==="कठिन"?ROSE:MARIGOLD_DARK;return(
+            <Card key={q.id} onClick={()=>toggle(q.id)} accentColor={diffColor} style={{display:"flex",gap:10}}>
               <div style={{marginTop:2,flexShrink:0,color:isSel?ACCENT:INK_SOFT}}>{isSel?<CheckSquare size={18}/>:<Square size={18}/>}</div>
               <div style={{flex:1}}>
                 <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:5}}>
@@ -1582,14 +1594,14 @@ function AssessmentBuilder({ chapters, onAddChapter, classContext }) {
       )}
       {loading?<Spinner/>:assessments.length===0?(
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10}}>
-          {TYPES.map((t)=>{const Icon=t.icon;return<Card key={t.id} onClick={()=>{setForm({...form,type:t.id});setShowForm(true);}}><div style={{width:36,height:36,borderRadius:8,background:ACCENT_LIGHT,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:8}}><Icon size={18} color={ACCENT}/></div><div style={{fontWeight:700,fontSize:16}}>{t.label}</div></Card>;})}
+          {TYPES.map((t,i)=>{const Icon=t.icon;const c=PALETTE[i%PALETTE.length];return<Card key={t.id} accentColor={c} onClick={()=>{setForm({...form,type:t.id});setShowForm(true);}}><div style={{width:36,height:36,borderRadius:8,background:tint(c,16),display:"flex",alignItems:"center",justifyContent:"center",marginBottom:8}}><Icon size={18} color={c}/></div><div style={{fontWeight:700,fontSize:16}}>{t.label}</div></Card>;})}
         </div>
       ):(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {assessments.map((a)=>{const typeInfo=TYPES.find((t)=>t.id===a.type)||TYPES[0];const Icon=typeInfo.icon;return(
-            <Card key={a.id}>
+          {assessments.map((a)=>{const typeIdx=TYPES.findIndex((t)=>t.id===a.type);const typeInfo=TYPES[typeIdx]||TYPES[0];const Icon=typeInfo.icon;const typeColor=PALETTE[Math.max(typeIdx,0)%PALETTE.length];return(
+            <Card key={a.id} accentColor={typeColor}>
               <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:8}}>
-                <div style={{width:36,height:36,borderRadius:8,background:ACCENT_LIGHT,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={17} color={ACCENT}/></div>
+                <div style={{width:36,height:36,borderRadius:8,background:tint(typeColor,16),display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={17} color={typeColor}/></div>
                 <div style={{minWidth:0,flex:1}}><div style={{fontSize:17,fontWeight:700,color:INK,overflowWrap:"break-word",wordBreak:"break-word"}}>{a.title}</div><div style={{fontSize:15,color:INK_SOFT}}>{typeInfo.label}{a.due_date?` · ${a.due_date}`:""}</div></div>
               </div>
               {a.rubric?.length>0&&a.rubric.map((r,i)=><div key={i} style={{background:SURFACE_2,borderRadius:7,padding:"6px 10px",fontSize:16,marginBottom:5}}><strong style={{color:ACCENT}}>{r.level}:</strong> {r.desc}</div>)}
@@ -1664,14 +1676,14 @@ function ActivitiesLibrary({ chapters, onAddChapter, classContext }) {
       )}
       <div style={{display:"flex",gap:7,overflowX:"auto",marginBottom:14}}>
         <button onClick={()=>setTypeFilter("सबै")} style={{padding:"6px 12px",borderRadius:999,background:typeFilter==="सबै"?ACCENT:SURFACE,color:typeFilter==="सबै"?"#fff":INK,fontWeight:600,fontSize:15.5,whiteSpace:"nowrap",cursor:"pointer",border:"1px solid "+(typeFilter==="सबै"?ACCENT:BORDER)}}>सबै</button>
-        {TYPES.map((t)=>{const Icon=t.icon;return<button key={t.id} onClick={()=>setTypeFilter(t.id)} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:999,background:typeFilter===t.id?ACCENT:SURFACE,color:typeFilter===t.id?"#fff":INK,fontWeight:600,fontSize:15.5,whiteSpace:"nowrap",cursor:"pointer",border:"1px solid "+(typeFilter===t.id?ACCENT:BORDER)}}><Icon size={13}/>{t.label}</button>;})}
+        {TYPES.map((t,i)=>{const Icon=t.icon;const c=PALETTE[i%PALETTE.length];return<button key={t.id} onClick={()=>setTypeFilter(t.id)} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:999,background:typeFilter===t.id?c:SURFACE,color:typeFilter===t.id?"#fff":INK,fontWeight:600,fontSize:15.5,whiteSpace:"nowrap",cursor:"pointer",border:"1px solid "+(typeFilter===t.id?c:BORDER)}}><Icon size={13}/>{t.label}</button>;})}
       </div>
       {loading?<Spinner/>:filtered.length===0?<EmptyState icon={Gamepad2} text="कुनै क्रियाकलाप छैन।"/>:(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {filtered.map((a)=>{const typeInfo=TYPES.find((t)=>t.id===a.type)||TYPES[0];const Icon=typeInfo.icon;return(
-            <Card key={a.id}>
+          {filtered.map((a)=>{const typeIdx=TYPES.findIndex((t)=>t.id===a.type);const typeInfo=TYPES[typeIdx]||TYPES[0];const Icon=typeInfo.icon;const typeColor=PALETTE[Math.max(typeIdx,0)%PALETTE.length];return(
+            <Card key={a.id} accentColor={typeColor}>
               <div style={{display:"flex",gap:12}}>
-                <div style={{width:40,height:40,borderRadius:10,background:ACCENT_LIGHT,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={19} color={ACCENT}/></div>
+                <div style={{width:40,height:40,borderRadius:10,background:tint(typeColor,16),display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={19} color={typeColor}/></div>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{display:"flex",justifyContent:"space-between",gap:8}}><div style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:700,fontSize:16.5,color:INK}}>{a.title}</div>{a.duration&&<span style={{fontSize:15,color:INK_SOFT,flexShrink:0}}>{a.duration}</span>}</div>
                   {a.description&&<div style={{fontSize:16,color:INK_SOFT,lineHeight:1.5,marginTop:4}}>{a.description}</div>}
@@ -1800,7 +1812,7 @@ function DocumentSearch({ lessons, homework }) {
       {!query.trim()?<EmptyState icon={Search} text="टाइप गर्नुहोस्..."/>:results.length===0?<EmptyState icon={Search} text={`"${query}" फेला परेन।`}/>:(
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           <div style={{fontSize:15.5,color:INK_SOFT,marginBottom:4}}>{results.length} परिणाम</div>
-          {results.map((r,i)=>{const Icon=r.icon;return<Card key={i} style={{display:"flex",gap:10,alignItems:"center"}}><div style={{width:36,height:36,borderRadius:8,background:tint(r.color,16),display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={17} color={r.color}/></div><div style={{flex:1,minWidth:0}}><div style={{fontSize:14,color:r.color,fontWeight:700,marginBottom:2}}>{r.kind}</div><div style={{fontSize:16.5,color:INK,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.title}</div>{r.sub&&<div style={{fontSize:15,color:INK_SOFT}}>{r.sub}</div>}</div></Card>;})}
+          {results.map((r,i)=>{const Icon=r.icon;return<Card key={i} accentColor={r.color} style={{display:"flex",gap:10,alignItems:"center"}}><div style={{width:36,height:36,borderRadius:8,background:tint(r.color,16),display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={17} color={r.color}/></div><div style={{flex:1,minWidth:0}}><div style={{fontSize:14,color:r.color,fontWeight:700,marginBottom:2}}>{r.kind}</div><div style={{fontSize:16.5,color:INK,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.title}</div>{r.sub&&<div style={{fontSize:15,color:INK_SOFT}}>{r.sub}</div>}</div></Card>;})}
         </div>
       )}
     </div>
@@ -1845,11 +1857,11 @@ function CalendarView({ lessons, homework }) {
           })}
         </div>
       </Card>
-      <SectionLabel>आजका कार्यहरू</SectionLabel>
+      <SectionLabel icon={CalendarDays}>आजका कार्यहरू</SectionLabel>
       {[...lessons.slice(0,3).map((l)=>({type:"पाठ",title:l.title,color:ACCENT,bg:ACCENT_LIGHT})),...homework.filter((h)=>h.checked_count<h.total_students).slice(0,2).map((h)=>({type:"गृहकार्य",title:h.title,color:WARN,bg:WARN_BG}))].length===0?<div style={{color:INK_SOFT,fontSize:16.5}}>कुनै कार्य छैन।</div>:(
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           {[...lessons.slice(0,3).map((l)=>({type:"पाठ",title:l.title,color:ACCENT,bg:ACCENT_LIGHT})),...homework.filter((h)=>h.checked_count<h.total_students).slice(0,2).map((h)=>({type:"गृहकार्य",title:h.title,color:WARN,bg:WARN_BG}))].map((item,i)=>(
-            <Card key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px"}}>
+            <Card key={i} accentColor={item.color} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px"}}>
               <span style={{fontSize:14,fontWeight:700,color:item.color,background:item.bg,padding:"3px 8px",borderRadius:5,flexShrink:0}}>{item.type}</span>
               <div style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:16.5,color:INK,fontWeight:600}}>{item.title}</div>
             </Card>
@@ -1947,7 +1959,7 @@ function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, ins
       )}
 
       <Card style={{marginBottom:14}}>
-        <SectionLabel>कक्षा र विषय</SectionLabel>
+        <SectionLabel icon={BookOpen}>कक्षा र विषय</SectionLabel>
         <div style={{fontSize:15,color:INK_SOFT,marginBottom:12,lineHeight:1.6}}>यहाँ बदल्दा एपभर (होम स्क्रिन, AI उत्पन्न सामग्री, पाठ योजना, प्रश्न, कार्यपत्र...) सोही कक्षा र विषय अनुसार लागू हुन्छ।</div>
         <div style={{display:"flex",gap:8,marginBottom:8}}>
           <div style={{flex:1}}>
@@ -1964,7 +1976,7 @@ function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, ins
       </Card>
 
       <Card style={{marginBottom:14}}>
-        <SectionLabel>देखावट (उज्यालो / गाढा)</SectionLabel>
+        <SectionLabel icon={Sun} color={MARIGOLD_DARK}>देखावट (उज्यालो / गाढा)</SectionLabel>
         <div style={{display:"flex",gap:8}}>
           <button onClick={()=>theme!=="light"&&onToggleTheme()} className="ss-chip" style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"13px",borderRadius:12,border:`2px solid ${theme==="light"?ACCENT:BORDER}`,background:theme==="light"?ACCENT_LIGHT:SURFACE,color:theme==="light"?ACCENT:INK_SOFT,fontWeight:700,fontSize:16,cursor:"pointer"}}><Sun size={17}/>उज्यालो</button>
           <button onClick={()=>theme!=="dark"&&onToggleTheme()} className="ss-chip" style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"13px",borderRadius:12,border:`2px solid ${theme==="dark"?ACCENT:BORDER}`,background:theme==="dark"?ACCENT_LIGHT:SURFACE,color:theme==="dark"?ACCENT:INK_SOFT,fontWeight:700,fontSize:16,cursor:"pointer"}}><Moon size={17}/>गाढा</button>
@@ -1972,7 +1984,7 @@ function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, ins
       </Card>
 
       <Card style={{marginBottom:14}}>
-        <SectionLabel>पाठ्यपुस्तक PDF</SectionLabel>
+        <SectionLabel icon={BookMarked} color={TEAL}>पाठ्यपुस्तक PDF</SectionLabel>
         <div style={{fontSize:16,color:INK_SOFT,marginBottom:12,lineHeight:1.6}}>एकपटक PDF अपलोड गर्नुहोस् — AI ले सबैतिर यसबाट स्वतः सामग्री बनाउनेछ, साथै सामग्री खण्डमा अध्याय अनुसार ट्याग गरिएका फाइलहरू पनि प्रयोग हुन्छन्।</div>
         {pdfLoaded?(
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -1992,7 +2004,7 @@ function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, ins
       </Card>
 
       <Card style={{marginBottom:14}}>
-        <SectionLabel>खाता</SectionLabel>
+        <SectionLabel icon={User} color={VIOLET}>खाता</SectionLabel>
         <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
           <div style={{width:46,height:46,borderRadius:"50%",background:ACCENT,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18.5,fontWeight:700,flexShrink:0}}>{(teacherName?.[0]||session?.user?.email?.[0]||"श").toUpperCase()}</div>
           <div style={{flex:1,minWidth:0}}>
@@ -2009,9 +2021,9 @@ function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, ins
       </Card>
 
       <Card style={{marginBottom:14}}>
-        <SectionLabel>सेक्सनहरू</SectionLabel>
+        <SectionLabel icon={Layers} color={BLUE}>सेक्सनहरू</SectionLabel>
         <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:12}}>
-          {sections.length===0?<div style={{fontSize:16,color:INK_SOFT}}>कुनै सेक्सन छैन।</div>:sections.map((s)=><div key={s.id} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",background:SURFACE_2,borderRadius:8}}><div style={{width:8,height:8,borderRadius:"50%",background:ACCENT}}/><div style={{fontSize:16.5,fontWeight:600,color:INK}}>{s.name}</div></div>)}
+          {sections.length===0?<div style={{fontSize:16,color:INK_SOFT}}>कुनै सेक्सन छैन।</div>:sections.map((s,i)=><div key={s.id} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",background:SURFACE_2,borderRadius:8,borderLeft:`3px solid ${PALETTE[i%PALETTE.length]}`}}><div style={{width:8,height:8,borderRadius:"50%",background:PALETTE[i%PALETTE.length]}}/><div style={{fontSize:16.5,fontWeight:600,color:INK}}>{s.name}</div></div>)}
         </div>
         <div style={{display:"flex",gap:8}}>
           <input value={name} onChange={(e)=>setName(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&addSection()} placeholder="नयाँ सेक्सन (जस्तै: कक्षा ५ ख)" className="ss-field" style={{flex:1,minWidth:0,borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,outline:"none"}}/>
@@ -2020,7 +2032,7 @@ function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, ins
       </Card>
 
       <Card>
-        <SectionLabel>एपको बारेमा</SectionLabel>
+        <SectionLabel icon={SettingsIcon}>एपको बारेमा</SectionLabel>
         {[["नाम","शिक्षा साथी"],["संस्करण","3.1"],["AI","Google Gemini (निःशुल्क)"],["डाटाबेस","Supabase (निःशुल्क)"],["होस्टिङ","Vercel (निःशुल्क)"]].map(([l,v])=><div key={l} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${BORDER}`}}><div style={{fontSize:16,color:INK_SOFT}}>{l}</div><div style={{fontSize:16,fontWeight:600,color:INK}}>{v}</div></div>)}
       </Card>
     </div>
