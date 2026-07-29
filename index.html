@@ -7,7 +7,7 @@
 
     <!-- PWA -->
     <link rel="manifest" href="/manifest.json" />
-    <meta name="theme-color" content="#1F4D3D" />
+    <meta name="theme-color" content="#0B0F1A" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -34,30 +34,32 @@
       *{box-sizing:border-box;}
       body{margin:0;-webkit-font-smoothing:antialiased;}
       [data-theme="light"]{
-        --bg:#F6F3EA; --bg-grad:#EFE9D8; --surface:#FFFFFF; --surface-2:#FDFBF6;
-        --ink:#201D19; --ink-soft:#6B6557; --border:#E6E0D1;
-        --accent:#164A38; --accent-dark:#0F3627; --accent-light:#E4F1EA;
-        --marigold:#D98E2B; --marigold-dark:#B9741A;
-        --teal:#0E8A87; --teal-light:#E1F5F3;
-        --violet:#7A4FC2; --violet-light:#F0E9FA;
-        --blue:#2E6FBE; --blue-light:#E8F1FC;
-        --rose:#C4436B; --rose-light:#FBE9EF;
-        --danger:#B3402C; --danger-bg:#FBEAE6;
-        --warn:#9A5B12; --warn-bg:#FCF0DA;
-        --shadow-rgb:32,29,25;
+        --bg:#F7F4EB; --bg-grad:#ECE4CD; --surface:#FFFFFF; --surface-2:#FBF8EF;
+        --ink:#141B2E; --ink-soft:#5B6478; --border:#E1DCC8;
+        --accent:#20388F; --accent-dark:#152867; --accent-light:#E4E9F8;
+        --marigold:#C98A1E; --marigold-dark:#9C6B12;
+        --teal:#1B8C82; --teal-light:#E1F2F0;
+        --violet:#7259B5; --violet-light:#EFE9FA;
+        --blue:#3167B0; --blue-light:#E7EEFA;
+        --rose:#B85C78; --rose-light:#F7E7ED;
+        --danger:#B3261E; --danger-bg:#FBEAE6;
+        --warn:#9C6B12; --warn-bg:#FBF0DA;
+        --shadow-rgb:15,19,36;
+        --card-sheen:rgba(255,255,255,0.8);
       }
       [data-theme="dark"]{
-        --bg:#12171A; --bg-grad:#1A2225; --surface:#1D2427; --surface-2:#232B2E;
-        --ink:#F1EEE7; --ink-soft:#A8A192; --border:#323B3E;
-        --accent:#45BB9A; --accent-dark:#2C7C63; --accent-light:#1B332C;
-        --marigold:#E8A44A; --marigold-dark:#C98A34;
-        --teal:#3FC2BD; --teal-light:#173B39;
-        --violet:#B294EE; --violet-light:#2B2242;
-        --blue:#79ABEE; --blue-light:#1E2E42;
-        --rose:#E58AA8; --rose-light:#3A2028;
-        --danger:#E5715A; --danger-bg:#3A2320;
-        --warn:#E0A94E; --warn-bg:#3A2E18;
-        --shadow-rgb:0,0,0;
+        --bg:#0B0F1A; --bg-grad:#121A2E; --surface:#161F33; --surface-2:#1E2A44;
+        --ink:#EEF1F8; --ink-soft:#9AA3BD; --border:#2A3552;
+        --accent:#4C6FE0; --accent-dark:#3050C4; --accent-light:#1B2647;
+        --marigold:#F5A93F; --marigold-dark:#D68A1E;
+        --teal:#3FB8C9; --teal-light:#122D36;
+        --violet:#A98CE8; --violet-light:#241B3E;
+        --blue:#5C93EA; --blue-light:#152540;
+        --rose:#E88CA0; --rose-light:#3A1F2A;
+        --danger:#F0685A; --danger-bg:#3A1E1A;
+        --warn:#E8A23A; --warn-bg:#3A2A12;
+        --shadow-rgb:2,4,12;
+        --card-sheen:rgba(255,255,255,0.07);
       }
       html, body {
         background: radial-gradient(1100px 620px at 12% -8%, var(--bg-grad), var(--bg) 55%);
