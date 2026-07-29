@@ -168,8 +168,49 @@ export const uploadMaterialFile = async (file, teacherId) => {
   const path = `${teacherId}/${fileName}`;
   const { error } = await supabase.storage
     .from("materials")
-    .upload(path, file);
+    // NEW — contentType must be set explicitly; supabase-js does NOT infer
+    // it from the File object, so it was defaulting to a generic type.
+    // That's why opening a material downloaded it instead of previewing
+    // inline (browsers only render PDFs/images/video in an <iframe>/<img>
+    // when the server reports the right Content-Type) and why it felt slow
+    // (no inline streaming/rendering, just a raw byte dump).
+    .upload(path, file, { contentType: file.type || "application/octet-stream", upsert: false });
   return { path, error };
+};
+
+// NEW — one-time repair for materials uploaded before the contentType fix
+// above. Re-uploads each existing file to its same storage path with the
+// correct MIME type so old materials start previewing inline too, instead
+// of requiring the teacher to delete and re-upload everything by hand.
+export const repairMaterialContentTypes = async (onProgress) => {
+  const { data: materials, error } = await supabase
+    .from("materials")
+    .select("id, name, storage_path, file_type");
+  if (error) return { fixed: 0, failed: 0, error };
+  const guessType = (name, fileType) => {
+    const ext = (name.split(".").pop() || "").toLowerCase();
+    const map = {
+      pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
+      gif: "image/gif", webp: "image/webp", mp4: "video/mp4", mp3: "audio/mpeg",
+      doc: "application/msword", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ppt: "application/vnd.ms-powerpoint", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      xls: "application/vnd.ms-excel", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      csv: "text/csv",
+    };
+    return map[ext] || "application/octet-stream";
+  };
+  let fixed = 0, failed = 0;
+  for (const m of materials || []) {
+    try {
+      const { data: blob, error: dlErr } = await supabase.storage.from("materials").download(m.storage_path);
+      if (dlErr || !blob) { failed++; onProgress?.({ fixed, failed, total: materials.length, current: m.name }); continue; }
+      const contentType = blob.type && blob.type !== "application/octet-stream" ? blob.type : guessType(m.name, m.file_type);
+      const { error: upErr } = await supabase.storage.from("materials").upload(m.storage_path, blob, { contentType, upsert: true });
+      if (upErr) failed++; else fixed++;
+    } catch { failed++; }
+    onProgress?.({ fixed, failed, total: materials.length, current: m.name });
+  }
+  return { fixed, failed, error: null };
 };
 
 // NEW — download a stored file back as a Blob, so a PDF/image material can

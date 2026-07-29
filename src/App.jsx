@@ -468,7 +468,7 @@ function SectionSelector({ sections, current, onChange, onAdd }) {
 // outputs the actual content, never the nav/header.
 function PrintableSheet({ title, subtitle, chip, chipColor, onClose, children }) {
   return (
-    <div style={{position:"fixed",inset:0,background:PAPER,zIndex:70,display:"flex",flexDirection:"column"}}>
+    <div className="print-area" style={{position:"fixed",inset:0,background:PAPER,zIndex:70,display:"flex",flexDirection:"column"}}>
       <div className="no-print" style={{background:`linear-gradient(120deg, ${TEAL} 0%, ${ACCENT} 65%, ${ACCENT_DARK} 100%)`,color:"#fff",padding:"14px 16px",display:"flex",alignItems:"center",gap:10}}>
         <button onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:10,display:"flex",cursor:"pointer"}}><ChevronLeft size={20}/></button>
         <div style={{flex:1,minWidth:0}}>
@@ -496,7 +496,7 @@ function LessonMode({ lesson, onClose }) {
   const activities=lesson.activities||[];
   const rubric=lesson.rubric||[];
   return(
-    <div style={{position:"fixed",inset:0,background:PAPER,zIndex:50,display:"flex",flexDirection:"column"}}>
+    <div className="print-area" style={{position:"fixed",inset:0,background:PAPER,zIndex:50,display:"flex",flexDirection:"column"}}>
       <div className="no-print" style={{background:`linear-gradient(120deg, ${TEAL} 0%, ${ACCENT} 65%, ${ACCENT_DARK} 100%)`,color:"#fff",padding:"14px 16px",display:"flex",alignItems:"center",gap:10}}>
         <button onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:10,display:"flex",cursor:"pointer"}}><ChevronLeft size={20}/></button>
         <div style={{flex:1,minWidth:0}}>
@@ -515,7 +515,7 @@ function LessonMode({ lesson, onClose }) {
       <div className="no-print" style={{display:"flex",overflowX:"auto",background:SURFACE,borderBottom:`1px solid ${BORDER}`}}>
         {tabs.map((t)=>{const Icon=t.icon;const active=tab===t.id;return<button key={t.id} onClick={()=>setTab(t.id)} style={{display:"flex",alignItems:"center",gap:5,padding:"11px 12px",border:"none",background:"none",borderBottom:active?`3px solid ${ACCENT}`:"3px solid transparent",color:active?ACCENT:INK_SOFT,fontWeight:600,fontSize:16,cursor:"pointer",whiteSpace:"nowrap"}}><Icon size={15}/>{t.label}</button>;})}
       </div>
-      <div className="no-print" style={{flex:1,overflowY:"auto",padding:16,maxWidth:720,margin:"0 auto",width:"100%"}}>
+      <div style={{flex:1,overflowY:"auto",padding:16,maxWidth:720,margin:"0 auto",width:"100%"}}>
         {tab==="sequence"&&(<div><SectionLabel icon={ClipboardList}>पढाउने क्रम</SectionLabel>{sequence.length===0?<div style={{color:INK_SOFT}}>पढाउने क्रम थपिएको छैन।</div>:(<ol style={{margin:0,paddingLeft:0,listStyle:"none"}}>{sequence.map((s,i)=>(<li key={i} style={{display:"flex",gap:12,padding:"12px 0",borderBottom:i<sequence.length-1?`1px solid ${BORDER}`:"none"}}><div style={{width:26,height:26,borderRadius:"50%",background:ACCENT_LIGHT,color:ACCENT,fontWeight:700,fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div><div style={{fontSize:17,color:INK,lineHeight:1.5,paddingTop:2}}>{s}</div></li>))}</ol>)}{lesson.notes&&<div style={{marginTop:14,background:WARN_BG,borderRadius:10,padding:12}}><div style={{fontSize:15,fontWeight:700,color:WARN,marginBottom:3}}>नोट</div><div style={{fontSize:16.5,color:"#5E4622"}}>{lesson.notes}</div></div>}</div>)}
         {tab==="questions"&&<div><SectionLabel icon={MessageSquare} color={VIOLET}>कक्षामा सोध्नुहोस्</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:8}}>{keyQuestions.length===0?<div style={{color:INK_SOFT}}>प्रश्नहरू थपिएका छैनन्।</div>:keyQuestions.map((q,i)=><Card key={i} accentColor={PALETTE[i%PALETTE.length]}><div style={{fontSize:17,color:INK}}>{q}</div></Card>)}</div></div>}
         {tab==="activities"&&<div><SectionLabel icon={Users} color={TEAL}>क्रियाकलापहरू</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:8}}>{activities.length===0?<div style={{color:INK_SOFT}}>क्रियाकलापहरू थपिएका छैनन्।</div>:activities.map((a,i)=><Card key={i} accentColor={PALETTE[i%PALETTE.length]}><div style={{fontSize:17,color:INK}}>{a}</div></Card>)}</div></div>}
@@ -528,7 +528,8 @@ function LessonMode({ lesson, onClose }) {
 
 function StatCard({ icon:Icon, value, label, color, onClick, accent }) {
   return (
-    <Card onClick={onClick} style={{padding:"14px 15px", background: accent?`linear-gradient(160deg, color-mix(in srgb, ${color} 10%, var(--surface)) 0%, var(--surface) 65%)`:undefined}}>
+    <Card onClick={onClick} style={{padding:"14px 15px",paddingTop:20,position:"relative",overflow:"visible", background: accent?`linear-gradient(160deg, color-mix(in srgb, ${color} 10%, var(--surface)) 0%, var(--surface) 65%)`:undefined}}>
+      <PinBadge color={color}/>
       <div style={{display:"flex",alignItems:"center",gap:11}}>
         <div style={{
           width:38,height:38,borderRadius:11,flexShrink:0,
@@ -873,7 +874,8 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
       {loading?<Spinner/>:lessons.length===0?<EmptyState icon={ClipboardList} text="कुनै पाठ छैन।"/>:(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {lessons.map((l)=>(
-            <Card key={l.id} onClick={()=>onOpenLesson(l)} accentColor={STATUS_META[l.status]?.color||STATUS_META.prep.color}>
+            <Card key={l.id} onClick={()=>onOpenLesson(l)} accentColor={STATUS_META[l.status]?.color||STATUS_META.prep.color} style={{paddingTop:20,position:"relative",overflow:"visible"}}>
+              <PinBadge color={STATUS_META[l.status]?.color||STATUS_META.prep.color}/>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:15,color:INK_SOFT,fontWeight:600,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.chapters?.title||l.chapter_title||""}</div>
@@ -1150,7 +1152,7 @@ function Materials({ chapters, onAddChapter, onChaptersChanged }) {
       <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
         <div style={{flex:1,minWidth:180,display:"flex",alignItems:"center",gap:8,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"11px 14px"}}>
           <Search size={16} color={INK_SOFT}/>
-          <input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="फाइल खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:16.5,flex:1,minWidth:0,background:"transparent",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
+          <input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="फाइल खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:16.5,flex:1,minWidth:0,background:"transparent",color:INK,caretColor:ACCENT,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
         </div>
         <select value={sortBy} onChange={(e)=>setSortBy(e.target.value)} style={{border:`1px solid ${BORDER}`,borderRadius:12,padding:"11px 14px",fontSize:16,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif",background:SURFACE,color:INK,fontWeight:600}}>
           <option value="newest">नयाँ पहिले</option>
@@ -1295,7 +1297,8 @@ function HomeworkManager({ section, loading, homework, onRefresh }) {
             const pct=h.total_students>0?Math.round((h.checked_count/h.total_students)*100):0;
             const done=h.checked_count>=h.total_students;
             return(
-              <Card key={h.id} accentColor={done?ACCENT:MARIGOLD}>
+              <Card key={h.id} accentColor={done?ACCENT:MARIGOLD} style={{paddingTop:20,position:"relative",overflow:"visible"}}>
+                <PinBadge color={done?ACCENT:MARIGOLD}/>
                 <div style={{display:"flex",justifyContent:"space-between",gap:8,marginBottom:8}}>
                   <div style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:17,fontWeight:700,color:INK}}>{h.title}</div>
                   <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
@@ -1360,7 +1363,8 @@ function TeachingJournal() {
       {loading?<Spinner/>:entries.length===0?<EmptyState icon={Heart} text="कुनै प्रविष्टि छैन।"/>:(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {entries.map((e)=>{const mood=MOOD_META[e.mood]||MOOD_META.okay;const MIcon=mood.icon;return(
-            <Card key={e.id} accentColor={mood.color}>
+            <Card key={e.id} accentColor={mood.color} style={{paddingTop:20,position:"relative",overflow:"visible"}}>
+              <PinBadge color={mood.color}/>
               <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
                 <div style={{fontSize:16.5,fontWeight:700,color:INK}}>{e.lessons?.title||e.entry_date}</div>
                 <div style={{display:"flex",alignItems:"center",gap:4,background:tint(mood.color,15),color:mood.color,padding:"3px 9px",borderRadius:999,fontSize:14.5,fontWeight:700}}><MIcon size={12}/>{mood.label}</div>
@@ -1452,7 +1456,7 @@ function AIAssistant({ lessons, classContext }) {
         </div>
       )}
       <div style={{display:"flex",gap:8,padding:"8px 16px 16px"}}>
-        <input value={input} onChange={(e)=>setInput(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&send(input)} placeholder="आफ्नो प्रश्न लेख्नुहोस्..." style={{flex:1,minWidth:0,border:`1px solid ${BORDER}`,borderRadius:999,padding:"12px 16px",fontSize:16.5,outline:"none",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
+        <input value={input} onChange={(e)=>setInput(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&send(input)} placeholder="आफ्नो प्रश्न लेख्नुहोस्..." style={{flex:1,minWidth:0,border:`1px solid ${BORDER}`,borderRadius:999,padding:"12px 16px",fontSize:16.5,outline:"none",background:SURFACE_2,color:INK,caretColor:ACCENT,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
         <button onClick={()=>send(input)} style={{background:ACCENT,color:"#fff",border:"none",borderRadius:"50%",width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}><Send size={17}/></button>
       </div>
     </div>
@@ -1504,8 +1508,8 @@ function QuestionBank({ chapters, onAddChapter, classContext }) {
   const filtered=useMemo(()=>questions.filter((q)=>(diffFilter==="सबै"||q.difficulty===diffFilter)&&(!query.trim()||q.text.toLowerCase().includes(query.toLowerCase()))),[questions,query,diffFilter]);
   const selectedQs=questions.filter((q)=>selected.includes(q.id));
 
-  return(
-    <div style={{padding:"20px 20px 150px",maxWidth:1040,margin:"0 auto"}}>
+  return(<>
+    <div className={showSet?"no-print":""} style={{padding:"20px 20px 150px",maxWidth:1040,margin:"0 auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={{fontSize:20,fontWeight:700,color:INK}}>प्रश्न बैंक</div>
         <button onClick={()=>setShowForm(!showForm)} style={{display:"flex",alignItems:"center",gap:5,background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:"pointer"}}><Plus size={14}/>नयाँ</button>
@@ -1535,7 +1539,7 @@ function QuestionBank({ chapters, onAddChapter, classContext }) {
       )}
       <div style={{display:"flex",alignItems:"center",gap:8,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"10px 14px",marginBottom:10}}>
         <Search size={16} color={INK_SOFT}/>
-        <input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="प्रश्न खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:16.5,flex:1,minWidth:0,background:"transparent",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
+        <input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="प्रश्न खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:16.5,flex:1,minWidth:0,background:"transparent",color:INK,caretColor:ACCENT,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
       </div>
       <div style={{display:"flex",gap:7,overflowX:"auto",marginBottom:14}}>
         {DIFFS.map((d)=><button key={d} onClick={()=>setDiffFilter(d)} style={{padding:"6px 12px",borderRadius:999,background:diffFilter===d?ACCENT:SURFACE,color:diffFilter===d?"#fff":INK,fontWeight:600,fontSize:15.5,whiteSpace:"nowrap",cursor:"pointer",border:"1px solid "+(diffFilter===d?ACCENT:BORDER)}}>{d}</button>)}
@@ -1543,7 +1547,8 @@ function QuestionBank({ chapters, onAddChapter, classContext }) {
       {loading?<Spinner/>:filtered.length===0?<EmptyState icon={HelpCircle} text="कुनै प्रश्न छैन।"/>:(
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           {filtered.map((q)=>{const isSel=selected.includes(q.id);const diffColor=q.difficulty==="सजिलो"?TEAL:q.difficulty==="कठिन"?ROSE:MARIGOLD_DARK;return(
-            <Card key={q.id} onClick={()=>toggle(q.id)} accentColor={diffColor} style={{display:"flex",gap:10}}>
+            <Card key={q.id} onClick={()=>toggle(q.id)} accentColor={diffColor} style={{display:"flex",gap:10,paddingTop:24,position:"relative",overflow:"visible"}}>
+              <PinBadge color={diffColor}/>
               <div style={{marginTop:2,flexShrink:0,color:isSel?ACCENT:INK_SOFT}}>{isSel?<CheckSquare size={18}/>:<Square size={18}/>}</div>
               <div style={{flex:1}}>
                 <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:5}}>
@@ -1560,28 +1565,29 @@ function QuestionBank({ chapters, onAddChapter, classContext }) {
         </div>
       )}
       {selected.length>0&&(
-        <div style={{position:"fixed",bottom:64,left:0,right:0,display:"flex",justifyContent:"center",padding:"0 16px",zIndex:20}}>
+        <div className="no-print" style={{position:"fixed",bottom:64,left:0,right:0,display:"flex",justifyContent:"center",padding:"0 16px",zIndex:20}}>
           <button onClick={()=>setShowSet(true)} style={{background:ACCENT,color:"#fff",border:"none",borderRadius:999,padding:"12px 20px",fontWeight:700,fontSize:16.5,display:"flex",alignItems:"center",gap:8,cursor:"pointer",boxShadow:"0 8px 20px rgba(31,77,61,0.25)"}}><Shuffle size={16}/>{selected.length} प्रश्न — सेट बनाउनुहोस्</button>
         </div>
       )}
-      {showSet&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.55)",zIndex:60,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={()=>setShowSet(false)}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:"18px 18px 0 0",padding:22,maxWidth:600,width:"100%",maxHeight:"80vh",overflowY:"auto"}}>
-            <div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
-              <div style={{fontSize:18,fontWeight:700}}>प्रश्न सेट ({selected.length})</div>
-              <button onClick={()=>setShowSet(false)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><X size={20}/></button>
-            </div>
-            <ol style={{paddingLeft:18,margin:0,display:"flex",flexDirection:"column",gap:10}}>
-              {selectedQs.map((q)=><li key={q.id} style={{fontSize:16.5,color:INK,lineHeight:1.5}}>{q.text}</li>)}
-            </ol>
-            <div style={{display:"flex",gap:8,marginTop:18}}>
-              <button onClick={async()=>{await db.upsertQuestionSet({title:`सेट — ${new Date().toLocaleDateString("ne-NP")}`,question_ids:selected});setSelected([]);setShowSet(false);}} style={{flex:1,background:ACCENT,color:"#fff",border:"none",borderRadius:12,padding:"12px",fontWeight:700,fontSize:16.5,cursor:"pointer"}}>💾 सुरक्षित</button>
-              <button onClick={()=>window.print()} style={{flex:1,background:MARIGOLD,color:"#2A1E07",border:"none",borderRadius:12,padding:"12px",fontWeight:700,fontSize:16.5,display:"flex",alignItems:"center",justifyContent:"center",gap:6,cursor:"pointer"}}><Printer size={16}/>प्रिन्ट</button>
-            </div>
+    </div>
+    {showSet&&(
+      <div className="print-area" style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.55)",zIndex:60,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={()=>setShowSet(false)}>
+        <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:"18px 18px 0 0",padding:22,maxWidth:600,width:"100%",maxHeight:"80vh",overflowY:"auto"}}>
+          <div className="no-print" style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
+            <div style={{fontSize:18,fontWeight:700}}>प्रश्न सेट ({selected.length})</div>
+            <button onClick={()=>setShowSet(false)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><X size={20}/></button>
+          </div>
+          <ol style={{paddingLeft:18,margin:0,display:"flex",flexDirection:"column",gap:10}}>
+            {selectedQs.map((q)=><li key={q.id} style={{fontSize:16.5,color:INK,lineHeight:1.5}}>{q.text}</li>)}
+          </ol>
+          <div className="no-print" style={{display:"flex",gap:8,marginTop:18}}>
+            <button onClick={async()=>{await db.upsertQuestionSet({title:`सेट — ${new Date().toLocaleDateString("ne-NP")}`,question_ids:selected});setSelected([]);setShowSet(false);}} style={{flex:1,background:ACCENT,color:"#fff",border:"none",borderRadius:12,padding:"12px",fontWeight:700,fontSize:16.5,cursor:"pointer"}}>💾 सुरक्षित</button>
+            <button onClick={()=>window.print()} style={{flex:1,background:MARIGOLD,color:"#2A1E07",border:"none",borderRadius:12,padding:"12px",fontWeight:700,fontSize:16.5,display:"flex",alignItems:"center",justifyContent:"center",gap:6,cursor:"pointer"}}><Printer size={16}/>प्रिन्ट</button>
           </div>
         </div>
-      )}
-    </div>
+      </div>
+    )}
+    </>
   );
 }
 
@@ -1620,8 +1626,8 @@ function AssessmentBuilder({ chapters, onAddChapter, classContext }) {
     setSaving(false);setShowForm(false);setForm({title:"",type:"observation",rubric_text:"",due_date:"",chapter_title:""});load();
   };
 
-  return(
-    <div style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
+  return(<>
+    <div className={printing?"no-print":""} style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={{fontSize:20,fontWeight:700,color:INK}}>मूल्याङ्कन</div>
         <button onClick={()=>setShowForm(!showForm)} style={{display:"flex",alignItems:"center",gap:5,background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:"pointer"}}><Plus size={14}/>नयाँ</button>
@@ -1652,12 +1658,13 @@ function AssessmentBuilder({ chapters, onAddChapter, classContext }) {
       )}
       {loading?<Spinner/>:assessments.length===0?(
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10}}>
-          {TYPES.map((t,i)=>{const Icon=t.icon;const c=PALETTE[i%PALETTE.length];return<Card key={t.id} accentColor={c} onClick={()=>{setForm({...form,type:t.id});setShowForm(true);}}><div style={{width:36,height:36,borderRadius:8,background:tint(c,16),display:"flex",alignItems:"center",justifyContent:"center",marginBottom:8}}><Icon size={18} color={c}/></div><div style={{fontWeight:700,fontSize:16}}>{t.label}</div></Card>;})}
+          {TYPES.map((t,i)=>{const Icon=t.icon;const c=PALETTE[i%PALETTE.length];return<Card key={t.id} accentColor={c} onClick={()=>{setForm({...form,type:t.id});setShowForm(true);}} style={{paddingTop:24,position:"relative",overflow:"visible"}}><PinBadge color={c}/><div style={{width:36,height:36,borderRadius:8,background:tint(c,16),display:"flex",alignItems:"center",justifyContent:"center",marginBottom:8}}><Icon size={18} color={c}/></div><div style={{fontWeight:700,fontSize:16}}>{t.label}</div></Card>;})}
         </div>
       ):(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {assessments.map((a)=>{const typeIdx=TYPES.findIndex((t)=>t.id===a.type);const typeInfo=TYPES[typeIdx]||TYPES[0];const Icon=typeInfo.icon;const typeColor=PALETTE[Math.max(typeIdx,0)%PALETTE.length];return(
-            <Card key={a.id} accentColor={typeColor}>
+            <Card key={a.id} accentColor={typeColor} style={{paddingTop:24,position:"relative",overflow:"visible"}}>
+              <PinBadge color={typeColor}/>
               <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:8}}>
                 <div style={{width:36,height:36,borderRadius:8,background:tint(typeColor,16),display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={17} color={typeColor}/></div>
                 <div style={{minWidth:0,flex:1}}><div style={{fontSize:17,fontWeight:700,color:INK,overflowWrap:"break-word",wordBreak:"break-word"}}>{a.title}</div><div style={{fontSize:15,color:INK_SOFT}}>{typeInfo.label}{a.due_date?` · ${a.due_date}`:""}</div></div>
@@ -1668,18 +1675,19 @@ function AssessmentBuilder({ chapters, onAddChapter, classContext }) {
           );})}
         </div>
       )}
-      {printing&&(
-        <PrintableSheet title={printing.title} subtitle={TYPES.find((t)=>t.id===printing.type)?.label} chip={printing.due_date} chipColor={MARIGOLD_DARK} onClose={()=>setPrinting(null)}>
-          {(printing.rubric||[]).map((r,i)=>{const c=r.level==="उत्कृष्ट"?ACCENT:r.level==="सहयोग आवश्यक"?ROSE:MARIGOLD_DARK;return(
-            <div key={i} style={{marginBottom:12}}>
-              <div style={{fontWeight:700,color:c,fontSize:16.5,marginBottom:3}}>{r.level}</div>
-              <div style={{fontSize:16.5,color:INK,lineHeight:1.6}}>{r.desc}</div>
-            </div>
-          );})}
-          {(!printing.rubric||printing.rubric.length===0)&&<div style={{color:INK_SOFT}}>मूल्याङ्कन मापदण्ड थपिएको छैन।</div>}
-        </PrintableSheet>
-      )}
     </div>
+    {printing&&(
+      <PrintableSheet title={printing.title} subtitle={TYPES.find((t)=>t.id===printing.type)?.label} chip={printing.due_date} chipColor={MARIGOLD_DARK} onClose={()=>setPrinting(null)}>
+        {(printing.rubric||[]).map((r,i)=>{const c=r.level==="उत्कृष्ट"?ACCENT:r.level==="सहयोग आवश्यक"?ROSE:MARIGOLD_DARK;return(
+          <div key={i} style={{marginBottom:12}}>
+            <div style={{fontWeight:700,color:c,fontSize:16.5,marginBottom:3}}>{r.level}</div>
+            <div style={{fontSize:16.5,color:INK,lineHeight:1.6}}>{r.desc}</div>
+          </div>
+        );})}
+        {(!printing.rubric||printing.rubric.length===0)&&<div style={{color:INK_SOFT}}>मूल्याङ्कन मापदण्ड थपिएको छैन।</div>}
+      </PrintableSheet>
+    )}
+    </>
   );
 }
 
@@ -1714,8 +1722,8 @@ function ActivitiesLibrary({ chapters, onAddChapter, classContext }) {
   const save=async()=>{if(!form.title.trim())return;setSaving(true);await db.upsertActivity({...form});setSaving(false);setShowForm(false);setForm({title:"",type:"game",competency:"",duration:"",description:"",chapter_title:""});load();};
   const filtered=typeFilter==="सबै"?activities:activities.filter((a)=>a.type===typeFilter);
 
-  return(
-    <div style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
+  return(<>
+    <div className={printing?"no-print":""} style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={{fontSize:20,fontWeight:700,color:INK}}>क्रियाकलाप</div>
         <button onClick={()=>setShowForm(!showForm)} style={{display:"flex",alignItems:"center",gap:5,background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:"pointer"}}><Plus size={14}/>नयाँ</button>
@@ -1752,7 +1760,8 @@ function ActivitiesLibrary({ chapters, onAddChapter, classContext }) {
       {loading?<Spinner/>:filtered.length===0?<EmptyState icon={Gamepad2} text="कुनै क्रियाकलाप छैन।"/>:(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {filtered.map((a)=>{const typeIdx=TYPES.findIndex((t)=>t.id===a.type);const typeInfo=TYPES[typeIdx]||TYPES[0];const Icon=typeInfo.icon;const typeColor=PALETTE[Math.max(typeIdx,0)%PALETTE.length];return(
-            <Card key={a.id} accentColor={typeColor}>
+            <Card key={a.id} accentColor={typeColor} style={{paddingTop:24,position:"relative",overflow:"visible"}}>
+              <PinBadge color={typeColor}/>
               <div style={{display:"flex",gap:12}}>
                 <div style={{width:40,height:40,borderRadius:10,background:tint(typeColor,16),display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={19} color={typeColor}/></div>
                 <div style={{flex:1,minWidth:0}}>
@@ -1769,14 +1778,15 @@ function ActivitiesLibrary({ chapters, onAddChapter, classContext }) {
           );})}
         </div>
       )}
-      {printing&&(
-        <PrintableSheet title={printing.title} subtitle={TYPES.find((t)=>t.id===printing.type)?.label} chip={printing.chapter_title} chipColor={PALETTE[Math.max(TYPES.findIndex((t)=>t.id===printing.type),0)%PALETTE.length]} onClose={()=>setPrinting(null)}>
-          {printing.competency&&<div style={{marginBottom:10,fontSize:16,color:INK_SOFT}}><strong style={{color:INK}}>क्षमता:</strong> {printing.competency}</div>}
-          {printing.duration&&<div style={{marginBottom:14,fontSize:16,color:INK_SOFT}}><strong style={{color:INK}}>समय:</strong> {printing.duration}</div>}
-          <div style={{fontSize:17,color:INK,lineHeight:1.7,whiteSpace:"pre-wrap"}}>{printing.description||"विवरण थपिएको छैन।"}</div>
-        </PrintableSheet>
-      )}
     </div>
+    {printing&&(
+      <PrintableSheet title={printing.title} subtitle={TYPES.find((t)=>t.id===printing.type)?.label} chip={printing.chapter_title} chipColor={PALETTE[Math.max(TYPES.findIndex((t)=>t.id===printing.type),0)%PALETTE.length]} onClose={()=>setPrinting(null)}>
+        {printing.competency&&<div style={{marginBottom:10,fontSize:16,color:INK_SOFT}}><strong style={{color:INK}}>क्षमता:</strong> {printing.competency}</div>}
+        {printing.duration&&<div style={{marginBottom:14,fontSize:16,color:INK_SOFT}}><strong style={{color:INK}}>समय:</strong> {printing.duration}</div>}
+        <div style={{fontSize:17,color:INK,lineHeight:1.7,whiteSpace:"pre-wrap"}}>{printing.description||"विवरण थपिएको छैन।"}</div>
+      </PrintableSheet>
+    )}
+    </>
   );
 }
 
@@ -1862,7 +1872,7 @@ function ResourceCreator({ lessons, classContext }) {
       <div className="no-print" style={{fontSize:16,color:INK_SOFT,marginBottom:16}}>{lesson?`"${lesson.title}" — AI बाट स्वतः बनाइन्छ।`:"पहिले पाठ योजनामा पाठ थप्नुहोस्।"}</div>
       <div className="no-print"><MaterialsHint count={matchedCount} chapterTitle={chapterTitle}/></div>
       <div className="no-print" style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:20}}>
-        {RESOURCE_TEMPLATES.map((t)=>{const Icon=t.icon;return<Card key={t.id} onClick={()=>generate(t)} accentColor={t.color} style={{padding:14,border:active?.id===t.id?`2px solid ${t.color}`:`1px solid ${BORDER}`}}><div style={{width:36,height:36,borderRadius:8,background:tint(t.color,16),display:"flex",alignItems:"center",justifyContent:"center",marginBottom:8}}><Icon size={18} color={t.color}/></div><div style={{fontWeight:700,fontSize:16,color:INK}}>{t.title}</div></Card>;})}
+        {RESOURCE_TEMPLATES.map((t)=>{const Icon=t.icon;return<Card key={t.id} onClick={()=>generate(t)} accentColor={t.color} style={{padding:14,paddingTop:24,position:"relative",overflow:"visible",border:active?.id===t.id?`2px solid ${t.color}`:`1px solid ${BORDER}`}}><PinBadge color={t.color}/><div style={{width:36,height:36,borderRadius:8,background:tint(t.color,16),display:"flex",alignItems:"center",justifyContent:"center",marginBottom:8}}><Icon size={18} color={t.color}/></div><div style={{fontWeight:700,fontSize:16,color:INK}}>{t.title}</div></Card>;})}
       </div>
       {active&&(
         <Card>
@@ -1957,12 +1967,12 @@ function DocumentSearch({ lessons, homework }) {
       <div style={{fontSize:20,fontWeight:700,color:INK,marginBottom:4}}>सबैतिर खोज</div>
       <div style={{display:"flex",alignItems:"center",gap:8,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:14,padding:"12px 14px",marginBottom:14,marginTop:10}}>
         <Search size={17} color={INK_SOFT}/>
-        <input autoFocus value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:17,flex:1,minWidth:0,background:"transparent",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
+        <input autoFocus value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:17,flex:1,minWidth:0,background:"transparent",color:INK,caretColor:ACCENT,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
       </div>
       {!query.trim()?<EmptyState icon={Search} text="टाइप गर्नुहोस्..."/>:results.length===0?<EmptyState icon={Search} text={`"${query}" फेला परेन।`}/>:(
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           <div style={{fontSize:15.5,color:INK_SOFT,marginBottom:4}}>{results.length} परिणाम</div>
-          {results.map((r,i)=>{const Icon=r.icon;return<Card key={i} accentColor={r.color} style={{display:"flex",gap:10,alignItems:"center"}}><div style={{width:36,height:36,borderRadius:8,background:tint(r.color,16),display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={17} color={r.color}/></div><div style={{flex:1,minWidth:0}}><div style={{fontSize:14,color:r.color,fontWeight:700,marginBottom:2}}>{r.kind}</div><div style={{fontSize:16.5,color:INK,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.title}</div>{r.sub&&<div style={{fontSize:15,color:INK_SOFT}}>{r.sub}</div>}</div></Card>;})}
+          {results.map((r,i)=>{const Icon=r.icon;return<Card key={i} accentColor={r.color} style={{display:"flex",gap:10,alignItems:"center",paddingTop:22,position:"relative",overflow:"visible"}}><PinBadge color={r.color}/><div style={{width:36,height:36,borderRadius:8,background:tint(r.color,16),display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={17} color={r.color}/></div><div style={{flex:1,minWidth:0}}><div style={{fontSize:14,color:r.color,fontWeight:700,marginBottom:2}}>{r.kind}</div><div style={{fontSize:16.5,color:INK,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.title}</div>{r.sub&&<div style={{fontSize:15,color:INK_SOFT}}>{r.sub}</div>}</div></Card>;})}
         </div>
       )}
     </div>
@@ -2011,7 +2021,8 @@ function CalendarView({ lessons, homework }) {
       {[...lessons.slice(0,3).map((l)=>({type:"पाठ",title:l.title,color:ACCENT,bg:ACCENT_LIGHT})),...homework.filter((h)=>h.checked_count<h.total_students).slice(0,2).map((h)=>({type:"गृहकार्य",title:h.title,color:WARN,bg:WARN_BG}))].length===0?<div style={{color:INK_SOFT,fontSize:16.5}}>कुनै कार्य छैन।</div>:(
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           {[...lessons.slice(0,3).map((l)=>({type:"पाठ",title:l.title,color:ACCENT,bg:ACCENT_LIGHT})),...homework.filter((h)=>h.checked_count<h.total_students).slice(0,2).map((h)=>({type:"गृहकार्य",title:h.title,color:WARN,bg:WARN_BG}))].map((item,i)=>(
-            <Card key={i} accentColor={item.color} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px"}}>
+            <Card key={i} accentColor={item.color} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",paddingTop:20,position:"relative",overflow:"visible"}}>
+              <PinBadge color={item.color}/>
               <span style={{fontSize:14,fontWeight:700,color:item.color,background:item.bg,padding:"3px 8px",borderRadius:5,flexShrink:0}}>{item.type}</span>
               <div style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:16.5,color:INK,fontWeight:600}}>{item.title}</div>
             </Card>
@@ -2031,6 +2042,14 @@ function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, ins
   const [name,setName]=useState("");
   const [saving,setSaving]=useState(false);
   const [msg,setMsg]=useState("");
+  const [repairing,setRepairing]=useState(false);
+  const [repairProgress,setRepairProgress]=useState({});
+  const [repairResult,setRepairResult]=useState(null);
+  const runRepair=async()=>{
+    setRepairing(true);setRepairResult(null);
+    const result=await db.repairMaterialContentTypes((p)=>setRepairProgress(p));
+    setRepairing(false);setRepairResult(result);
+  };
   const [uploading,setUploading]=useState(false);
   const [pdfLoaded,setPdfLoaded]=useState(!!getTextbookPDF());
 
@@ -2151,6 +2170,15 @@ function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, ins
           </label>
         )}
         {msg&&<div style={{marginTop:10,fontSize:16,color:pdfLoaded?ACCENT:DANGER,fontWeight:600}}>{msg}</div>}
+      </Card>
+
+      <Card style={{marginBottom:14}}>
+        <SectionLabel icon={RotateCw} color={TEAL}>सामग्री प्रिभ्यू मर्मत</SectionLabel>
+        <div style={{fontSize:16,color:INK_SOFT,marginBottom:12,lineHeight:1.5}}>पुराना अपलोड गरिएका सामग्रीहरू (यो अपडेट अघि) खोल्दा डाउनलोड हुन सक्छ। यो बटनले तिनीहरूलाई सिधै खोल्न मिल्ने बनाउँछ — नयाँ अपलोडहरूलाई असर गर्दैन।</div>
+        <button onClick={runRepair} disabled={repairing} style={{display:"flex",alignItems:"center",gap:8,background:TEAL,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontWeight:700,fontSize:16.5,cursor:repairing?"default":"pointer"}}>
+          {repairing?<><Spinner small/>मर्मत गर्दै... {repairProgress.current?`(${repairProgress.current})`:""}</>:<><RotateCw size={16}/>पुरानो सामग्री मर्मत गर्नुहोस्</>}
+        </button>
+        {repairResult&&<div style={{marginTop:10,fontSize:16,color:ACCENT,fontWeight:600}}>✓ {repairResult.fixed} ठीक भयो{repairResult.failed>0?`, ${repairResult.failed} असफल भयो`:""}</div>}
       </Card>
 
       <Card style={{marginBottom:14}}>
