@@ -14,21 +14,26 @@ const openDB = () =>
     req.onerror = () => reject(req.error);
   });
 
-export const saveTextbook = async (base64) => {
+// NEW — the IndexedDB key is now per-class ("textbook_pdf::कक्षा ६" etc.)
+// instead of one fixed slot, since the textbook changes when the class you
+// teach changes year to year, even though the subject stays the same.
+const textbookKey = (classLabel) => `textbook_pdf::${classLabel || "default"}`;
+
+export const saveTextbook = async (base64, classLabel = null) => {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");
-    tx.objectStore(STORE_NAME).put(base64, "textbook_pdf");
+    tx.objectStore(STORE_NAME).put(base64, textbookKey(classLabel));
     tx.oncomplete = resolve;
     tx.onerror = () => reject(tx.error);
   });
 };
 
-export const loadTextbook = async () => {
+export const loadTextbook = async (classLabel = null) => {
   try {
     const db = await openDB();
     return new Promise((resolve) => {
-      const req = db.transaction(STORE_NAME).objectStore(STORE_NAME).get("textbook_pdf");
+      const req = db.transaction(STORE_NAME).objectStore(STORE_NAME).get(textbookKey(classLabel));
       req.onsuccess = () => resolve(req.result || null);
       req.onerror = () => resolve(null);
     });
@@ -37,11 +42,11 @@ export const loadTextbook = async () => {
   }
 };
 
-export const clearTextbook = async () => {
+export const clearTextbook = async (classLabel = null) => {
   const db = await openDB();
   return new Promise((resolve) => {
     const tx = db.transaction(STORE_NAME, "readwrite");
-    tx.objectStore(STORE_NAME).delete("textbook_pdf");
+    tx.objectStore(STORE_NAME).delete(textbookKey(classLabel));
     tx.oncomplete = resolve;
   });
 };

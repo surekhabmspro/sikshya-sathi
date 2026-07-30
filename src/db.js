@@ -5,8 +5,8 @@ import { supabase } from "./lib/supabase";
 export const signIn = (email, password) =>
   supabase.auth.signInWithPassword({ email, password });
 
-export const signUp = (email, password) =>
-  supabase.auth.signUp({ email, password });
+export const signUp = (email, password, options) =>
+  supabase.auth.signUp({ email, password, options });
 
 export const signOut = () => supabase.auth.signOut();
 
@@ -32,11 +32,15 @@ export const createSection = async (name) => {
 };
 
 // ─── CHAPTERS ────────────────────────────────────────────────────────────────
-export const getChapters = async () => {
-  const { data, error } = await supabase
-    .from("chapters")
-    .select("*")
-    .order("order_index");
+// NEW — chapters are now scoped to `class_label` (e.g. "कक्षा ५" vs "कक्षा ६").
+// You teach one subject across all sections of a class, but the class itself
+// changes year to year — so chapters/textbook need to key off the class, not
+// be one shared pool forever. classLabel is optional so nothing breaks for
+// any code path that hasn't been updated yet, but always pass it going forward.
+export const getChapters = async (classLabel = null) => {
+  let query = supabase.from("chapters").select("*").order("order_index");
+  if (classLabel) query = query.eq("class_label", classLabel);
+  const { data, error } = await query;
   return { data, error };
 };
 
@@ -53,27 +57,25 @@ export const upsertChapter = async (chapter) => {
 // NEW — look up a chapter's id by its title (case-insensitive), without
 // creating anything. Used when fetching materials for a chapter someone
 // typed into Lessons/Questions/Activities/Assessments.
-export const getChapterIdByTitle = async (title) => {
+export const getChapterIdByTitle = async (title, classLabel = null) => {
   if (!title || !title.trim()) return null;
-  const { data } = await supabase
-    .from("chapters")
-    .select("id")
-    .ilike("title", title.trim())
-    .limit(1)
-    .maybeSingle();
+  let query = supabase.from("chapters").select("id").ilike("title", title.trim());
+  if (classLabel) query = query.eq("class_label", classLabel);
+  const { data } = await query.limit(1).maybeSingle();
   return data?.id || null;
 };
 
 // NEW — look up a chapter by title, or create it if it doesn't exist yet.
 // Used when uploading/tagging a Material, so a freely-typed chapter name
-// always resolves to a real row in the chapters table.
-export const getOrCreateChapterId = async (title) => {
-  const existingId = await getChapterIdByTitle(title);
+// always resolves to a real row in the chapters table. Scoped to the current
+// class so "अध्याय १" in Class 5 and "अध्याय १" in Class 6 stay separate.
+export const getOrCreateChapterId = async (title, classLabel = null) => {
+  const existingId = await getChapterIdByTitle(title, classLabel);
   if (existingId) return existingId;
   const { data: { user } } = await supabase.auth.getUser();
   const { data, error } = await supabase
     .from("chapters")
-    .insert({ title: title.trim(), teacher_id: user.id })
+    .insert({ title: title.trim(), teacher_id: user.id, class_label: classLabel })
     .select("id")
     .single();
   if (error) throw error;
@@ -107,11 +109,12 @@ export const deleteLesson = async (id) => {
 };
 
 // ─── MATERIALS ───────────────────────────────────────────────────────────────
-export const getMaterials = async () => {
-  const { data, error } = await supabase
-    .from("materials")
-    .select("*, chapters(title)")
-    .order("created_at", { ascending: false });
+// NEW — scoped to class_label, same reasoning as chapters: a Class 5 file
+// shouldn't clutter the list once you've moved on to teaching Class 6.
+export const getMaterials = async (classLabel = null) => {
+  let query = supabase.from("materials").select("*, chapters(title)").order("created_at", { ascending: false });
+  if (classLabel) query = query.eq("class_label", classLabel);
+  const { data, error } = await query;
   return { data, error };
 };
 
@@ -204,7 +207,12 @@ export const repairMaterialContentTypes = async (onProgress) => {
     try {
       const { data: blob, error: dlErr } = await supabase.storage.from("materials").download(m.storage_path);
       if (dlErr || !blob) { failed++; onProgress?.({ fixed, failed, total: materials.length, current: m.name }); continue; }
-      const contentType = blob.type && blob.type !== "application/octet-stream" ? blob.type : guessType(m.name, m.file_type);
+      // Bug fix: blob.type here just echoes back whatever content-type is
+      // ALREADY stored (that's the very thing we're repairing) — Supabase's
+      // own upload default is "text/plain;charset=UTF-8", not literally
+      // "application/octet-stream", so the old check let it slip through
+      // unchanged every time. Always trust the file extension instead.
+      const contentType = guessType(m.name, m.file_type);
       const { error: upErr } = await supabase.storage.from("materials").upload(m.storage_path, blob, { contentType, upsert: true });
       if (upErr) failed++; else fixed++;
     } catch { failed++; }
