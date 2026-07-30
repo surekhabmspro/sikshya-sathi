@@ -83,12 +83,17 @@ export const getOrCreateChapterId = async (title, classLabel = null) => {
 };
 
 // ─── LESSONS ─────────────────────────────────────────────────────────────────
-export const getLessons = async (sectionId = null) => {
+// NEW — scoped to class_label, same reasoning as chapters/materials: a
+// Class 5 lesson plan shouldn't show up while a teacher is looking at
+// Class 6. classLabel is optional so nothing breaks if it's ever called
+// without one.
+export const getLessons = async (sectionId = null, classLabel = null) => {
   let query = supabase
     .from("lessons")
     .select("*, chapters(title)")
     .order("scheduled_date", { ascending: true });
   if (sectionId) query = query.eq("section_id", sectionId);
+  if (classLabel) query = query.eq("class_label", classLabel);
   const { data, error } = await query;
   return { data, error };
 };

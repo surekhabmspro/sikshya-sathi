@@ -835,8 +835,16 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
 
   const save=async()=>{
     if(!form.title.trim()){setError("पाठको नाम आवश्यक छ।");return;}
+    // NEW — warn before creating a second lesson for a chapter that already
+    // has one. Matches on chapter title against the lessons already loaded,
+    // then lets the teacher decide rather than silently allowing (or
+    // silently blocking) the duplicate.
+    if(form.chapter_title.trim()){
+      const dup=lessons.find((l)=>(l.chapters?.title||l.chapter_title)===form.chapter_title);
+      if(dup&&!confirm(`"${form.chapter_title}" का लागि पहिले नै "${dup.title}" भन्ने पाठ बनाइसकिएको छ। फेरि पनि नयाँ पाठ बनाउने?`))return;
+    }
     setSaving(true);setError("");
-    const payload={...form,section_id:section?.id||null,
+    const payload={...form,section_id:section?.id||null,class_label:classLabel,
       objectives:form.objectives.split("\n").filter(Boolean),
       vocabulary:form.vocabulary.split(",").map((v)=>v.trim()).filter(Boolean),
       sequence:form.sequence.split("\n").filter(Boolean),
@@ -2400,10 +2408,10 @@ export default function App() {
 
   const loadLessons=useCallback(async()=>{
     setLessonsLoading(true);
-    const{data}=await db.getLessons(currentSection?.id||null);
+    const{data}=await db.getLessons(currentSection?.id||null,classLabel);
     setLessons(data||[]);setLessonsLoading(false);setSynced(true);
     setTimeout(()=>setSynced(false),2000);
-  },[currentSection]);
+  },[currentSection,classLabel]);
 
   const loadHomework=useCallback(async()=>{
     setHwLoading(true);
