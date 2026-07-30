@@ -100,6 +100,18 @@
         }
       } catch (e) {}
     </script>
+    <script>
+      // NEW — the app had a manifest.json (installable) but no service
+      // worker at all, so nothing was ever cached and it simply failed
+      // with no network. This registers sw.js (put it in /public so it's
+      // served from the site root — required for its scope to cover the
+      // whole app).
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("/sw.js").catch(() => {});
+        });
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
