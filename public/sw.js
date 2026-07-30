@@ -14,7 +14,7 @@
 // alone — those need to be live or fail with a clear error, never served
 // from a stale cache pretending to be current data.
 
-const CACHE_NAME = "ss-shell-v1";
+const CACHE_NAME = "ss-shell-v2";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
