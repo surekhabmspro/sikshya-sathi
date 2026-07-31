@@ -75,8 +75,10 @@
          paginate onto printed pages (they just print blank). Elements
          tagged .print-area get reset to normal flow so their content
          actually reaches the page. */
+      .print-only { display:none; }
       @media print {
         .no-print { display:none !important; }
+        .print-only { display:block !important; }
         .print-area {
           position: static !important;
           inset: auto !important;
