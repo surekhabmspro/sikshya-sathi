@@ -75,10 +75,19 @@
          paginate onto printed pages (they just print blank). Elements
          tagged .print-area get reset to normal flow so their content
          actually reaches the page. */
+      /* FIX — .print-area was correctly reset to normal document flow
+         above, but the screen BEHIND it (.main-content — whatever list or
+         form was open, e.g. the Planner's lesson list with its status
+         pills and edit/print/delete icons) was never hidden. Since
+         .print-area sits after .main-content in the page, both printed,
+         .main-content first — that's the stray "boxes" that showed up
+         above the actual lesson content on every printout. */
       .print-only { display:none; }
       @media print {
+        @page { margin: 1.6cm 1.4cm; }
         .no-print { display:none !important; }
         .print-only { display:block !important; }
+        .main-content, .desktop-sidebar, .mobile-bottom-nav { display:none !important; }
         .print-area {
           position: static !important;
           inset: auto !important;
