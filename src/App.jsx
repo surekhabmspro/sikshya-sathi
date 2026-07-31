@@ -577,7 +577,7 @@ function PrintableSheet({ title, subtitle, chip, chipColor, onClose, children })
 // hides everything tagged `.no-print`, including the tabs). One click on
 // the printer icon now always produces the full plan, regardless of which
 // tab was open.
-function LessonMode({ lesson, onClose, onEdit, autoPrint }) {
+function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, teacherName }) {
   const [tab,setTab]=useState("sequence");
   const tabs=[{id:"sequence",label:"पढाउने",icon:ClipboardList},{id:"questions",label:"प्रश्नहरू",icon:MessageSquare},{id:"activities",label:"क्रियाकलाप",icon:Users},{id:"homework",label:"गृहकार्य",icon:PenSquare},{id:"rubric",label:"मूल्याङ्कन",icon:Layers}];
   const objectives=lesson.objectives||[];
@@ -626,32 +626,76 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint }) {
       </div>
 
       {/* print-only — the full plan, every section, always in this order,
-          regardless of which tab was open on screen. */}
-      <div className="print-only" style={{padding:"0 8px"}}>
-        <div style={{fontSize:13,color:"#555",marginBottom:2}}>{chapterTitle}</div>
-        <div style={{fontSize:22,fontWeight:800,marginBottom:10}}>{lesson.title}</div>
-        {objectives.length>0&&(<div style={{marginBottom:14}}><div style={{fontWeight:700,fontSize:15,marginBottom:4}}>उद्देश्यहरू</div><ul style={{margin:0,paddingLeft:18}}>{objectives.map((o,i)=><li key={i} style={{marginBottom:2}}>{o}</li>)}</ul></div>)}
-        {vocabulary.length>0&&(<div style={{marginBottom:14}}><div style={{fontWeight:700,fontSize:15,marginBottom:4}}>शब्दावली</div><div>{vocabulary.join(", ")}</div></div>)}
-        <div style={{marginBottom:14}}>
-          <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>पढाउने क्रम</div>
-          {sequence.length===0?<div>—</div>:<ol style={{margin:0,paddingLeft:18}}>{sequence.map((s,i)=><li key={i} style={{marginBottom:4}}>{s}</li>)}</ol>}
+          regardless of which tab was open on screen. Styled as a proper
+          printable handout: bordered header block, a byline row (class/
+          teacher/date), and consistent section rules — not just a plain
+          dump of text. */}
+      <div className="print-only" style={{fontFamily:"'Noto Sans Devanagari','Inter',sans-serif",color:"#111",maxWidth:"18cm",margin:"0 auto"}}>
+        <div style={{border:"1.5px solid #111",borderRadius:6,padding:"14px 18px",marginBottom:16}}>
+          {chapterTitle&&<div style={{fontSize:12.5,letterSpacing:"0.06em",textTransform:"uppercase",color:"#444",fontWeight:700,marginBottom:3}}>{chapterTitle}</div>}
+          <div style={{fontSize:23,fontWeight:800,marginBottom:8,lineHeight:1.25}}>{lesson.title}</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:"4px 18px",fontSize:12.5,color:"#333",borderTop:"1px solid #ccc",paddingTop:7}}>
+            {classLabel&&<span><strong>कक्षा:</strong> {classLabel}</span>}
+            {teacherName&&<span><strong>शिक्षक:</strong> {teacherName}</span>}
+            <span><strong>मिति:</strong> {new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}</span>
+          </div>
         </div>
-        {lesson.notes&&(<div style={{marginBottom:14}}><div style={{fontWeight:700,fontSize:15,marginBottom:4}}>नोट</div><div>{lesson.notes}</div></div>)}
-        <div style={{marginBottom:14}}>
-          <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>कक्षामा सोध्ने प्रश्नहरू</div>
-          {keyQuestions.length===0?<div>—</div>:<ol style={{margin:0,paddingLeft:18}}>{keyQuestions.map((q,i)=><li key={i} style={{marginBottom:4}}>{q}</li>)}</ol>}
+
+        {objectives.length>0&&(
+          <div style={{marginBottom:16,breakInside:"avoid"}}>
+            <div style={{fontWeight:700,fontSize:13.5,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1.5px solid #111",paddingBottom:3,marginBottom:7}}>उद्देश्यहरू</div>
+            <ul style={{margin:0,paddingLeft:20,lineHeight:1.65}}>{objectives.map((o,i)=><li key={i} style={{marginBottom:3}}>{o}</li>)}</ul>
+          </div>
+        )}
+
+        {vocabulary.length>0&&(
+          <div style={{marginBottom:16,breakInside:"avoid"}}>
+            <div style={{fontWeight:700,fontSize:13.5,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1.5px solid #111",paddingBottom:3,marginBottom:7}}>शब्दावली</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>{vocabulary.map((v)=><span key={v} style={{border:"1px solid #999",borderRadius:4,padding:"2px 9px",fontSize:13}}>{v}</span>)}</div>
+          </div>
+        )}
+
+        <div style={{marginBottom:16,breakInside:"avoid"}}>
+          <div style={{fontWeight:700,fontSize:13.5,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1.5px solid #111",paddingBottom:3,marginBottom:7}}>पढाउने क्रम</div>
+          {sequence.length===0?<div>—</div>:<ol style={{margin:0,paddingLeft:20,lineHeight:1.65}}>{sequence.map((s,i)=><li key={i} style={{marginBottom:6}}>{s}</li>)}</ol>}
         </div>
-        <div style={{marginBottom:14}}>
-          <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>क्रियाकलापहरू</div>
-          {activities.length===0?<div>—</div>:<ol style={{margin:0,paddingLeft:18}}>{activities.map((a,i)=><li key={i} style={{marginBottom:4}}>{a}</li>)}</ol>}
+
+        {lesson.notes&&(
+          <div style={{marginBottom:16,breakInside:"avoid",background:"#f4f4f4",borderLeft:"3px solid #111",padding:"8px 12px",borderRadius:"0 4px 4px 0"}}>
+            <div style={{fontWeight:700,fontSize:12.5,marginBottom:3}}>नोट</div>
+            <div style={{lineHeight:1.55}}>{lesson.notes}</div>
+          </div>
+        )}
+
+        <div style={{marginBottom:16,breakInside:"avoid"}}>
+          <div style={{fontWeight:700,fontSize:13.5,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1.5px solid #111",paddingBottom:3,marginBottom:7}}>कक्षामा सोध्ने प्रश्नहरू</div>
+          {keyQuestions.length===0?<div>—</div>:<ol style={{margin:0,paddingLeft:20,lineHeight:1.65}}>{keyQuestions.map((q,i)=><li key={i} style={{marginBottom:5}}>{q}</li>)}</ol>}
         </div>
-        <div style={{marginBottom:14}}>
-          <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>गृहकार्य</div>
-          <div>{lesson.homework||"—"}</div>
+
+        <div style={{marginBottom:16,breakInside:"avoid"}}>
+          <div style={{fontWeight:700,fontSize:13.5,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1.5px solid #111",paddingBottom:3,marginBottom:7}}>क्रियाकलापहरू</div>
+          {activities.length===0?<div>—</div>:<ol style={{margin:0,paddingLeft:20,lineHeight:1.65}}>{activities.map((a,i)=><li key={i} style={{marginBottom:5}}>{a}</li>)}</ol>}
         </div>
-        <div style={{marginBottom:14}}>
-          <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>मूल्याङ्कन मापदण्ड</div>
-          {rubric.length===0?<div>—</div>:rubric.map((r,i)=><div key={i} style={{marginBottom:4}}><strong>{r.level}:</strong> {r.desc}</div>)}
+
+        <div style={{marginBottom:16,breakInside:"avoid"}}>
+          <div style={{fontWeight:700,fontSize:13.5,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1.5px solid #111",paddingBottom:3,marginBottom:7}}>गृहकार्य</div>
+          <div style={{lineHeight:1.6}}>{lesson.homework||"—"}</div>
+        </div>
+
+        <div style={{marginBottom:8,breakInside:"avoid"}}>
+          <div style={{fontWeight:700,fontSize:13.5,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1.5px solid #111",paddingBottom:3,marginBottom:7}}>मूल्याङ्कन मापदण्ड</div>
+          {rubric.length===0?<div>—</div>:(
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13.5}}>
+              <tbody>
+                {rubric.map((r,i)=>(
+                  <tr key={i} style={{borderBottom:"1px solid #ddd"}}>
+                    <td style={{padding:"6px 10px 6px 0",fontWeight:700,whiteSpace:"nowrap",verticalAlign:"top",width:"28%"}}>{r.level}</td>
+                    <td style={{padding:"6px 0",verticalAlign:"top"}}>{r.desc}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </div>
@@ -745,7 +789,24 @@ function ChapterMaterialsList({ materials, onGoMaterials }) {
 // replacing them. This is meant to be the only screen a teacher needs to
 // touch on a normal day.
 function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, onGoAITools, onGoSettings, section, lessons, homework, loading, chapters, teacherName, onAddChapter, classContext, classLabel }) {
-  const today=lessons.find((l)=>l.status==="ready")||lessons[0];
+  // FIX — "today's lesson" was permanently whichever lesson happened to be
+  // first "ready" (or just lessons[0]), with no way to change it — so once
+  // you'd taught it, the card kept pointing at the same chapter forever.
+  // A teacher can now explicitly pick which lesson is "today's"; the
+  // choice is remembered (per class) until changed again, and falls back
+  // to the automatic pick if the chosen lesson gets deleted.
+  const [todayOverrideId,setTodayOverrideId]=useState(()=>{
+    try{return localStorage.getItem(`ss-today-lesson::${classLabel||"default"}`)||null;}catch{return null;}
+  });
+  const [pickingToday,setPickingToday]=useState(false);
+  useEffect(()=>{
+    try{setTodayOverrideId(localStorage.getItem(`ss-today-lesson::${classLabel||"default"}`)||null);}catch{}
+  },[classLabel]);
+  const chooseToday=(l)=>{
+    setTodayOverrideId(l.id);setPickingToday(false);
+    try{localStorage.setItem(`ss-today-lesson::${classLabel||"default"}`,l.id);}catch{}
+  };
+  const today=lessons.find((l)=>l.id===todayOverrideId)||lessons.find((l)=>l.status==="ready")||lessons[0];
   const [materialsCount,setMaterialsCount]=useState(0);
   const [prepChapter,setPrepChapter]=useState("");
   const [chapterMaterials,setChapterMaterials]=useState([]);
@@ -841,9 +902,26 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, on
         <div style={{background:`linear-gradient(120deg,${TEAL} 0%, ${ACCENT} 65%, ${ACCENT_DARK} 100%)`,borderRadius:18,padding:"16px 18px",color:"#fff",marginBottom:16,boxShadow:SHADOW.accent,position:"relative",overflow:"hidden"}}>
           <div style={{position:"absolute",top:-30,right:-30,width:110,height:110,borderRadius:"50%",background:"rgba(255,255,255,0.07)"}}/>
           <div style={{position:"relative",minWidth:0}}>
-            <div style={{fontSize:13,opacity:0.8,fontWeight:600,letterSpacing:"0.03em",textTransform:"uppercase"}}>{today.chapters?.title||today.chapter_title||""}</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+              <div style={{fontSize:13,opacity:0.8,fontWeight:600,letterSpacing:"0.03em",textTransform:"uppercase"}}>{today.chapters?.title||today.chapter_title||""}</div>
+              {/* NEW — was previously impossible to change; this is the fix. */}
+              {lessons.length>1&&(
+                <button onClick={()=>setPickingToday((v)=>!v)} style={{background:"rgba(255,255,255,0.16)",border:"none",color:"#fff",borderRadius:8,padding:"4px 9px",fontSize:13,fontWeight:700,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"}}>बदल्नुहोस्</button>
+              )}
+            </div>
             <div style={{fontSize:19.5,fontWeight:800,margin:"2px 0 12px",letterSpacing:"-0.01em",overflowWrap:"break-word"}}>{today.title}</div>
-            <Button variant="marigold" size="sm" icon={Sparkles} onClick={()=>onOpenLesson(today)}>आजको पाठ सुरु</Button>
+            {pickingToday?(
+              <div style={{background:"rgba(255,255,255,0.97)",borderRadius:12,padding:8,marginBottom:4,maxHeight:220,overflowY:"auto"}}>
+                {lessons.map((l)=>(
+                  <div key={l.id} onClick={()=>chooseToday(l)} style={{padding:"9px 10px",borderRadius:8,cursor:"pointer",background:l.id===today.id?ACCENT_LIGHT:"transparent"}}>
+                    <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:600}}>{l.chapters?.title||l.chapter_title||""}</div>
+                    <div style={{fontSize:15.5,color:INK,fontWeight:700}}>{l.title}</div>
+                  </div>
+                ))}
+              </div>
+            ):(
+              <Button variant="marigold" size="sm" icon={Sparkles} onClick={()=>onOpenLesson(today)}>आजको पाठ सुरु</Button>
+            )}
           </div>
         </div>
       )}
@@ -983,6 +1061,49 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
   const startEdit=(l)=>{setForm(lessonToForm(l));setShowForm(true);setShowDetails(true);};
   const startNew=()=>{setForm(EMPTY_LESSON_FORM);setShowForm(true);setShowDetails(false);};
 
+  // NEW — "make the plan for all the chapters at once": generates and
+  // saves a full lesson plan (objectives/vocabulary/sequence/questions/
+  // activities/homework) for every chapter that doesn't already have one,
+  // one chapter after another (not in parallel — gentler on the free AI
+  // quota and lets each one finish cleanly before the next starts).
+  // Saved with status "prep" (needs review), not "ready" — AI output
+  // should get a look before being treated as classroom-ready, and this
+  // makes it obvious which ones still need a read-through.
+  const [bulkRunning,setBulkRunning]=useState(false);
+  const [bulkProgress,setBulkProgress]=useState(null);
+  const [bulkResult,setBulkResult]=useState(null);
+  const [bulkConfirming,setBulkConfirming]=useState(false);
+  const chaptersMissingLessons=(chapters||[]).filter((c)=>!lessons.some((l)=>(l.chapters?.title||l.chapter_title)===c.title));
+  const bulkGenerateAll=async()=>{
+    setBulkConfirming(false);
+    const targets=chaptersMissingLessons;
+    if(!targets.length)return;
+    setBulkRunning(true);setBulkResult(null);
+    let done=0,failed=[];
+    for(const c of targets){
+      setBulkProgress({current:done+1,total:targets.length,chapter:c.title});
+      try{
+        const ctx=await getMaterialContext(c.title,classLabel);
+        const result=await gemini.generateLessonPlan(c.title,ctx,classContext);
+        if(!result){failed.push(c.title);done++;continue;}
+        const chapter_id=await resolveChapterId(c.title,classLabel);
+        const payload={
+          title:c.title,status:"prep",chapter_title:c.title,chapter_id,
+          section_id:section?.id||null,class_label:classLabel,
+          objectives:result.objectives||[],vocabulary:result.vocabulary||[],
+          sequence:result.sequence||[],key_questions:result.key_questions||[],
+          activities:result.activities||[],homework:result.homework||"",notes:result.notes||"",
+        };
+        const{error:err}=await db.upsertLesson(payload);
+        if(err)failed.push(c.title);
+      }catch(e){failed.push(c.title);}
+      done++;
+    }
+    setBulkRunning(false);setBulkProgress(null);
+    setBulkResult({done:targets.length-failed.length,failed});
+    onRefresh();
+  };
+
   const autoGenerate=async()=>{
     const chapter=form.chapter_title||form.title;
     if(!chapter.trim()){setError("पहिले अध्याय वा पाठको नाम लेख्नुहोस्।");return;}
@@ -1050,8 +1171,42 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
     <div style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={{fontSize:20,fontWeight:700,color:INK}}>पाठ योजना</div>
-        <button onClick={startNew} style={{display:"flex",alignItems:"center",gap:5,background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:"pointer"}}><Plus size={14}/>नयाँ पाठ</button>
+        <div style={{display:"flex",gap:8}}>
+          {/* NEW — the actual "make the plan for all chapters at once" button. */}
+          {chaptersMissingLessons.length>0&&(
+            <button onClick={()=>setBulkConfirming(true)} disabled={bulkRunning} style={{display:"flex",alignItems:"center",gap:5,background:TEAL,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:bulkRunning?"default":"pointer"}}><Sparkles size={14}/>सबै अध्याय तयार गर्नुहोस् ({chaptersMissingLessons.length})</button>
+          )}
+          <button onClick={startNew} style={{display:"flex",alignItems:"center",gap:5,background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:"pointer"}}><Plus size={14}/>नयाँ पाठ</button>
+        </div>
       </div>
+      {bulkConfirming&&(
+        <Card style={{marginBottom:14,borderLeft:`4px solid ${TEAL}`}}>
+          <div style={{fontWeight:700,fontSize:16.5,marginBottom:6}}>{chaptersMissingLessons.length} वटा अध्यायको पाठ योजना बनाउने?</div>
+          <div style={{fontSize:15,color:INK_SOFT,marginBottom:10,lineHeight:1.5}}>{chaptersMissingLessons.map((c)=>c.title).join(" · ")}</div>
+          <div style={{fontSize:14.5,color:INK_SOFT,marginBottom:12}}>प्रत्येक अध्यायको लागि छुट्टै AI अनुरोध पठाइने भएकाले केही समय लाग्न सक्छ। बनेपछि "तयारी चाहिने" चिन्हका साथ देखिन्छन् — हेरेर मिलाएपछि मात्र "तयार" बनाउनुहोस्।</div>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>setBulkConfirming(false)} style={{flex:1,padding:"10px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer"}}>रद्द</button>
+            <button onClick={bulkGenerateAll} style={{flex:1,padding:"10px",borderRadius:10,border:"none",background:TEAL,color:"#fff",fontWeight:700,cursor:"pointer"}}>सुरु गर्नुहोस्</button>
+          </div>
+        </Card>
+      )}
+      {bulkRunning&&(
+        <Card style={{marginBottom:14,borderLeft:`4px solid ${TEAL}`}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <Spinner small/>
+            <div>
+              <div style={{fontWeight:700,fontSize:16}}>तयार गर्दै... ({bulkProgress?.current}/{bulkProgress?.total})</div>
+              <div style={{fontSize:15,color:INK_SOFT}}>{bulkProgress?.chapter}</div>
+            </div>
+          </div>
+        </Card>
+      )}
+      {bulkResult&&(
+        <Card style={{marginBottom:14,borderLeft:`4px solid ${bulkResult.failed.length?WARN:ACCENT}`}}>
+          <div style={{fontWeight:700,fontSize:16,color:bulkResult.failed.length?WARN:ACCENT}}>✓ {bulkResult.done} वटा पाठ योजना बनियो (तयारी चाहिने)</div>
+          {bulkResult.failed.length>0&&<div style={{fontSize:15,color:INK_SOFT,marginTop:4}}>असफल: {bulkResult.failed.join(" · ")}</div>}
+        </Card>
+      )}
       {showForm&&(
         <Card style={{marginBottom:14}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
@@ -1337,25 +1492,35 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
   // no extracted_text yet, re-download it and extract now.
   const openTagEditor=(mat,e)=>{
     e.stopPropagation();
-    setTagging(mat);setTagValue(mat.chapters?.title||"");setTagCategory(mat.category||"other");
+    setTagging(mat);setTagValue(mat.chapters?.title||"");setTagCategory(mat.category||"other");setTagError("");
   };
 
+  const [tagError,setTagError]=useState("");
   const saveTag=async()=>{
     if(!tagging||!tagValue.trim())return;
-    setRetagging(true);
-    const chapterId=await db.getOrCreateChapterId(tagValue.trim(),classLabel);
-    let patch={chapter_id:chapterId, category:tagCategory, class_label:classLabel};
-    const ext=tagging.name.split(".").pop().toLowerCase();
-    if(!tagging.extracted_text && ["docx","pptx","xlsx","xls","csv"].includes(ext)){
-      try{
-        const blob=await db.downloadMaterialFile(tagging.storage_path);
-        const file=new File([blob],tagging.name);
-        const res=await extractTextFromFile(file);
-        patch.extracted_text=res.text;patch.extraction_status=res.status;
-      }catch(e){patch.extraction_status="failed";}
+    setRetagging(true);setTagError("");
+    try{
+      const chapterId=await db.getOrCreateChapterId(tagValue.trim(),classLabel);
+      let patch={chapter_id:chapterId, category:tagCategory, class_label:classLabel};
+      const ext=tagging.name.split(".").pop().toLowerCase();
+      if(!tagging.extracted_text && ["docx","pptx","xlsx","xls","csv"].includes(ext)){
+        try{
+          const blob=await db.downloadMaterialFile(tagging.storage_path);
+          const file=new File([blob],tagging.name);
+          const res=await extractTextFromFile(file);
+          patch.extracted_text=res.text;patch.extraction_status=res.status;
+        }catch(e){patch.extraction_status="failed";}
+      }
+      const{error:err}=await db.updateMaterial(tagging.id,patch);
+      if(err)throw err;
+      setRetagging(false);setTagging(null);load();
+    }catch(e){
+      // FIX — this used to have no error handling at all: if anything
+      // above threw, retagging stayed stuck at "true" forever (button
+      // permanently disabled) and the modal never closed or showed why —
+      // it just sat there looking unresponsive.
+      setRetagging(false);setTagError(e.message||"त्रुटि भयो। फेरि प्रयास गर्नुहोस्।");
     }
-    await db.updateMaterial(tagging.id,patch);
-    setRetagging(false);setTagging(null);load();
   };
 
   const filtered=useMemo(()=>{
@@ -1541,13 +1706,14 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
         </div>
       )}
       {tagging&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.6)",zIndex:60,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setTagging(null)}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,padding:24,maxWidth:420,width:"100%",boxShadow:SHADOW.lg}}>
+        <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.6)",zIndex:65,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setTagging(null)}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,padding:24,maxWidth:420,width:"100%",maxHeight:"85vh",overflowY:"auto",WebkitOverflowScrolling:"touch",boxShadow:SHADOW.lg}}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
               <div style={{fontSize:18,fontWeight:700}}>अध्याय र प्रकार तोक्नुहोस्</div>
               <button onClick={()=>setTagging(null)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><X size={20}/></button>
             </div>
             <div style={{fontSize:16,color:INK_SOFT,marginBottom:14}}>{tagging.name}</div>
+            {tagError&&<ErrorMsg msg={tagError}/>}
             <div style={{fontSize:14.5,fontWeight:700,color:INK_SOFT,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.03em"}}>प्रकार</div>
             <CategoryPicker value={tagCategory} onChange={setTagCategory}/>
             <div style={{height:14}}/>
@@ -2411,26 +2577,6 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
   const [saving,setSaving]=useState(false);
   const [msg,setMsg]=useState("");
   const [sectionMsg,setSectionMsg]=useState("");
-  const [repairing,setRepairing]=useState(false);
-  const [repairProgress,setRepairProgress]=useState({});
-  const [repairResult,setRepairResult]=useState(null);
-  const runRepair=async()=>{
-    setRepairing(true);setRepairResult(null);
-    const result=await db.repairMaterialContentTypes((p)=>setRepairProgress(p));
-    setRepairing(false);setRepairResult(result);
-  };
-  // NEW — backfills chapter_id on lessons/questions/activities saved before
-  // the tagging fix (see repairChapterTagging in db.js). One click fixes
-  // every old lesson plan / question / activity that was only ever linked
-  // to its chapter by a loose typed name.
-  const [tagRepairing,setTagRepairing]=useState(false);
-  const [tagRepairProgress,setTagRepairProgress]=useState({});
-  const [tagRepairResult,setTagRepairResult]=useState(null);
-  const runTagRepair=async()=>{
-    setTagRepairing(true);setTagRepairResult(null);
-    const result=await db.repairChapterTagging((p)=>setTagRepairProgress(p));
-    setTagRepairing(false);setTagRepairResult(result);
-  };
   const [uploading,setUploading]=useState(false);
   const [pdfLoaded,setPdfLoaded]=useState(!!getTextbookPDF());
 
@@ -2582,24 +2728,6 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
           </label>
         )}
         {msg&&<div style={{marginTop:10,fontSize:16,color:pdfLoaded?ACCENT:DANGER,fontWeight:600}}>{msg}</div>}
-      </Card>
-
-      <Card style={{marginBottom:14}}>
-        <SectionLabel icon={RotateCw} color={TEAL}>सामग्री प्रिभ्यू मर्मत</SectionLabel>
-        <div style={{fontSize:16,color:INK_SOFT,marginBottom:12,lineHeight:1.5}}>पुराना अपलोड गरिएका सामग्रीहरू (यो अपडेट अघि) खोल्दा डाउनलोड हुन सक्छ। यो बटनले तिनीहरूलाई सिधै खोल्न मिल्ने बनाउँछ — नयाँ अपलोडहरूलाई असर गर्दैन।</div>
-        <button onClick={runRepair} disabled={repairing} style={{display:"flex",alignItems:"center",gap:8,background:TEAL,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontWeight:700,fontSize:16.5,cursor:repairing?"default":"pointer"}}>
-          {repairing?<><Spinner small/>मर्मत गर्दै... {repairProgress.current?`(${repairProgress.current})`:""}</>:<><RotateCw size={16}/>पुरानो सामग्री मर्मत गर्नुहोस्</>}
-        </button>
-        {repairResult&&<div style={{marginTop:10,fontSize:16,color:ACCENT,fontWeight:600}}>✓ {repairResult.fixed} ठीक भयो{repairResult.failed>0?`, ${repairResult.failed} असफल भयो`:""}</div>}
-      </Card>
-
-      <Card style={{marginBottom:14}}>
-        <SectionLabel icon={Tag} color={ACCENT}>अध्याय ट्यागिङ मर्मत</SectionLabel>
-        <div style={{fontSize:16,color:INK_SOFT,marginBottom:12,lineHeight:1.5}}>यो अपडेट अघि बनाइएका पाठ योजना, प्रश्न र क्रियाकलापहरू आफ्नो अध्यायसँग ठ्याक्कै जोडिएका नहुन सक्छन् (केवल नाम टाइप गरिएको थियो, वास्तविक जडान थिएन)। यो बटनले तिनीहरूलाई अहिले नै सही अध्यायसँग जोड्छ — नयाँ पाठ/प्रश्न/क्रियाकलापलाई असर गर्दैन, तिनीहरू पहिल्यै सही तरिकाले जोडिन्छन्।</div>
-        <button onClick={runTagRepair} disabled={tagRepairing} style={{display:"flex",alignItems:"center",gap:8,background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontWeight:700,fontSize:16.5,cursor:tagRepairing?"default":"pointer"}}>
-          {tagRepairing?<><Spinner small/>मर्मत गर्दै... {tagRepairProgress.current?`(${tagRepairProgress.current})`:""}</>:<><Tag size={16}/>पुरानो ट्यागिङ मर्मत गर्नुहोस्</>}
-        </button>
-        {tagRepairResult&&<div style={{marginTop:10,fontSize:16,color:ACCENT,fontWeight:600}}>✓ {tagRepairResult.fixed} जडान भयो{tagRepairResult.failed>0?`, ${tagRepairResult.failed} असफल भयो`:""}</div>}
       </Card>
 
       <Card style={{marginBottom:14}}>
@@ -2945,9 +3073,20 @@ export default function App() {
            plan" work — see the print-only block in LessonMode. */
         .print-only{display:none;}
         @media print{
+          @page{margin:1.6cm 1.4cm;}
           .no-print{display:none !important;}
           .print-only{display:block !important;}
-          .main-content{margin-left:0 !important;padding-bottom:0 !important;}
+          /* FIX — this was the actual cause of stray content (the lesson
+             list, its status pills, edit/print/delete icons) appearing
+             ABOVE the real printed page. LessonMode/PrintableSheet use
+             position:fixed to sit on top of the screen visually, but
+             print rendering does not reliably respect that the same way —
+             many browsers print the fixed overlay AND the normal page
+             flow behind it, stacked one after another. Hiding the
+             underlying screen entirely during print is what actually
+             prevents that, instead of only hoping position:fixed covers
+             it visually. */
+          .main-content,.desktop-sidebar,.mobile-bottom-nav{display:none !important;}
           body,[data-theme]{background:#fff !important;color:#000 !important;}
           .ss-print-area{box-shadow:none !important;border:none !important;}
         }
@@ -3031,7 +3170,7 @@ export default function App() {
         </div>
       )}
 
-      {activeLesson&&<LessonMode lesson={activeLesson} onClose={()=>{setActiveLesson(null);setActiveLessonAutoPrint(false);}} onEdit={editLessonFromViewer} autoPrint={activeLessonAutoPrint}/>}
+      {activeLesson&&<LessonMode lesson={activeLesson} onClose={()=>{setActiveLesson(null);setActiveLessonAutoPrint(false);}} onEdit={editLessonFromViewer} autoPrint={activeLessonAutoPrint} classLabel={classLabel} teacherName={teacherName}/>}
     </div>
   );
 }
