@@ -120,6 +120,39 @@ async function getMaterialContext(chapterTitle, classLabel = null) {
   return { pdfBase64: getTextbookPDF(), materialParts, matchedCount: (materials || []).length };
 }
 
+// FIX — the root cause of the "wrong/broken tagging" problem: every screen
+// (Planner, Question Bank, Activities, Assessment) let a teacher pick a
+// chapter from the ChapterPicker, but only ever saved the typed chapter
+// NAME (chapter_title) onto the row — never the real chapter_id foreign
+// key. Materials was the one screen that got this right (see
+// getOrCreateChapterId in db.js). Because of that mismatch, the
+// `chapters(title)` join used everywhere (getLessons/getQuestions/
+// getActivities) always came back empty, so lesson cards, the chapter
+// materials list, and AI context-matching all silently broke or
+// under-matched. Every save() below now calls this first so chapter_id is
+// always set correctly and consistently, the same way Materials already
+// does it. Safe to call with an empty title (returns null, meaning
+// "unassigned").
+async function resolveChapterId(title, classLabel = null) {
+  if (!title || !title.trim()) return null;
+  try { return await db.getOrCreateChapterId(title.trim(), classLabel); }
+  catch { return null; }
+}
+
+// NEW — live counts (materials / questions / activities) tagged to one
+// chapter, fetched together. Powers the "यो अध्यायसँग जोडिएको" strip in the
+// Planner form — the cross-screen interconnection the app was missing,
+// only reliable now that chapter_id is always set correctly (see above).
+async function getChapterLinkedCounts(chapterId) {
+  if (!chapterId) return { materials: 0, questions: 0, activities: 0 };
+  const [mats, qs, acts] = await Promise.all([
+    supabase.from("materials").select("id", { count: "exact", head: true }).eq("chapter_id", chapterId),
+    supabase.from("questions").select("id", { count: "exact", head: true }).eq("chapter_id", chapterId),
+    supabase.from("activities").select("id", { count: "exact", head: true }).eq("chapter_id", chapterId),
+  ]);
+  return { materials: mats.count || 0, questions: qs.count || 0, activities: acts.count || 0 };
+}
+
 // NEW — a real elevated, "premium" button with hover lift, active press,
 // and a soft focus ring, done in plain inline styles + a couple of CSS
 // classes injected globally (see the <style> block in App()) so :hover and
@@ -534,7 +567,17 @@ function PrintableSheet({ title, subtitle, chip, chipColor, onClose, children })
 }
 
 
-function LessonMode({ lesson, onClose }) {
+// FIX — "printable whole at one click" was broken: the on-screen tabs below
+// only ever render whichever ONE tab is currently active (the others are
+// unmounted, not just hidden), so window.print() could only ever print
+// that single tab. This component now renders a second, always-complete
+// copy of the plan (every section, in order) that stays invisible on
+// screen (`.print-only`, display:none by default) and is the ONLY thing
+// shown when actually printing (`@media print` flips it to visible and
+// hides everything tagged `.no-print`, including the tabs). One click on
+// the printer icon now always produces the full plan, regardless of which
+// tab was open.
+function LessonMode({ lesson, onClose, onEdit, autoPrint }) {
   const [tab,setTab]=useState("sequence");
   const tabs=[{id:"sequence",label:"पढाउने",icon:ClipboardList},{id:"questions",label:"प्रश्नहरू",icon:MessageSquare},{id:"activities",label:"क्रियाकलाप",icon:Users},{id:"homework",label:"गृहकार्य",icon:PenSquare},{id:"rubric",label:"मूल्याङ्कन",icon:Layers}];
   const objectives=lesson.objectives||[];
@@ -543,15 +586,26 @@ function LessonMode({ lesson, onClose }) {
   const keyQuestions=lesson.key_questions||[];
   const activities=lesson.activities||[];
   const rubric=lesson.rubric||[];
+  const chapterTitle=lesson.chapters?.title||lesson.chapter_title||"";
+
+  // NEW — "प्रिन्ट" from the Planner list opens this lesson and prints it
+  // immediately, in one click, with no extra tap needed once it's open.
+  useEffect(()=>{
+    if(!autoPrint)return;
+    const t=setTimeout(()=>window.print(),300);
+    return()=>clearTimeout(t);
+  },[autoPrint]);
+
   return(
     <div className="print-area" style={{position:"fixed",inset:0,background:PAPER,zIndex:50,display:"flex",flexDirection:"column"}}>
       <div className="no-print" style={{background:`linear-gradient(120deg, ${TEAL} 0%, ${ACCENT} 65%, ${ACCENT_DARK} 100%)`,color:"#fff",padding:"14px 16px",display:"flex",alignItems:"center",gap:10}}>
         <button onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:10,display:"flex",cursor:"pointer"}}><ChevronLeft size={20}/></button>
         <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:14,opacity:0.75}}>{lesson.chapters?.title||lesson.chapter_title||""}</div>
+          <div style={{fontSize:14,opacity:0.75}}>{chapterTitle}</div>
           <div style={{fontSize:18.5,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{lesson.title}</div>
         </div>
-        <button onClick={()=>window.print()} title="प्रिन्ट गर्नुहोस्" style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:10,display:"flex",cursor:"pointer",flexShrink:0}}><Printer size={19}/></button>
+        {onEdit&&<button onClick={()=>onEdit(lesson)} title="सम्पादन गर्नुहोस्" style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:10,display:"flex",cursor:"pointer",flexShrink:0}}><PenSquare size={19}/></button>}
+        <button onClick={()=>window.print()} title="पूरा पाठ योजना प्रिन्ट गर्नुहोस्" style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:10,display:"flex",cursor:"pointer",flexShrink:0}}><Printer size={19}/></button>
       </div>
       {(objectives.length>0||vocabulary.length>0)&&(
         <div className="no-print" style={{padding:"12px 16px 8px",background:SURFACE,borderBottom:`1px solid ${BORDER}`}}>
@@ -563,12 +617,42 @@ function LessonMode({ lesson, onClose }) {
       <div className="no-print" style={{display:"flex",overflowX:"auto",background:SURFACE,borderBottom:`1px solid ${BORDER}`}}>
         {tabs.map((t)=>{const Icon=t.icon;const active=tab===t.id;return<button key={t.id} onClick={()=>setTab(t.id)} style={{display:"flex",alignItems:"center",gap:5,padding:"11px 12px",border:"none",background:"none",borderBottom:active?`3px solid ${ACCENT}`:"3px solid transparent",color:active?ACCENT:INK_SOFT,fontWeight:600,fontSize:16,cursor:"pointer",whiteSpace:"nowrap"}}><Icon size={15}/>{t.label}</button>;})}
       </div>
-      <div style={{flex:1,overflowY:"auto",padding:16,maxWidth:720,margin:"0 auto",width:"100%"}}>
+      <div className="no-print" style={{flex:1,overflowY:"auto",padding:16,maxWidth:720,margin:"0 auto",width:"100%"}}>
         {tab==="sequence"&&(<div><SectionLabel icon={ClipboardList}>पढाउने क्रम</SectionLabel>{sequence.length===0?<div style={{color:INK_SOFT}}>पढाउने क्रम थपिएको छैन।</div>:(<ol style={{margin:0,paddingLeft:0,listStyle:"none"}}>{sequence.map((s,i)=>(<li key={i} style={{display:"flex",gap:12,padding:"12px 0",borderBottom:i<sequence.length-1?`1px solid ${BORDER}`:"none"}}><div style={{width:26,height:26,borderRadius:"50%",background:ACCENT_LIGHT,color:ACCENT,fontWeight:700,fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div><div style={{fontSize:17,color:INK,lineHeight:1.5,paddingTop:2}}>{s}</div></li>))}</ol>)}{lesson.notes&&<div style={{marginTop:14,background:WARN_BG,borderRadius:10,padding:12}}><div style={{fontSize:15,fontWeight:700,color:WARN,marginBottom:3}}>नोट</div><div style={{fontSize:16.5,color:"#5E4622"}}>{lesson.notes}</div></div>}</div>)}
         {tab==="questions"&&<div><SectionLabel icon={MessageSquare} color={VIOLET}>कक्षामा सोध्नुहोस्</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:8}}>{keyQuestions.length===0?<div style={{color:INK_SOFT}}>प्रश्नहरू थपिएका छैनन्।</div>:keyQuestions.map((q,i)=><Card key={i} accentColor={PALETTE[i%PALETTE.length]}><div style={{fontSize:17,color:INK}}>{q}</div></Card>)}</div></div>}
         {tab==="activities"&&<div><SectionLabel icon={Users} color={TEAL}>क्रियाकलापहरू</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:8}}>{activities.length===0?<div style={{color:INK_SOFT}}>क्रियाकलापहरू थपिएका छैनन्।</div>:activities.map((a,i)=><Card key={i} accentColor={PALETTE[i%PALETTE.length]}><div style={{fontSize:17,color:INK}}>{a}</div></Card>)}</div></div>}
         {tab==="homework"&&<div><SectionLabel icon={PenSquare} color={MARIGOLD_DARK}>दिने गृहकार्य</SectionLabel><Card><div style={{fontSize:17,color:INK,lineHeight:1.6}}>{lesson.homework||"गृहकार्य थपिएको छैन।"}</div></Card></div>}
         {tab==="rubric"&&<div><SectionLabel icon={Layers} color={ROSE}>मूल्याङ्कन मापदण्ड</SectionLabel>{rubric.length===0?<div style={{color:INK_SOFT}}>मूल्याङ्कन मापदण्ड थपिएको छैन।</div>:<div style={{display:"flex",flexDirection:"column",gap:8}}>{rubric.map((r,i)=>{const c=r.level==="उत्कृष्ट"?ACCENT:r.level==="सहयोग आवश्यक"?ROSE:MARIGOLD_DARK;return<Card key={i} accentColor={c}><div style={{fontWeight:700,color:c,fontSize:16.5,marginBottom:3}}>{r.level}</div><div style={{fontSize:16.5,color:INK}}>{r.desc}</div></Card>;})}</div>}</div>}
+      </div>
+
+      {/* print-only — the full plan, every section, always in this order,
+          regardless of which tab was open on screen. */}
+      <div className="print-only" style={{padding:"0 8px"}}>
+        <div style={{fontSize:13,color:"#555",marginBottom:2}}>{chapterTitle}</div>
+        <div style={{fontSize:22,fontWeight:800,marginBottom:10}}>{lesson.title}</div>
+        {objectives.length>0&&(<div style={{marginBottom:14}}><div style={{fontWeight:700,fontSize:15,marginBottom:4}}>उद्देश्यहरू</div><ul style={{margin:0,paddingLeft:18}}>{objectives.map((o,i)=><li key={i} style={{marginBottom:2}}>{o}</li>)}</ul></div>)}
+        {vocabulary.length>0&&(<div style={{marginBottom:14}}><div style={{fontWeight:700,fontSize:15,marginBottom:4}}>शब्दावली</div><div>{vocabulary.join(", ")}</div></div>)}
+        <div style={{marginBottom:14}}>
+          <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>पढाउने क्रम</div>
+          {sequence.length===0?<div>—</div>:<ol style={{margin:0,paddingLeft:18}}>{sequence.map((s,i)=><li key={i} style={{marginBottom:4}}>{s}</li>)}</ol>}
+        </div>
+        {lesson.notes&&(<div style={{marginBottom:14}}><div style={{fontWeight:700,fontSize:15,marginBottom:4}}>नोट</div><div>{lesson.notes}</div></div>)}
+        <div style={{marginBottom:14}}>
+          <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>कक्षामा सोध्ने प्रश्नहरू</div>
+          {keyQuestions.length===0?<div>—</div>:<ol style={{margin:0,paddingLeft:18}}>{keyQuestions.map((q,i)=><li key={i} style={{marginBottom:4}}>{q}</li>)}</ol>}
+        </div>
+        <div style={{marginBottom:14}}>
+          <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>क्रियाकलापहरू</div>
+          {activities.length===0?<div>—</div>:<ol style={{margin:0,paddingLeft:18}}>{activities.map((a,i)=><li key={i} style={{marginBottom:4}}>{a}</li>)}</ol>}
+        </div>
+        <div style={{marginBottom:14}}>
+          <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>गृहकार्य</div>
+          <div>{lesson.homework||"—"}</div>
+        </div>
+        <div style={{marginBottom:14}}>
+          <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>मूल्याङ्कन मापदण्ड</div>
+          {rubric.length===0?<div>—</div>:rubric.map((r,i)=><div key={i} style={{marginBottom:4}}><strong>{r.level}:</strong> {r.desc}</div>)}
+        </div>
       </div>
     </div>
   );
@@ -675,12 +759,12 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, on
   useEffect(()=>{
     if(!prepChapter){setChapterMaterials([]);return;}
     let cancelled=false;
-    db.getChapterIdByTitle(prepChapter).then((id)=>{
+    db.getChapterIdByTitle(prepChapter,classLabel).then((id)=>{
       if(!id){if(!cancelled)setChapterMaterials([]);return;}
       db.getMaterialsByChapter(id).then(({data})=>{if(!cancelled)setChapterMaterials(data||[]);});
     });
     return ()=>{cancelled=true;};
-  },[prepChapter]);
+  },[prepChapter,classLabel]);
 
   const prepareChapter=async()=>{
     const chapter=prepChapter.trim();
@@ -691,11 +775,17 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, on
     // NEW: this pulls in the teacher's own uploaded lesson plan/PPT/materials
     // for this chapter (plus the textbook) as the source AI reads from.
     const ctx=await getMaterialContext(chapter,classLabel);
+    // FIX — same root-cause tagging bug as Planner/Question Bank/Activities
+    // had: resolve the real chapter_id ONCE up front and save it on
+    // everything this "prepare my class" flow creates, instead of only
+    // ever saving the typed chapter name. This is the main daily-use
+    // button on the dashboard, so it mattered most to get right.
+    const chapter_id=await resolveChapterId(chapter,classLabel);
 
     try{
       const qs=await gemini.generateQuestions(chapter,ctx,classContext);
       if(qs?.length){
-        for(const q of qs)await db.upsertQuestion({text:q.text,type:q.type||"छोटो उत्तर",difficulty:q.difficulty||"सजिलो",bloom_level:q.bloom||"सम्झना",chapter_title:chapter,options:q.options||[],correct_option:q.correct_option??null});
+        for(const q of qs)await db.upsertQuestion({text:q.text,type:q.type||"छोटो उत्तर",difficulty:q.difficulty||"सजिलो",bloom_level:q.bloom||"सम्झना",chapter_title:chapter,chapter_id,options:q.options||[],correct_option:q.correct_option??null});
         qCount=qs.length;
         setStepState((s)=>({...s,questions:"done",activities:"loading"}));
       }else setStepState((s)=>({...s,questions:"error",activities:"loading"}));
@@ -704,7 +794,7 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, on
     try{
       const acts=await gemini.generateActivities(chapter,ctx,classContext);
       if(acts?.length){
-        for(const a of acts)await db.upsertActivity({title:a.title,type:a.type||"game",duration:a.duration,competency:a.competency,description:a.description,chapter_title:chapter});
+        for(const a of acts)await db.upsertActivity({title:a.title,type:a.type||"game",duration:a.duration,competency:a.competency,description:a.description,chapter_title:chapter,chapter_id});
         aCount=acts.length;
         setStepState((s)=>({...s,activities:"done",assessment:"loading"}));
       }else setStepState((s)=>({...s,activities:"error",assessment:"loading"}));
@@ -714,13 +804,17 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, on
       const prompt=`नेपाल ${classContext} "${chapter}" का लागि अवलोकन मूल्याङ्कन मापदण्ड भएको JSON array मात्र: [{"level":"उत्कृष्ट","desc":"..."},{"level":"राम्रो","desc":"..."},{"level":"सहयोग आवश्यक","desc":"..."}]`;
       const rubric=await gemini.generateRubric(prompt,ctx);
       if(rubric?.length){
-        await db.upsertAssessment({title:`${chapter} — मूल्याङ्कन`,type:"observation",rubric,due_date:null,status:"pending"});
+        // FIX — chapter_title was previously never saved here at all, so a
+        // rubric made from this button could never be found again from any
+        // chapter-based view.
+        await db.upsertAssessment({title:`${chapter} — मूल्याङ्कन`,type:"observation",rubric,due_date:null,status:"pending",chapter_title:chapter});
         gotRubric=true;
         setStepState((s)=>({...s,assessment:"done"}));
       }else setStepState((s)=>({...s,assessment:"error"}));
     }catch(e){setStepState((s)=>({...s,assessment:"error"}));}
 
-    setPrepResult({chapter,questions:qCount,activities:aCount,rubric:gotRubric});
+    const hasLesson=lessons.some((l)=>(l.chapters?.title||l.chapter_title)===chapter);
+    setPrepResult({chapter,questions:qCount,activities:aCount,rubric:gotRubric,hasLesson});
     setPreparing(false);
   };
 
@@ -780,9 +874,18 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, on
           <div style={{marginTop:12,background:ACCENT_LIGHT,borderRadius:12,padding:14}}>
             <div style={{fontWeight:700,color:ACCENT,fontSize:16.5,marginBottom:6}}>"{prepResult.chapter}" तयार भयो ✓</div>
             <div style={{fontSize:15,color:INK,marginBottom:10}}>{prepResult.questions} प्रश्न · {prepResult.activities} क्रियाकलाप{prepResult.rubric?" · मूल्याङ्कन मापदण्ड":""} बनाइयो</div>
+            {/* NEW — this flow deliberately never writes the lesson plan
+                itself (objectives/sequence), only what's built on top of
+                it; without a visible link back to the Planner, that gap
+                was easy to miss. Shows whether one already exists for this
+                chapter, and jumps straight there either way. */}
+            {!prepResult.hasLesson&&(
+              <div style={{display:"flex",alignItems:"center",gap:6,fontSize:14.5,color:WARN,marginBottom:10}}><ClipboardList size={14}/>यो अध्यायको पाठ योजना (उद्देश्य/क्रम) अझै बनेको छैन।</div>
+            )}
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
               <Button variant="secondary" size="sm" onClick={onGoAITools}>प्रश्न/क्रियाकलाप हेर्नुहोस्</Button>
               <Button variant="secondary" size="sm" onClick={onGoMaterials}>सामग्री हेर्नुहोस्</Button>
+              <Button variant="secondary" size="sm" onClick={()=>onGoPlanner(prepResult.chapter)}>{prepResult.hasLesson?"पाठ योजना हेर्नुहोस्":"पाठ योजना बनाउनुहोस्"}</Button>
             </div>
           </div>
         )}
@@ -800,14 +903,85 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, on
   );
 }
 
-function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters, onAddChapter, classContext, classLabel }) {
+const EMPTY_LESSON_FORM={id:null,title:"",status:"missing",chapter_title:"",objectives:"",vocabulary:"",sequence:"",key_questions:"",activities:"",homework:"",notes:""};
+
+// NEW — turns a saved lesson row back into the editable form shape (the
+// reverse of save()'s split/join). This is what makes a lesson plan
+// actually editable after creation instead of create-once/view-only.
+function lessonToForm(l){
+  return{
+    id:l.id, title:l.title||"", status:l.status||"missing",
+    chapter_title:l.chapters?.title||l.chapter_title||"",
+    objectives:(l.objectives||[]).join("\n"),
+    vocabulary:(l.vocabulary||[]).join(", "),
+    sequence:(l.sequence||[]).join("\n"),
+    key_questions:(l.key_questions||[]).join("\n"),
+    activities:(l.activities||[]).join("\n"),
+    homework:l.homework||"", notes:l.notes||"",
+  };
+}
+
+function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters, onAddChapter, classContext, classLabel, editLessonId, onEditConsumed, prefillChapter, onPrefillConsumed }) {
   const [showForm,setShowForm]=useState(false);
-  const [form,setForm]=useState({title:"",status:"missing",chapter_title:"",objectives:"",vocabulary:"",sequence:"",key_questions:"",activities:"",homework:"",notes:""});
+  const [form,setForm]=useState(EMPTY_LESSON_FORM);
   const [saving,setSaving]=useState(false);
   const [generating,setGenerating]=useState(false);
   const [error,setError]=useState("");
   const [matchedCount,setMatchedCount]=useState(0);
+  const [linkedCounts,setLinkedCounts]=useState(null);
   const [showDetails,setShowDetails]=useState(false);
+  const isEditing=!!form.id;
+
+  // NEW — opening a lesson for editing can be triggered from outside this
+  // screen (the "सम्पादन गर्नुहोस्" button inside a lesson's full-screen
+  // view). When that happens App() hands us the lesson's id here; once we
+  // find it among the lessons already loaded, we populate the form exactly
+  // like clicking "Edit" locally would, then tell App() the trigger has
+  // been consumed so it doesn't keep re-firing.
+  useEffect(()=>{
+    if(!editLessonId)return;
+    const l=lessons.find((x)=>x.id===editLessonId);
+    if(l){
+      setForm(lessonToForm(l));setShowForm(true);setShowDetails(true);
+      window.scrollTo({top:0,behavior:"smooth"});
+    }
+    onEditConsumed?.();
+  },[editLessonId,lessons,onEditConsumed]);
+
+  // NEW — arriving from the Dashboard's "chapter prepared" card: open the
+  // Planner with that chapter already selected, editing the existing plan
+  // if there is one instead of risking a duplicate.
+  useEffect(()=>{
+    if(!prefillChapter)return;
+    const existing=lessons.find((l)=>(l.chapters?.title||l.chapter_title)===prefillChapter);
+    if(existing)setForm(lessonToForm(existing));
+    else setForm({...EMPTY_LESSON_FORM,chapter_title:prefillChapter});
+    setShowForm(true);setShowDetails(true);
+    window.scrollTo({top:0,behavior:"smooth"});
+    onPrefillConsumed?.();
+  },[prefillChapter,lessons,onPrefillConsumed]);
+
+  // NEW — shows live counts of what's already linked to the picked chapter
+  // (materials / questions / activities), so a teacher can see at a glance
+  // whether this chapter has supporting content elsewhere in the app —
+  // this is the "different screens feel connected" fix, made reliable now
+  // that chapter_id is always resolved correctly (see resolveChapterId).
+  useEffect(()=>{
+    let cancelled=false;
+    const title=form.chapter_title;
+    if(!title||!title.trim()){setLinkedCounts(null);return;}
+    (async()=>{
+      const chapterId=await db.getChapterIdByTitle(title.trim(),classLabel);
+      if(cancelled)return;
+      if(!chapterId){setLinkedCounts(null);return;}
+      const counts=await getChapterLinkedCounts(chapterId);
+      if(!cancelled)setLinkedCounts(counts);
+    })();
+    return()=>{cancelled=true;};
+  },[form.chapter_title,classLabel]);
+
+  const startEdit=(l)=>{setForm(lessonToForm(l));setShowForm(true);setShowDetails(true);};
+  const startNew=()=>{setForm(EMPTY_LESSON_FORM);setShowForm(true);setShowDetails(false);};
 
   const autoGenerate=async()=>{
     const chapter=form.chapter_title||form.title;
@@ -836,26 +1010,32 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
   const save=async()=>{
     if(!form.title.trim()){setError("पाठको नाम आवश्यक छ।");return;}
     // NEW — warn before creating a second lesson for a chapter that already
-    // has one. Matches on chapter title against the lessons already loaded,
-    // then lets the teacher decide rather than silently allowing (or
-    // silently blocking) the duplicate.
-    if(form.chapter_title.trim()){
+    // has one. Only applies when creating a new lesson (not while editing
+    // this same lesson — previously this fired on every re-save of an
+    // existing plan because there was no way to tell "editing" from
+    // "creating" apart).
+    if(!isEditing&&form.chapter_title.trim()){
       const dup=lessons.find((l)=>(l.chapters?.title||l.chapter_title)===form.chapter_title);
       if(dup&&!confirm(`"${form.chapter_title}" का लागि पहिले नै "${dup.title}" भन्ने पाठ बनाइसकिएको छ। फेरि पनि नयाँ पाठ बनाउने?`))return;
     }
     setSaving(true);setError("");
-    const payload={...form,section_id:section?.id||null,class_label:classLabel,
+    // FIX — resolve the real chapter_id (not just the typed title) before
+    // saving, so this lesson is actually linked to its chapter everywhere
+    // else in the app (materials list, AI matching, chapter hub).
+    const chapter_id=await resolveChapterId(form.chapter_title,classLabel);
+    const payload={...form,chapter_id,section_id:section?.id||null,class_label:classLabel,
       objectives:form.objectives.split("\n").filter(Boolean),
       vocabulary:form.vocabulary.split(",").map((v)=>v.trim()).filter(Boolean),
       sequence:form.sequence.split("\n").filter(Boolean),
       key_questions:form.key_questions.split("\n").filter(Boolean),
       activities:form.activities.split("\n").filter(Boolean),
     };
+    if(!isEditing)delete payload.id; // let the database assign a new id for a fresh lesson
     const{error:err}=await db.upsertLesson(payload);
     setSaving(false);
     if(err){setError(err.message);return;}
     setShowForm(false);
-    setForm({title:"",status:"missing",chapter_title:"",objectives:"",vocabulary:"",sequence:"",key_questions:"",activities:"",homework:"",notes:""});
+    setForm(EMPTY_LESSON_FORM);
     setShowDetails(false);
     onRefresh();
   };
@@ -870,12 +1050,13 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
     <div style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={{fontSize:20,fontWeight:700,color:INK}}>पाठ योजना</div>
-        <button onClick={()=>setShowForm(true)} style={{display:"flex",alignItems:"center",gap:5,background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:"pointer"}}><Plus size={14}/>नयाँ पाठ</button>
+        <button onClick={startNew} style={{display:"flex",alignItems:"center",gap:5,background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:"pointer"}}><Plus size={14}/>नयाँ पाठ</button>
       </div>
       {showForm&&(
         <Card style={{marginBottom:14}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-            <div style={{fontWeight:700,fontSize:17}}>नयाँ पाठ</div>
+            <div style={{fontWeight:700,fontSize:17}}>{isEditing?"पाठ सम्पादन गर्नुहोस्":"नयाँ पाठ"}</div>
+            {isEditing&&<span style={{fontSize:13.5,background:ACCENT_LIGHT,color:ACCENT,padding:"3px 9px",borderRadius:999,fontWeight:700}}>सम्पादन मोड</span>}
           </div>
           {error&&<ErrorMsg msg={error}/>}
           <div style={{display:"flex",flexDirection:"column",gap:9}}>
@@ -888,6 +1069,16 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
             <div>
               <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:700,marginBottom:4}}>२. अध्याय</div>
               <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} chapters={chapters||[]} onAddChapter={onAddChapter} placeholder="— अध्याय छान्नुहोस् —"/>
+              {/* NEW — proof the chapters really are connected across screens:
+                  shows what's already linked to this chapter elsewhere in
+                  the app, live, as soon as one is picked. */}
+              {linkedCounts&&(
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>
+                  <span style={{fontSize:13.5,background:SURFACE_2,color:INK_SOFT,padding:"4px 9px",borderRadius:999,fontWeight:700}}>📎 {linkedCounts.materials} सामग्री</span>
+                  <span style={{fontSize:13.5,background:SURFACE_2,color:INK_SOFT,padding:"4px 9px",borderRadius:999,fontWeight:700}}>❓ {linkedCounts.questions} प्रश्न</span>
+                  <span style={{fontSize:13.5,background:SURFACE_2,color:INK_SOFT,padding:"4px 9px",borderRadius:999,fontWeight:700}}>🎲 {linkedCounts.activities} क्रियाकलाप</span>
+                </div>
+              )}
             </div>
 
             {/* NEW — attach materials right here instead of needing a separate
@@ -921,8 +1112,8 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
               {["missing","prep","ready"].map((s)=><button key={s} onClick={()=>setForm({...form,status:s})} style={{flex:1,padding:"8px",borderRadius:10,border:`2px solid ${form.status===s?ACCENT:BORDER}`,background:form.status===s?ACCENT_LIGHT:SURFACE,cursor:"pointer"}}><StatusPill status={s}/></button>)}
             </div>
             <div style={{display:"flex",gap:8}}>
-              <button onClick={()=>setShowForm(false)} style={{flex:1,padding:"11px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer"}}>रद्द</button>
-              <button onClick={save} disabled={saving} style={{flex:1,padding:"11px",borderRadius:10,border:"none",background:ACCENT,color:"#fff",fontWeight:700,cursor:"pointer"}}>{saving?"...":"सुरक्षित"}</button>
+              <button onClick={()=>{setShowForm(false);setForm(EMPTY_LESSON_FORM);setShowDetails(false);}} style={{flex:1,padding:"11px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer"}}>रद्द</button>
+              <button onClick={save} disabled={saving} style={{flex:1,padding:"11px",borderRadius:10,border:"none",background:ACCENT,color:"#fff",fontWeight:700,cursor:"pointer"}}>{saving?"...":isEditing?"परिवर्तन सुरक्षित गर्नुहोस्":"सुरक्षित"}</button>
             </div>
           </div>
         </Card>
@@ -937,9 +1128,13 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
                   <div style={{fontSize:15,color:INK_SOFT,fontWeight:600,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.chapters?.title||l.chapter_title||""}</div>
                   <div style={{fontSize:17.5,fontWeight:700,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.title}</div>
                 </div>
-                <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
+                <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
                   <StatusPill status={l.status}/>
-                  <button onClick={(e)=>deleteLesson(l.id,e)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,padding:4}}><Trash2 size={15}/></button>
+                  {/* NEW — one-click edit and one-click "print the whole plan"
+                      right from the list, no need to open the lesson first. */}
+                  <button onClick={(e)=>{e.stopPropagation();startEdit(l);}} title="सम्पादन गर्नुहोस्" style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,padding:4}}><PenSquare size={15}/></button>
+                  <button onClick={(e)=>{e.stopPropagation();onOpenLesson(l,{autoPrint:true});}} title="पूरा पाठ योजना प्रिन्ट गर्नुहोस्" style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,padding:4}}><Printer size={15}/></button>
+                  <button onClick={(e)=>deleteLesson(l.id,e)} title="मेटाउनुहोस्" style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,padding:4}}><Trash2 size={15}/></button>
                 </div>
               </div>
             </Card>
@@ -982,11 +1177,25 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
   const [tagCategory,setTagCategory]=useState("other");
   const [retagging,setRetagging]=useState(false);
   const [categoryFilter,setCategoryFilter]=useState("all");
+  // NEW — filtering was category-only; a teacher with many chapters had no
+  // way to jump straight to "everything for Chapter 4" without typing its
+  // exact name into search. This mirrors the chapter-based browsing the
+  // Planner now has, so Materials and Planner pivot around the same
+  // concept instead of feeling like separate apps.
+  const [chapterFilter,setChapterFilter]=useState("all"); // "all" | "untagged" | chapter id
   const [sortBy,setSortBy]=useState("newest");
   const [showChapterManage,setShowChapterManage]=useState(false);
   const [editingChapterId,setEditingChapterId]=useState(null);
   const [chapterEditValue,setChapterEditValue]=useState("");
   const [chapterBusy,setChapterBusy]=useState(null);
+  // NEW — per-chapter counts of lessons/questions/activities, shown inside
+  // "अध्याय व्यवस्थापन" so a teacher can see, right from Materials, whether a
+  // chapter already has a lesson plan / questions / activities elsewhere in
+  // the app — the same cross-screen link the Planner now shows in reverse.
+  const [chapterLinks,setChapterLinks]=useState({});
+  // NEW — multi-file upload progress ("3 / 7 अपलोड हुँदै"), since the file
+  // picker below now accepts several files at once instead of one at a time.
+  const [uploadProgress,setUploadProgress]=useState(null);
 
   const load=useCallback(async()=>{
     setLoading(true);const{data}=await db.getMaterials(classLabel);setMaterials(data||[]);setLoading(false);
@@ -994,6 +1203,18 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
   useEffect(()=>{load();},[load]);
 
   const sync=async()=>{setSyncing(true);await load();setSyncing(false);};
+
+  // NEW — fetch lesson/question/activity counts for every chapter, once,
+  // when the management panel opens (not on every render).
+  useEffect(()=>{
+    if(!showChapterManage||!chapters?.length)return;
+    let cancelled=false;
+    (async()=>{
+      const entries=await Promise.all(chapters.map(async(c)=>[c.id,await getChapterLinkedCounts(c.id)]));
+      if(!cancelled)setChapterLinks(Object.fromEntries(entries));
+    })();
+    return()=>{cancelled=true;};
+  },[showChapterManage,chapters]);
 
   const addChapterAndRefresh=async(title)=>{
     await onAddChapter(title);
@@ -1016,7 +1237,7 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
   };
 
   const deleteChapter=async(chapter)=>{
-    const count=materials.filter((m)=>m.chapters?.title===chapter.title).length;
+    const count=materials.filter((m)=>m.chapter_id===chapter.id).length;
     const msg=count>0
       ?`"${chapter.title}" मेटाउने? यसमा ट्याग गरिएका ${count} सामग्री फाइल अब कुनै अध्यायमा तोकिने छैनन्।`
       :`"${chapter.title}" मेटाउने?`;
@@ -1029,8 +1250,13 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
     load();
   };
 
+  // NEW — accepts multiple files in one selection now (see the `multiple`
+  // attribute on the file input below) and uploads them one after another,
+  // reporting progress, instead of only ever taking files[0] and silently
+  // ignoring the rest.
   const upload=async(e)=>{
-    const file=e.target.files[0];if(!file)return;
+    const files=Array.from(e.target.files||[]);
+    if(!files.length)return;
     if(!uploadChapter.trim()){
       setError("पहिले माथि यो फाइल कुन अध्यायको हो भनी छान्नुहोस्, त्यसपछि फाइल छान्नुहोस्।");
       e.target.value="";
@@ -1038,30 +1264,30 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
     }
     setUploading(true);setError("");
     const{data:{user}}=await supabase.auth.getUser();
-    const ext=file.name.split(".").pop().toLowerCase();
-    const typeMap={pdf:"pdf",pptx:"pptx",ppt:"pptx",doc:"doc",docx:"doc",xlsx:"sheet",xls:"sheet",csv:"sheet",jpg:"image",jpeg:"image",png:"image",mp4:"video",mp3:"audio"};
-    const fileType=typeMap[ext]||"doc";
-
-    // NEW: extract text client-side for docx/pptx/xlsx so the AI can actually
-    // read it later (Gemini can't take these formats directly like PDFs/images).
-    let extracted_text="", extraction_status="not_needed";
-    if(["docx","pptx","xlsx","xls","csv"].includes(ext)){
-      const res=await extractTextFromFile(file);
-      extracted_text=res.text;extraction_status=res.status;
-      if(res.status==="failed") setError(`"${file.name}" बाट टेक्स्ट निकाल्न सकिएन। फाइल अपलोड भइरहन्छ, तर AI ले यो प्रयोग गर्न सक्दैन।`);
-    }else if(ext==="doc"){
-      extraction_status="failed";
-      setError(`पुरानो .doc ढाँचा समर्थित छैन — कृपया Word मा ".docx" बनाएर फेरि अपलोड गर्नुहोस्।`);
-    }
-
-    // NEW: resolve the typed chapter name to your real chapters table (create
-    // it if it doesn't exist yet), so the material links properly via chapter_id.
+    // Resolve the chapter once for the whole batch instead of once per file.
     const chapterId=await db.getOrCreateChapterId(uploadChapter.trim(),classLabel);
-
-    const{path,error:upErr}=await db.uploadMaterialFile(file,user.id);
-    if(upErr){setError(upErr.message);setUploading(false);return;}
-    await db.insertMaterial({name:file.name,storage_path:path,file_type:fileType,size_bytes:file.size,tags:[],chapter_id:chapterId,category:uploadCategory,extracted_text,extraction_status,class_label:classLabel});
-    setUploading(false);load();e.target.value="";
+    const typeMap={pdf:"pdf",pptx:"pptx",ppt:"pptx",doc:"doc",docx:"doc",xlsx:"sheet",xls:"sheet",csv:"sheet",jpg:"image",jpeg:"image",png:"image",mp4:"video",mp3:"audio"};
+    let failedNames=[];
+    for(let i=0;i<files.length;i++){
+      const file=files[i];
+      setUploadProgress(files.length>1?{current:i+1,total:files.length,name:file.name}:null);
+      const ext=file.name.split(".").pop().toLowerCase();
+      const fileType=typeMap[ext]||"doc";
+      let extracted_text="", extraction_status="not_needed";
+      if(["docx","pptx","xlsx","xls","csv"].includes(ext)){
+        const res=await extractTextFromFile(file);
+        extracted_text=res.text;extraction_status=res.status;
+        if(res.status==="failed") failedNames.push(`${file.name} (टेक्स्ट निकाल्न सकिएन)`);
+      }else if(ext==="doc"){
+        extraction_status="failed";
+        failedNames.push(`${file.name} (.doc समर्थित छैन — .docx बनाएर फेरि पठाउनुहोस्)`);
+      }
+      const{path,error:upErr}=await db.uploadMaterialFile(file,user.id);
+      if(upErr){failedNames.push(`${file.name} (${upErr.message})`);continue;}
+      await db.insertMaterial({name:file.name,storage_path:path,file_type:fileType,size_bytes:file.size,tags:[],chapter_id:chapterId,category:uploadCategory,extracted_text,extraction_status,class_label:classLabel});
+    }
+    if(failedNames.length)setError(failedNames.join(" · "));
+    setUploading(false);setUploadProgress(null);load();e.target.value="";
   };
 
   const deleteMat=async(mat,e)=>{
@@ -1136,13 +1362,15 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
     const q=query.trim().toLowerCase();
     let list=materials;
     if(categoryFilter!=="all") list=list.filter((m)=>(m.category||"other")===categoryFilter);
+    if(chapterFilter==="untagged") list=list.filter((m)=>!m.chapter_id);
+    else if(chapterFilter!=="all") list=list.filter((m)=>m.chapter_id===chapterFilter);
     if(q) list=list.filter((m)=>m.name.toLowerCase().includes(q));
     list=[...list].sort((a,b)=>{
       if(sortBy==="name") return a.name.localeCompare(b.name);
       return new Date(b.created_at||0)-new Date(a.created_at||0);
     });
     return list;
-  },[materials,query,categoryFilter,sortBy]);
+  },[materials,query,categoryFilter,chapterFilter,sortBy]);
 
   const untaggedCount=materials.filter((m)=>!m.chapters?.title).length;
   const categoryCounts=useMemo(()=>{
@@ -1160,8 +1388,8 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
       </div>
       {error&&<ErrorMsg msg={error}/>}
       {untaggedCount>0&&(
-        <div style={{background:WARN_BG,borderRadius:12,padding:"11px 16px",fontSize:16,color:WARN,margin:"12px 0",display:"flex",alignItems:"center",gap:8,fontWeight:600}}>
-          <Tag size={15}/>{untaggedCount} फाइलमा अध्याय तोकिएको छैन — AI ले ती फाइल प्रयोग गर्न सक्दैन। तल फाइलमा 🏷️ थिचेर तोक्नुहोस्।
+        <div onClick={()=>setChapterFilter("untagged")} style={{background:WARN_BG,borderRadius:12,padding:"11px 16px",fontSize:16,color:WARN,margin:"12px 0",display:"flex",alignItems:"center",gap:8,fontWeight:600,cursor:"pointer"}}>
+          <Tag size={15}/>{untaggedCount} फाइलमा अध्याय तोकिएको छैन — AI ले ती फाइल प्रयोग गर्न सक्दैन। हेर्न यहाँ थिच्नुहोस्।
         </div>
       )}
 
@@ -1174,10 +1402,10 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
           </div>
           <ChapterPicker value={uploadChapter} onChange={setUploadChapter} chapters={chapters||[]} onAddChapter={addChapterAndRefresh} placeholder="यो फाइल कुन अध्यायको हो? *"/>
           <label className="ss-btn" style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:uploadChapter.trim()?`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`:"#D8D2C0",color:"#fff",border:"none",borderRadius:12,padding:"13px",fontSize:16.5,fontWeight:700,cursor:uploadChapter.trim()?"pointer":"not-allowed",boxShadow:uploadChapter.trim()?SHADOW.accent:"none"}}>
-            <Plus size={16}/>{uploading?"अपलोड र प्रशोधन गर्दै...":"फाइल छान्नुहोस्"}
-            <input type="file" onChange={upload} disabled={!uploadChapter.trim()||uploading} style={{display:"none"}} accept=".pdf,.pptx,.ppt,.doc,.docx,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.mp4,.mp3"/>
+            <Plus size={16}/>{uploading?(uploadProgress?`अपलोड हुँदै... (${uploadProgress.current}/${uploadProgress.total})`:"अपलोड र प्रशोधन गर्दै..."):"फाइल(हरू) छान्नुहोस्"}
+            <input type="file" multiple onChange={upload} disabled={!uploadChapter.trim()||uploading} style={{display:"none"}} accept=".pdf,.pptx,.ppt,.doc,.docx,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.mp4,.mp3"/>
           </label>
-          <div style={{fontSize:15,color:INK_SOFT}}>PDF/तस्बिर सिधै AI लाई देखाइन्छ। Word/PowerPoint/Excel बाट टेक्स्ट स्वतः निकालिन्छ।</div>
+          <div style={{fontSize:15,color:INK_SOFT}}>एकैचोटि धेरै फाइल छान्न मिल्छ — सबै यही अध्याय र प्रकारमा थपिनेछन्। PDF/तस्बिर सिधै AI लाई देखाइन्छ। Word/PowerPoint/Excel बाट टेक्स्ट स्वतः निकालिन्छ।</div>
         </div>
       </Card>
 
@@ -1202,7 +1430,13 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
                   </>
                 ):(
                   <>
-                    <div style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:15.5,color:INK,fontWeight:600}}>{c.title}</div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:15.5,color:INK,fontWeight:600}}>{c.title}</div>
+                      {chapterLinks[c.id]&&(
+                        <div style={{fontSize:12.5,color:INK_SOFT,marginTop:2}}>📎{chapterLinks[c.id].materials} ❓{chapterLinks[c.id].questions} 🎲{chapterLinks[c.id].activities}</div>
+                      )}
+                    </div>
+                    <button onClick={()=>{setChapterFilter(c.id);setShowChapterManage(false);}} disabled={chapterBusy===c.id} style={{background:"none",border:"none",color:INK_SOFT,cursor:"pointer",padding:4,flexShrink:0,display:"flex"}} title="यो अध्यायका फाइल हेर्नुहोस्"><Search size={15}/></button>
                     <button onClick={()=>{setEditingChapterId(c.id);setChapterEditValue(c.title);}} disabled={chapterBusy===c.id} style={{background:"none",border:"none",color:INK_SOFT,cursor:"pointer",padding:4,flexShrink:0,display:"flex"}} title="नाम बदल्नुहोस्"><PenSquare size={15}/></button>
                     <button onClick={()=>deleteChapter(c)} disabled={chapterBusy===c.id} style={{background:"none",border:"none",color:DANGER,cursor:"pointer",padding:4,flexShrink:0,display:"flex"}} title="मेटाउनुहोस्"><Trash2 size={15}/></button>
                   </>
@@ -1228,6 +1462,13 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
           <Search size={16} color={INK_SOFT}/>
           <input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="फाइल खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:16.5,flex:1,minWidth:0,background:"transparent",color:INK,caretColor:ACCENT,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
         </div>
+        {/* NEW — browse materials by chapter, same concept the Planner now
+            uses, instead of only being able to filter by file category. */}
+        <select value={chapterFilter} onChange={(e)=>setChapterFilter(e.target.value)} style={{border:`1px solid ${chapterFilter!=="all"?ACCENT:BORDER}`,borderRadius:12,padding:"11px 14px",fontSize:16,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif",background:chapterFilter!=="all"?ACCENT_LIGHT:SURFACE,color:chapterFilter!=="all"?ACCENT:INK,fontWeight:600}}>
+          <option value="all">सबै अध्याय</option>
+          <option value="untagged">अध्याय नतोकिएका</option>
+          {(chapters||[]).map((c)=><option key={c.id} value={c.id}>{c.title}</option>)}
+        </select>
         <select value={sortBy} onChange={(e)=>setSortBy(e.target.value)} style={{border:`1px solid ${BORDER}`,borderRadius:12,padding:"11px 14px",fontSize:16,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif",background:SURFACE,color:INK,fontWeight:600}}>
           <option value="newest">नयाँ पहिले</option>
           <option value="name">नाम अनुसार (क-ज्ञ)</option>
@@ -1235,7 +1476,7 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
       </div>
 
       {loading?<Spinner/>:filtered.length===0?(
-        <EmptyState icon={FileText} text={query?`"${query}" फेला परेन।`:"यो श्रेणीमा फाइल थपिएको छैन।"}/>
+        <EmptyState icon={FileText} text={query?`"${query}" फेला परेन।`:chapterFilter!=="all"?"यो फिल्टरमा कुनै फाइल छैन।":"यो श्रेणीमा फाइल थपिएको छैन।"}/>
       ):(
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:12}}>
           {filtered.map((f)=>{
@@ -1389,18 +1630,25 @@ function HomeworkManager({ section, loading, homework, onRefresh }) {
   );
 }
 
-function TeachingJournal() {
+function TeachingJournal({ lessons }) {
   const [entries,setEntries]=useState([]);
   const [loading,setLoading]=useState(true);
   const [showForm,setShowForm]=useState(false);
-  const [form,setForm]=useState({lesson_title:"",taught:"",difficulty:"",idea:"",mood:"good"});
+  const [form,setForm]=useState({lesson_id:"",taught:"",difficulty:"",idea:"",mood:"good"});
   const [saving,setSaving]=useState(false);
   const load=useCallback(async()=>{setLoading(true);const{data}=await db.getJournalEntries();setEntries(data||[]);setLoading(false);},[]);
   useEffect(()=>{load();},[load]);
   const save=async()=>{
-    if(!form.lesson_title.trim())return;setSaving(true);
-    await db.upsertJournalEntry({taught:form.taught,difficulty:form.difficulty,idea:form.idea,mood:form.mood});
-    setSaving(false);setShowForm(false);setForm({lesson_title:"",taught:"",difficulty:"",idea:"",mood:"good"});load();
+    if(!form.taught.trim()&&!form.difficulty.trim()&&!form.idea.trim())return;
+    // FIX — the old "आजको पाठ" field was free-typed text that never
+    // actually got saved (upsertJournalEntry silently dropped it — the
+    // table links to a real lesson via lesson_id, which the form never
+    // set). Every entry is now tied to an actual lesson plan, or left
+    // unlinked on purpose if there's no matching lesson yet — either way
+    // nothing typed here disappears anymore.
+    setSaving(true);
+    await db.upsertJournalEntry({lesson_id:form.lesson_id||null,taught:form.taught,difficulty:form.difficulty,idea:form.idea,mood:form.mood});
+    setSaving(false);setShowForm(false);setForm({lesson_id:"",taught:"",difficulty:"",idea:"",mood:"good"});load();
   };
   return(
     <div style={{padding:"20px 20px 130px",maxWidth:820,margin:"0 auto"}}>
@@ -1411,7 +1659,17 @@ function TeachingJournal() {
       {showForm&&(
         <Card style={{marginBottom:14}}>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            <input placeholder="आजको पाठ" value={form.lesson_title} onChange={(e)=>setForm({...form,lesson_title:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+            <div>
+              <div style={{fontSize:14.5,fontWeight:700,color:INK_SOFT,marginBottom:4}}>आजको पाठ (वैकल्पिक)</div>
+              {(lessons||[]).length===0?(
+                <div style={{fontSize:15,color:INK_SOFT,background:SURFACE_2,borderRadius:10,padding:"9px 12px"}}>अझै कुनै पाठ योजना बनाइएको छैन — पाठ योजनामा एउटा थपेपछि यहाँ छान्न सकिन्छ।</div>
+              ):(
+                <select value={form.lesson_id} onChange={(e)=>setForm({...form,lesson_id:e.target.value})} style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}>
+                  <option value="">— कुनै पाठसँग नजोडी —</option>
+                  {lessons.map((l)=><option key={l.id} value={l.id}>{l.chapters?.title||l.chapter_title?`${l.chapters?.title||l.chapter_title} — `:""}{l.title}</option>)}
+                </select>
+              )}
+            </div>
             <textarea placeholder="के पढाइयो?" value={form.taught} onChange={(e)=>setForm({...form,taught:e.target.value})} rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
             <textarea placeholder="के गाह्रो भयो?" value={form.difficulty} onChange={(e)=>setForm({...form,difficulty:e.target.value})} rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
             <textarea placeholder="अर्को पटककालागि सुझाव" value={form.idea} onChange={(e)=>setForm({...form,idea:e.target.value})} rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
@@ -1446,7 +1704,11 @@ function TeachingJournal() {
 }
 
 function AIAssistant({ lessons, classContext, classLabel }) {
-  const lesson=lessons[0];
+  // FIX — this used to hard-pick lessons[0] with no way to change it, so
+  // the assistant could silently be answering about the wrong chapter with
+  // no indication why. A visible picker replaces the blind guess.
+  const [lessonId,setLessonId]=useState(lessons[0]?.id||"");
+  const lesson=lessons.find((l)=>l.id===lessonId)||null;
   const chapterTitle=lesson?.chapters?.title||lesson?.chapter_title||"";
   const [messages,setMessages]=useState([{role:"ai",text:lesson?`नमस्ते! म "${lesson.title}" पाठ, ट्याग गरिएका सामग्री, र पाठ्यपुस्तकबाट उत्तर दिन्छु। तलका छिटो प्रश्न थिच्नुहोस्।`:"नमस्ते! पहिले पाठ योजनामा एउटा पाठ थप्नुहोस्।"}]);
   const [input,setInput]=useState("");
@@ -1455,6 +1717,12 @@ function AIAssistant({ lessons, classContext, classLabel }) {
   const bottomRef=useRef(null);
   const QUICK=["आजको पाठ बुझाउनुहोस्","उद्देश्यहरू देखाउनुहोस्","मुख्य प्रश्नहरू दिनुहोस्","क्रियाकलाप सुझाव दिनुहोस्","गृहकार्य के दिने?","शब्दावली सूची देखाउनुहोस्","मूल्याङ्कन कसरी गर्ने?"];
   useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:"smooth"});},[messages]);
+  // NEW — switching lessons mid-conversation resets the chat with a fresh
+  // greeting for the newly-picked lesson, so old answers about a different
+  // chapter don't linger and get mistaken for being about the new one.
+  useEffect(()=>{
+    setMessages([{role:"ai",text:lesson?`नमस्ते! म "${lesson.title}" पाठ, ट्याग गरिएका सामग्री, र पाठ्यपुस्तकबाट उत्तर दिन्छु। तलका छिटो प्रश्न थिच्नुहोस्।`:"नमस्ते! पहिले पाठ योजनामा एउटा पाठ थप्नुहोस्।"}]);
+  },[lessonId]);
   useEffect(()=>{
     if(chapterTitle){
       db.getChapterIdByTitle(chapterTitle,classLabel).then((id)=>{
@@ -1479,7 +1747,12 @@ function AIAssistant({ lessons, classContext, classLabel }) {
     <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 170px)",maxWidth:720,margin:"0 auto",width:"100%"}}>
       <div style={{padding:"14px 16px 8px"}}>
         <div style={{fontSize:19,fontWeight:700,color:INK,display:"flex",alignItems:"center",gap:8}}><Bot size={20} color={ACCENT}/>AI शिक्षण सहायक</div>
-        <div style={{display:"flex",alignItems:"center",gap:5,fontSize:15,color:INK_SOFT,marginTop:3,flexWrap:"wrap"}}>
+        {lessons.length>0&&(
+          <select value={lessonId} onChange={(e)=>setLessonId(e.target.value)} style={{marginTop:6,width:"100%",borderRadius:10,padding:"8px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontWeight:600,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}>
+            {lessons.map((l)=><option key={l.id} value={l.id}>{l.chapters?.title||l.chapter_title?`${l.chapters?.title||l.chapter_title} — `:""}{l.title}</option>)}
+          </select>
+        )}
+        <div style={{display:"flex",alignItems:"center",gap:5,fontSize:15,color:INK_SOFT,marginTop:6,flexWrap:"wrap"}}>
           <Zap size={11} color={MARIGOLD}/>Google Gemini AI · {getTextbookPDF()?"पाठ्यपुस्तक लोड भएको ✓":"पाठ्यपुस्तक लोड भएको छैन (सेटिङमा अपलोड गर्नुहोस्)"}
           {chapterTitle&&<span>· "{chapterTitle}" का {matchedCount} सामग्री</span>}
         </div>
@@ -1554,7 +1827,12 @@ function QuestionBank({ chapters, onAddChapter, classContext, classLabel }) {
       setMatchedCount(ctx.matchedCount||0);
       const results=await gemini.generateQuestions(form.chapter_title,ctx,classContext);
       if(results?.length){
-        for(const q of results)await db.upsertQuestion({text:q.text,type:q.type||"छोटो उत्तर",difficulty:q.difficulty||"सजिलो",bloom_level:q.bloom||"सम्झना",chapter_title:form.chapter_title,options:q.options||[],correct_option:q.correct_option??null});
+        // FIX — resolve the real chapter_id once, before the loop, and save
+        // it on every generated question. Previously only chapter_title
+        // (free text) was saved, so these never actually showed up as
+        // "linked" to the chapter anywhere else in the app.
+        const chapter_id=await resolveChapterId(form.chapter_title,classLabel);
+        for(const q of results)await db.upsertQuestion({text:q.text,type:q.type||"छोटो उत्तर",difficulty:q.difficulty||"सजिलो",bloom_level:q.bloom||"सम्झना",chapter_title:form.chapter_title,chapter_id,options:q.options||[],correct_option:q.correct_option??null});
         load();setShowForm(false);
       }else setError("प्रश्न बनाउन सकिएन।");
     }catch(e){setError("AI त्रुटि: "+e.message);}
@@ -1564,7 +1842,8 @@ function QuestionBank({ chapters, onAddChapter, classContext, classLabel }) {
   const save=async()=>{
     if(!form.text.trim()){setError("प्रश्न लेख्नुहोस्।");return;}
     setSaving(true);
-    await db.upsertQuestion({text:form.text,type:form.type,difficulty:form.difficulty,bloom_level:form.bloom,chapter_title:form.chapter_title,options:form.options?form.options.split("\n").filter(Boolean):[],correct_option:form.answer?parseInt(form.answer)-1:null});
+    const chapter_id=await resolveChapterId(form.chapter_title,classLabel);
+    await db.upsertQuestion({text:form.text,type:form.type,difficulty:form.difficulty,bloom_level:form.bloom,chapter_title:form.chapter_title,chapter_id,options:form.options?form.options.split("\n").filter(Boolean):[],correct_option:form.answer?parseInt(form.answer)-1:null});
     setSaving(false);setShowForm(false);setForm({text:"",type:"छोटो उत्तर",difficulty:"सजिलो",bloom:"सम्झना",chapter_title:"",options:"",answer:""});load();
   };
 
@@ -1687,7 +1966,13 @@ function AssessmentBuilder({ chapters, onAddChapter, classContext, classLabel })
   const save=async()=>{
     if(!form.title.trim())return;setSaving(true);
     const rubric=form.rubric_text?form.rubric_text.split("\n").filter(Boolean).map((line)=>{const[level,...rest]=line.split(":");return{level:level.trim(),desc:rest.join(":").trim()};}):[];
-    await db.upsertAssessment({title:form.title,type:form.type,rubric,due_date:form.due_date||null,status:"pending"});
+    // FIX — chapter_title was previously dropped entirely here, so an
+    // assessment could never be linked to a chapter at all, even though the
+    // form has a chapter picker for it. (Note: unlike Lessons/Questions/
+    // Activities, assessments join on `lessons`, not `chapters` — see
+    // getAssessments in db.js — so we save chapter_title only, matching the
+    // column this table actually has.)
+    await db.upsertAssessment({title:form.title,type:form.type,rubric,due_date:form.due_date||null,status:"pending",chapter_title:form.chapter_title});
     setSaving(false);setShowForm(false);setForm({title:"",type:"observation",rubric_text:"",due_date:"",chapter_title:""});load();
   };
 
@@ -1778,13 +2063,22 @@ function ActivitiesLibrary({ chapters, onAddChapter, classContext, classLabel })
       const ctx=await getMaterialContext(form.chapter_title,classLabel);
       setMatchedCount(ctx.matchedCount||0);
       const results=await gemini.generateActivities(form.chapter_title,ctx,classContext);
-      if(results?.length){for(const a of results)await db.upsertActivity({title:a.title,type:a.type||"game",duration:a.duration,competency:a.competency,description:a.description,chapter_title:form.chapter_title});load();setShowForm(false);}
+      if(results?.length){
+        const chapter_id=await resolveChapterId(form.chapter_title,classLabel);
+        for(const a of results)await db.upsertActivity({title:a.title,type:a.type||"game",duration:a.duration,competency:a.competency,description:a.description,chapter_title:form.chapter_title,chapter_id});
+        load();setShowForm(false);
+      }
       else setError("क्रियाकलाप बनाउन सकिएन।");
     }catch(e){setError("AI त्रुटि: "+e.message);}
     setGenerating(false);
   };
 
-  const save=async()=>{if(!form.title.trim())return;setSaving(true);await db.upsertActivity({...form});setSaving(false);setShowForm(false);setForm({title:"",type:"game",competency:"",duration:"",description:"",chapter_title:""});load();};
+  const save=async()=>{
+    if(!form.title.trim())return;setSaving(true);
+    const chapter_id=await resolveChapterId(form.chapter_title,classLabel);
+    await db.upsertActivity({...form,chapter_id});
+    setSaving(false);setShowForm(false);setForm({title:"",type:"game",competency:"",duration:"",description:"",chapter_title:""});load();
+  };
   const filtered=typeFilter==="सबै"?activities:activities.filter((a)=>a.type===typeFilter);
 
   return(<>
@@ -1872,8 +2166,15 @@ const resourceTemplateMeta=(id)=>RESOURCE_TEMPLATES.find((t)=>t.id===id)||{title
 // Assessment, Resources) behind one nav item with internal tabs, instead of
 // four separate items cluttering the "थप" menu. Same screens underneath,
 // just fewer places to hunt for them.
-function AITools({ lessons, chapters, onAddChapter, classContext, classLabel }) {
+function AITools({ lessons, chapters, onAddChapter, classContext, classLabel, initialTab, onInitialTabConsumed }) {
   const [tab,setTab]=useState("questions");
+  // NEW — arriving here from a Search result: jump straight to the
+  // relevant sub-tab instead of always opening on Question Bank.
+  useEffect(()=>{
+    if(!initialTab)return;
+    setTab(initialTab);
+    onInitialTabConsumed?.();
+  },[initialTab,onInitialTabConsumed]);
   const TABS=[
     {id:"questions",label:"प्रश्न बैंक",icon:HelpCircle,color:VIOLET,bg:VIOLET_LIGHT},
     {id:"activities",label:"क्रियाकलाप",icon:Gamepad2,color:TEAL,bg:TEAL_LIGHT},
@@ -2007,7 +2308,7 @@ function SavedResources() {
   );
 }
 
-function DocumentSearch({ lessons, homework, classLabel }) {
+function DocumentSearch({ lessons, homework, classLabel, onOpenLesson, onGoMaterials, onGoAITools, onGoHomework }) {
   const [query,setQuery]=useState("");
   const [allQuestions,setAllQuestions]=useState([]);
   const [allActivities,setAllActivities]=useState([]);
@@ -2017,16 +2318,18 @@ function DocumentSearch({ lessons, homework, classLabel }) {
     db.getActivities().then(({data})=>setAllActivities(data||[]));
     db.getMaterials(classLabel).then(({data})=>setAllMaterials(data||[]));
   },[classLabel]);
+  // FIX — results were pure display, tapping one did nothing. Each result
+  // now knows how to jump to where it actually lives.
   const results=useMemo(()=>{
     const q=query.trim().toLowerCase();if(!q)return[];
     return[
-      ...lessons.filter((l)=>l.title?.toLowerCase().includes(q)||(l.objectives||[]).some((o)=>o.toLowerCase().includes(q))).map((l)=>({kind:"पाठ",title:l.title,sub:l.chapters?.title||l.chapter_title||"",icon:ClipboardList,color:ACCENT})),
-      ...allMaterials.filter((m)=>m.name?.toLowerCase().includes(q)||m.chapters?.title?.toLowerCase().includes(q)).map((m)=>({kind:"सामग्री",title:m.name,sub:(m.chapters?.title?m.chapters.title+" · ":"")+(m.file_type?.toUpperCase()||""),icon:FileText,color:DANGER})),
-      ...allQuestions.filter((qq)=>qq.text?.toLowerCase().includes(q)).map((qq)=>({kind:"प्रश्न",title:qq.text,sub:qq.type+" · "+qq.difficulty,icon:HelpCircle,color:"#6B3FA0"})),
-      ...allActivities.filter((a)=>a.title?.toLowerCase().includes(q)||a.description?.toLowerCase().includes(q)).map((a)=>({kind:"क्रियाकलाप",title:a.title,sub:a.chapter_title||"",icon:Gamepad2,color:"#1B7A4A"})),
-      ...homework.filter((h)=>h.title?.toLowerCase().includes(q)).map((h)=>({kind:"गृहकार्य",title:h.title,sub:`${h.checked_count}/${h.total_students}`,icon:ListChecks,color:WARN})),
+      ...lessons.filter((l)=>l.title?.toLowerCase().includes(q)||(l.objectives||[]).some((o)=>o.toLowerCase().includes(q))).map((l)=>({kind:"पाठ",title:l.title,sub:l.chapters?.title||l.chapter_title||"",icon:ClipboardList,color:ACCENT,onClick:()=>onOpenLesson?.(l)})),
+      ...allMaterials.filter((m)=>m.name?.toLowerCase().includes(q)||m.chapters?.title?.toLowerCase().includes(q)).map((m)=>({kind:"सामग्री",title:m.name,sub:(m.chapters?.title?m.chapters.title+" · ":"")+(m.file_type?.toUpperCase()||""),icon:FileText,color:DANGER,onClick:onGoMaterials})),
+      ...allQuestions.filter((qq)=>qq.text?.toLowerCase().includes(q)).map((qq)=>({kind:"प्रश्न",title:qq.text,sub:qq.type+" · "+qq.difficulty,icon:HelpCircle,color:"#6B3FA0",onClick:()=>onGoAITools?.("questions")})),
+      ...allActivities.filter((a)=>a.title?.toLowerCase().includes(q)||a.description?.toLowerCase().includes(q)).map((a)=>({kind:"क्रियाकलाप",title:a.title,sub:a.chapter_title||"",icon:Gamepad2,color:"#1B7A4A",onClick:()=>onGoAITools?.("activities")})),
+      ...homework.filter((h)=>h.title?.toLowerCase().includes(q)).map((h)=>({kind:"गृहकार्य",title:h.title,sub:`${h.checked_count}/${h.total_students}`,icon:ListChecks,color:WARN,onClick:onGoHomework})),
     ];
-  },[query,lessons,allMaterials,allQuestions,allActivities,homework]);
+  },[query,lessons,allMaterials,allQuestions,allActivities,homework,onOpenLesson,onGoMaterials,onGoAITools,onGoHomework]);
   return(
     <div style={{padding:"20px 20px 130px",maxWidth:820,margin:"0 auto"}}>
       <div style={{fontSize:20,fontWeight:700,color:INK,marginBottom:4}}>सबैतिर खोज</div>
@@ -2037,7 +2340,7 @@ function DocumentSearch({ lessons, homework, classLabel }) {
       {!query.trim()?<EmptyState icon={Search} text="टाइप गर्नुहोस्..."/>:results.length===0?<EmptyState icon={Search} text={`"${query}" फेला परेन।`}/>:(
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           <div style={{fontSize:15.5,color:INK_SOFT,marginBottom:4}}>{results.length} परिणाम</div>
-          {results.map((r,i)=>{const Icon=r.icon;return<Card key={i} accentColor={r.color} style={{display:"flex",gap:10,alignItems:"center",paddingTop:22,position:"relative",overflow:"visible"}}><PinBadge color={r.color}/><div style={{width:36,height:36,borderRadius:8,background:tint(r.color,16),display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={17} color={r.color}/></div><div style={{flex:1,minWidth:0}}><div style={{fontSize:14,color:r.color,fontWeight:700,marginBottom:2}}>{r.kind}</div><div style={{fontSize:16.5,color:INK,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.title}</div>{r.sub&&<div style={{fontSize:15,color:INK_SOFT}}>{r.sub}</div>}</div></Card>;})}
+          {results.map((r,i)=>{const Icon=r.icon;return<Card key={i} onClick={r.onClick} accentColor={r.color} style={{display:"flex",gap:10,alignItems:"center",paddingTop:22,position:"relative",overflow:"visible",cursor:r.onClick?"pointer":"default"}}><PinBadge color={r.color}/><div style={{width:36,height:36,borderRadius:8,background:tint(r.color,16),display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={17} color={r.color}/></div><div style={{flex:1,minWidth:0}}><div style={{fontSize:14,color:r.color,fontWeight:700,marginBottom:2}}>{r.kind}</div><div style={{fontSize:16.5,color:INK,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.title}</div>{r.sub&&<div style={{fontSize:15,color:INK_SOFT}}>{r.sub}</div>}</div>{r.onClick&&<ChevronRight size={17} color={INK_SOFT} style={{flexShrink:0}}/>}</Card>;})}
         </div>
       )}
     </div>
@@ -2098,7 +2401,7 @@ function CalendarView({ lessons, homework }) {
   );
 }
 
-function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, installPrompt, isStandalone, isIOS, onInstall, classLabel, subjectLabel, onClassChange, onSubjectChange, teacherName, onTeacherNameChange }) {
+function Settings({ session, sections, currentSection, onSectionAdded, onSectionUpdated, onSectionDeleted, theme, onToggleTheme, installPrompt, isStandalone, isIOS, onInstall, classLabel, subjectLabel, onClassChange, onSubjectChange, teacherName, onTeacherNameChange }) {
   const [nameDraft,setNameDraft]=useState(teacherName);
   const [nameMsg,setNameMsg]=useState("");
   const [classDraft,setClassDraft]=useState(classLabel);
@@ -2107,6 +2410,7 @@ function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, ins
   const [name,setName]=useState("");
   const [saving,setSaving]=useState(false);
   const [msg,setMsg]=useState("");
+  const [sectionMsg,setSectionMsg]=useState("");
   const [repairing,setRepairing]=useState(false);
   const [repairProgress,setRepairProgress]=useState({});
   const [repairResult,setRepairResult]=useState(null);
@@ -2114,6 +2418,18 @@ function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, ins
     setRepairing(true);setRepairResult(null);
     const result=await db.repairMaterialContentTypes((p)=>setRepairProgress(p));
     setRepairing(false);setRepairResult(result);
+  };
+  // NEW — backfills chapter_id on lessons/questions/activities saved before
+  // the tagging fix (see repairChapterTagging in db.js). One click fixes
+  // every old lesson plan / question / activity that was only ever linked
+  // to its chapter by a loose typed name.
+  const [tagRepairing,setTagRepairing]=useState(false);
+  const [tagRepairProgress,setTagRepairProgress]=useState({});
+  const [tagRepairResult,setTagRepairResult]=useState(null);
+  const runTagRepair=async()=>{
+    setTagRepairing(true);setTagRepairResult(null);
+    const result=await db.repairChapterTagging((p)=>setTagRepairProgress(p));
+    setTagRepairing(false);setTagRepairResult(result);
   };
   const [uploading,setUploading]=useState(false);
   const [pdfLoaded,setPdfLoaded]=useState(!!getTextbookPDF());
@@ -2139,12 +2455,41 @@ function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, ins
   };
 
   const addSection=async()=>{
-    if(!name.trim())return;setSaving(true);
+    if(!name.trim())return;
+    // NEW — nothing previously stopped adding the same section twice
+    // (easy to do by accident on a slow connection with a double-tap).
+    if(sections.some((s)=>s.name.trim().toLowerCase()===name.trim().toLowerCase())){
+      setSectionMsg("यो नामको सेक्सन पहिल्यै छ।");setTimeout(()=>setSectionMsg(""),2500);return;
+    }
+    setSaving(true);
     const{data,error}=await db.createSection(name.trim());
     setSaving(false);
-    if(error){setMsg("त्रुटि: "+error.message);return;}
-    onSectionAdded(data);setName("");setMsg(`"${data.name}" थपियो!`);
-    setTimeout(()=>setMsg(""),2000);
+    if(error){setSectionMsg("त्रुटि: "+error.message);return;}
+    onSectionAdded(data);setName("");setSectionMsg(`"${data.name}" थपियो!`);
+    setTimeout(()=>setSectionMsg(""),2000);
+  };
+
+  // NEW — sections could only ever be added, never renamed or deleted
+  // (same gap chapters had before that got fixed). Deleting un-assigns
+  // rather than deletes any lesson/homework scoped to it — see
+  // deleteSection in db.js.
+  const [editingSectionId,setEditingSectionId]=useState(null);
+  const [sectionEditValue,setSectionEditValue]=useState("");
+  const [sectionBusy,setSectionBusy]=useState(null);
+  const renameSection=async(s)=>{
+    const newName=sectionEditValue.trim();
+    if(!newName||newName===s.name){setEditingSectionId(null);return;}
+    setSectionBusy(s.id);
+    const{data,error}=await db.renameSection(s.id,newName);
+    setSectionBusy(null);setEditingSectionId(null);
+    if(!error)onSectionUpdated(data);
+  };
+  const deleteSectionHandler=async(s)=>{
+    if(!confirm(`"${s.name}" सेक्सन मेटाउने? यसमा भएका पाठ/गृहकार्य कुनै सेक्सनमा नराखिने छन् (मेटिने छैनन्)।`))return;
+    setSectionBusy(s.id);
+    const{error}=await db.deleteSection(s.id);
+    setSectionBusy(null);
+    if(!error)onSectionDeleted(s.id);
   };
 
   const uploadTextbook=async(e)=>{
@@ -2162,6 +2507,7 @@ function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, ins
   };
 
   const clearTextbookHandler=async()=>{
+    if(!confirm("पाठ्यपुस्तक PDF हटाउने? यसपछि AI ले यो पाठ्यपुस्तकबाट सामग्री बनाउन सक्दैन (छुट्टै ट्याग गरिएका सामग्री फाइलमा भने असर पर्दैन)।"))return;
     await gemini.clearTextbook(classLabel);
     window.__textbookPDF__=null;
     setPdfLoaded(false);
@@ -2248,6 +2594,15 @@ function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, ins
       </Card>
 
       <Card style={{marginBottom:14}}>
+        <SectionLabel icon={Tag} color={ACCENT}>अध्याय ट्यागिङ मर्मत</SectionLabel>
+        <div style={{fontSize:16,color:INK_SOFT,marginBottom:12,lineHeight:1.5}}>यो अपडेट अघि बनाइएका पाठ योजना, प्रश्न र क्रियाकलापहरू आफ्नो अध्यायसँग ठ्याक्कै जोडिएका नहुन सक्छन् (केवल नाम टाइप गरिएको थियो, वास्तविक जडान थिएन)। यो बटनले तिनीहरूलाई अहिले नै सही अध्यायसँग जोड्छ — नयाँ पाठ/प्रश्न/क्रियाकलापलाई असर गर्दैन, तिनीहरू पहिल्यै सही तरिकाले जोडिन्छन्।</div>
+        <button onClick={runTagRepair} disabled={tagRepairing} style={{display:"flex",alignItems:"center",gap:8,background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontWeight:700,fontSize:16.5,cursor:tagRepairing?"default":"pointer"}}>
+          {tagRepairing?<><Spinner small/>मर्मत गर्दै... {tagRepairProgress.current?`(${tagRepairProgress.current})`:""}</>:<><Tag size={16}/>पुरानो ट्यागिङ मर्मत गर्नुहोस्</>}
+        </button>
+        {tagRepairResult&&<div style={{marginTop:10,fontSize:16,color:ACCENT,fontWeight:600}}>✓ {tagRepairResult.fixed} जडान भयो{tagRepairResult.failed>0?`, ${tagRepairResult.failed} असफल भयो`:""}</div>}
+      </Card>
+
+      <Card style={{marginBottom:14}}>
         <SectionLabel icon={User} color={VIOLET}>खाता</SectionLabel>
         <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
           <div style={{width:46,height:46,borderRadius:"50%",background:ACCENT,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18.5,fontWeight:700,flexShrink:0}}>{(teacherName?.[0]||session?.user?.email?.[0]||"श").toUpperCase()}</div>
@@ -2261,18 +2616,37 @@ function Settings({ session, sections, onSectionAdded, theme, onToggleTheme, ins
           <button onClick={saveName} style={{background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontWeight:700,fontSize:16.5,cursor:"pointer"}}>सुरक्षित</button>
         </div>
         {nameMsg&&<div style={{marginBottom:10,fontSize:15,color:ACCENT,fontWeight:600}}>{nameMsg}</div>}
-        <button onClick={()=>db.signOut()} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"10px",borderRadius:10,border:`1px solid ${DANGER_BG}`,background:DANGER_BG,color:DANGER,fontWeight:700,fontSize:16.5,cursor:"pointer"}}><LogOut size={15}/>लगआउट</button>
+        <button onClick={()=>{if(confirm("लगआउट गर्ने?"))db.signOut();}} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"10px",borderRadius:10,border:`1px solid ${DANGER_BG}`,background:DANGER_BG,color:DANGER,fontWeight:700,fontSize:16.5,cursor:"pointer"}}><LogOut size={15}/>लगआउट</button>
       </Card>
 
       <Card style={{marginBottom:14}}>
         <SectionLabel icon={Layers} color={BLUE}>सेक्सनहरू</SectionLabel>
         <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:12}}>
-          {sections.length===0?<div style={{fontSize:16,color:INK_SOFT}}>कुनै सेक्सन छैन।</div>:sections.map((s,i)=><div key={s.id} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",background:SURFACE_2,borderRadius:8,borderLeft:`3px solid ${PALETTE[i%PALETTE.length]}`}}><div style={{width:8,height:8,borderRadius:"50%",background:PALETTE[i%PALETTE.length]}}/><div style={{fontSize:16.5,fontWeight:600,color:INK}}>{s.name}</div></div>)}
+          {sections.length===0?<div style={{fontSize:16,color:INK_SOFT}}>कुनै सेक्सन छैन।</div>:sections.map((s,i)=>(
+            <div key={s.id} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",background:SURFACE_2,borderRadius:8,borderLeft:`3px solid ${PALETTE[i%PALETTE.length]}`}}>
+              {editingSectionId===s.id?(
+                <>
+                  <input autoFocus value={sectionEditValue} onChange={(e)=>setSectionEditValue(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&renameSection(s)} className="ss-field" style={{flex:1,minWidth:0,borderRadius:8,padding:"7px 10px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE}}/>
+                  <button onClick={()=>renameSection(s)} disabled={sectionBusy===s.id} style={{background:ACCENT,color:"#fff",border:"none",borderRadius:8,padding:"7px 11px",fontWeight:700,fontSize:14.5,cursor:"pointer",flexShrink:0}}>✓</button>
+                  <button onClick={()=>setEditingSectionId(null)} style={{background:"none",border:"none",color:INK_SOFT,fontSize:14.5,cursor:"pointer",flexShrink:0}}>✕</button>
+                </>
+              ):(
+                <>
+                  <div style={{width:8,height:8,borderRadius:"50%",background:PALETTE[i%PALETTE.length],flexShrink:0}}/>
+                  <div style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:16.5,fontWeight:600,color:INK}}>{s.name}</div>
+                  {currentSection?.id===s.id&&<span style={{fontSize:13,background:ACCENT_LIGHT,color:ACCENT,padding:"2px 8px",borderRadius:999,fontWeight:700,flexShrink:0}}>सक्रिय</span>}
+                  <button onClick={()=>{setEditingSectionId(s.id);setSectionEditValue(s.name);}} disabled={sectionBusy===s.id} style={{background:"none",border:"none",color:INK_SOFT,cursor:"pointer",padding:4,flexShrink:0,display:"flex"}} title="नाम बदल्नुहोस्"><PenSquare size={15}/></button>
+                  <button onClick={()=>deleteSectionHandler(s)} disabled={sectionBusy===s.id} style={{background:"none",border:"none",color:DANGER,cursor:"pointer",padding:4,flexShrink:0,display:"flex"}} title="मेटाउनुहोस्"><Trash2 size={15}/></button>
+                </>
+              )}
+            </div>
+          ))}
         </div>
         <div style={{display:"flex",gap:8}}>
           <input value={name} onChange={(e)=>setName(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&addSection()} placeholder="नयाँ सेक्सन (जस्तै: कक्षा ५ ख)" className="ss-field" style={{flex:1,minWidth:0,borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,outline:"none"}}/>
           <button onClick={addSection} disabled={saving} style={{background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontWeight:700,fontSize:16.5,cursor:"pointer"}}>{saving?"...":"थप"}</button>
         </div>
+        {sectionMsg&&<div style={{marginTop:8,fontSize:15,color:sectionMsg.startsWith("त्रुटि")||sectionMsg.includes("पहिल्यै")?DANGER:ACCENT,fontWeight:600}}>{sectionMsg}</div>}
       </Card>
 
       <Card>
@@ -2288,6 +2662,29 @@ export default function App() {
   const [authLoading,setAuthLoading]=useState(true);
   const [screen,setScreen]=useState("dashboard");
   const [activeLesson,setActiveLesson]=useState(null);
+  const [activeLessonAutoPrint,setActiveLessonAutoPrint]=useState(false);
+  // NEW — lets a lesson be opened for editing from OUTSIDE the Planner
+  // screen (e.g. the "सम्पादन गर्नुहोस्" button inside the full-screen lesson
+  // viewer): we switch to the Planner tab and hand it this id, and Planner
+  // picks up editing from there. This is part of the interconnection fix —
+  // screens now hand off to each other instead of being dead ends.
+  const [editLessonId,setEditLessonId]=useState(null);
+  // NEW — lets the Dashboard's "chapter prepared" card jump straight to the
+  // Planner with that chapter already selected, instead of landing on an
+  // empty Planner and making the teacher re-pick/re-type the same chapter
+  // they just worked with.
+  const [prefillChapter,setPrefillChapter]=useState(null);
+  const goPlanner=useCallback((chapter)=>{setPrefillChapter(typeof chapter==="string"?chapter:null);setScreen("planner");},[]);
+  // NEW — lets Search results jump straight into the right AI Tools
+  // sub-tab (Question Bank / Activities / Assessment) instead of always
+  // landing on Question Bank and making the teacher click around to find
+  // what they searched for.
+  const [aiToolsTab,setAiToolsTab]=useState(null);
+  const goAITools=useCallback((tab)=>{setAiToolsTab(typeof tab==="string"?tab:null);setScreen("aitools");},[]);
+  // NEW — one-click print from the Planner list: open the lesson AND print
+  // it immediately, no second tap required.
+  const openLesson=useCallback((l,opts)=>{setActiveLesson(l);setActiveLessonAutoPrint(!!opts?.autoPrint);},[]);
+  const editLessonFromViewer=useCallback((l)=>{setActiveLesson(null);setEditLessonId(l.id);setScreen("planner");},[]);
   const [showMore,setShowMore]=useState(false);
   const [sections,setSections]=useState([]);
   const [currentSection,setCurrentSection]=useState(null);
@@ -2542,8 +2939,14 @@ export default function App() {
            buttons) disappears on paper; "ss-print-area" content expands to
            fill the page cleanly, in plain black-on-white regardless of
            dark mode. */
+        /* NEW — .print-only is the reverse of .no-print: invisible on
+           screen, and the ONLY thing shown for elements that use it once
+           printing actually starts. This is what makes "print the whole
+           plan" work — see the print-only block in LessonMode. */
+        .print-only{display:none;}
         @media print{
           .no-print{display:none !important;}
+          .print-only{display:block !important;}
           .main-content{margin-left:0 !important;padding-bottom:0 !important;}
           body,[data-theme]{background:#fff !important;color:#000 !important;}
           .ss-print-area{box-shadow:none !important;border:none !important;}
@@ -2589,16 +2992,16 @@ export default function App() {
       </div>
 
       <div className="main-content">
-        {screen==="dashboard"&&<HomeScreen onOpenLesson={setActiveLesson} onGoPlanner={()=>setScreen("planner")} onGoHomework={()=>setScreen("homework")} onGoMaterials={()=>setScreen("materials")} onGoAITools={()=>setScreen("aitools")} onGoSettings={()=>setScreen("settings")} section={currentSection} lessons={lessons} homework={homework} loading={lessonsLoading} chapters={chapters} teacherName={teacherName} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel}/>}
-        {screen==="planner"&&<Planner onOpenLesson={setActiveLesson} section={currentSection} lessons={lessons} loading={lessonsLoading} onRefresh={loadLessons} chapters={chapters} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel}/>}
+        {screen==="dashboard"&&<HomeScreen onOpenLesson={openLesson} onGoPlanner={goPlanner} onGoHomework={()=>setScreen("homework")} onGoMaterials={()=>setScreen("materials")} onGoAITools={goAITools} onGoSettings={()=>setScreen("settings")} section={currentSection} lessons={lessons} homework={homework} loading={lessonsLoading} chapters={chapters} teacherName={teacherName} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel}/>}
+        {screen==="planner"&&<Planner onOpenLesson={openLesson} section={currentSection} lessons={lessons} loading={lessonsLoading} onRefresh={loadLessons} chapters={chapters} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel} editLessonId={editLessonId} onEditConsumed={()=>setEditLessonId(null)} prefillChapter={prefillChapter} onPrefillConsumed={()=>setPrefillChapter(null)}/>}
         {screen==="materials"&&<Materials chapters={chapters} onAddChapter={addChapter} onChaptersChanged={loadChapters} classLabel={classLabel}/>}
         {screen==="ai"&&<AIAssistant lessons={lessons} classContext={classContext} classLabel={classLabel}/>}
         {screen==="homework"&&<HomeworkManager section={currentSection} loading={hwLoading} homework={homework} onRefresh={loadHomework}/>}
-        {screen==="journal"&&<TeachingJournal/>}
-        {screen==="aitools"&&<AITools lessons={lessons} chapters={chapters} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel}/>}
-        {screen==="search"&&<DocumentSearch lessons={lessons} homework={homework} classLabel={classLabel}/>}
+        {screen==="journal"&&<TeachingJournal lessons={lessons}/>}
+        {screen==="aitools"&&<AITools lessons={lessons} chapters={chapters} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel} initialTab={aiToolsTab} onInitialTabConsumed={()=>setAiToolsTab(null)}/>}
+        {screen==="search"&&<DocumentSearch lessons={lessons} homework={homework} classLabel={classLabel} onOpenLesson={openLesson} onGoMaterials={()=>setScreen("materials")} onGoAITools={goAITools} onGoHomework={()=>setScreen("homework")}/>}
         {screen==="calendar"&&<CalendarView lessons={lessons} homework={homework}/>}
-        {screen==="settings"&&<Settings session={session} sections={sections} onSectionAdded={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}} theme={theme} onToggleTheme={toggleTheme} installPrompt={installPrompt} isStandalone={isStandalone} isIOS={isIOS} onInstall={promptInstall} classLabel={classLabel} subjectLabel={subjectLabel} onClassChange={setClassLabel} onSubjectChange={setSubjectLabel} teacherName={teacherName} onTeacherNameChange={setTeacherName}/>}
+        {screen==="settings"&&<Settings session={session} sections={sections} currentSection={currentSection} onSectionAdded={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}} onSectionUpdated={(s)=>{setSections((prev)=>prev.map((x)=>x.id===s.id?s:x));if(currentSection?.id===s.id)setCurrentSection(s);}} onSectionDeleted={(id)=>{setSections((prev)=>prev.filter((x)=>x.id!==id));if(currentSection?.id===id)setCurrentSection(sections.find((x)=>x.id!==id)||null);}} theme={theme} onToggleTheme={toggleTheme} installPrompt={installPrompt} isStandalone={isStandalone} isIOS={isIOS} onInstall={promptInstall} classLabel={classLabel} subjectLabel={subjectLabel} onClassChange={setClassLabel} onSubjectChange={setSubjectLabel} teacherName={teacherName} onTeacherNameChange={setTeacherName}/>}
       </div>
 
       <div className="mobile-bottom-nav no-print" style={{position:"fixed",bottom:0,left:0,right:0,background:`color-mix(in srgb, ${SURFACE} 94%, transparent)`,backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",borderTop:`1px solid ${BORDER}`,justifyContent:"space-around",padding:"7px 6px calc(7px + env(safe-area-inset-bottom))",zIndex:10,boxShadow:"0 -6px 20px rgba(0,0,0,0.07)"}}>
@@ -2628,7 +3031,7 @@ export default function App() {
         </div>
       )}
 
-      {activeLesson&&<LessonMode lesson={activeLesson} onClose={()=>setActiveLesson(null)}/>}
+      {activeLesson&&<LessonMode lesson={activeLesson} onClose={()=>{setActiveLesson(null);setActiveLessonAutoPrint(false);}} onEdit={editLessonFromViewer} autoPrint={activeLessonAutoPrint}/>}
     </div>
   );
 }

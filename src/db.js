@@ -31,6 +31,22 @@ export const createSection = async (name) => {
   return { data, error };
 };
 
+// NEW — sections were add-only (no rename/delete), the same gap chapters
+// had before that was fixed. Deleting a section un-assigns (does not
+// delete) any lessons/homework that were scoped to it, same "clear the
+// tag, don't destroy the data" approach used when deleting a chapter.
+export const renameSection = async (id, name) => {
+  const { data, error } = await supabase.from("sections").update({ name }).eq("id", id).select().single();
+  return { data, error };
+};
+
+export const deleteSection = async (id) => {
+  await supabase.from("lessons").update({ section_id: null }).eq("section_id", id);
+  await supabase.from("homework").update({ section_id: null }).eq("section_id", id);
+  const { error } = await supabase.from("sections").delete().eq("id", id);
+  return { error };
+};
+
 // ─── CHAPTERS ────────────────────────────────────────────────────────────────
 // NEW — chapters are now scoped to `class_label` (e.g. "कक्षा ५" vs "कक्षा ६").
 // You teach one subject across all sections of a class, but the class itself
@@ -234,6 +250,45 @@ export const downloadMaterialFile = async (storagePath) => {
     .download(storagePath);
   if (error) throw error;
   return data; // Blob
+};
+
+// NEW — one-time repair for lessons/questions/activities saved before the
+// chapter tagging fix: those forms used to save only a free-typed
+// `chapter_title` and never set the real `chapter_id` foreign key, so old
+// rows are invisible to every chapter-based lookup (materials matching, AI
+// context, the chapter link counts). This walks each table, and for any
+// row that still has no chapter_id but does have a chapter_title, resolves
+// (or creates) the matching chapter and fills it in — same idea as
+// repairMaterialContentTypes above, just for tagging instead of file
+// previews. New/edited rows already save chapter_id correctly on their
+// own; this is only needed to backfill what's already in the database.
+export const repairChapterTagging = async (onProgress) => {
+  const tables = ["lessons", "questions", "activities"];
+  let fixed = 0, failed = 0, total = 0;
+  const cache = {}; // "title::classLabel" -> chapter_id, avoids re-resolving the same chapter repeatedly
+  for (const table of tables) {
+    const { data: rows, error } = await supabase
+      .from(table)
+      .select("id, chapter_title, chapter_id, class_label")
+      .is("chapter_id", null)
+      .not("chapter_title", "is", null);
+    if (error) { failed++; onProgress?.({ fixed, failed, total, current: `${table}: ${error.message}` }); continue; }
+    total += (rows || []).length;
+    for (const row of rows || []) {
+      const title = (row.chapter_title || "").trim();
+      if (!title) continue;
+      const key = `${title}::${row.class_label || ""}`;
+      try {
+        if (!(key in cache)) cache[key] = await getOrCreateChapterId(title, row.class_label || null);
+        const chapterId = cache[key];
+        if (!chapterId) { failed++; onProgress?.({ fixed, failed, total, current: `${table}: ${title}` }); continue; }
+        const { error: upErr } = await supabase.from(table).update({ chapter_id: chapterId }).eq("id", row.id);
+        if (upErr) failed++; else fixed++;
+      } catch { failed++; }
+      onProgress?.({ fixed, failed, total, current: `${table}: ${title}` });
+    }
+  }
+  return { fixed, failed, total, error: null };
 };
 
 // ─── QUESTIONS ───────────────────────────────────────────────────────────────
