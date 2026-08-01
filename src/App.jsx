@@ -90,9 +90,10 @@ const CATEGORY_META = {
   presentation:{ label: "प्रस्तुति",         icon: Presentation,  color: MARIGOLD_DARK },
   qa_solution: { label: "प्रश्नोत्तर समाधान", icon: HelpCircle,    color: VIOLET },
   exercise:    { label: "अभ्यास",            icon: PenSquare,     color: TEAL },
+  assessment:  { label: "मूल्याङ्कन",         icon: Layers,        color: ROSE },
   other:       { label: "अन्य",              icon: FileText,      color: INK_SOFT },
 };
-const CATEGORY_ORDER = ["lesson_plan","presentation","qa_solution","exercise","other"];
+const CATEGORY_ORDER = ["lesson_plan","presentation","qa_solution","exercise","assessment","other"];
 
 const MOOD_META = {
   good: { icon: Smile, color: ACCENT,    label: "राम्रो गयो"   },
@@ -579,6 +580,11 @@ function PrintableSheet({ title, subtitle, chip, chipColor, onClose, children })
 // tab was open.
 function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, teacherName }) {
   const [tab,setTab]=useState("sequence");
+  // NEW — vocabulary entries are stored as "शब्द: अर्थ" (word: meaning). This
+  // used to just print the whole string as one flat pill (word and meaning
+  // both always visible, taking up space and cluttering the row). Now only
+  // the word shows; tapping it reveals the meaning in a small popup.
+  const [vocabPopup,setVocabPopup]=useState(null);
   const tabs=[{id:"sequence",label:"पढाउने",icon:ClipboardList},{id:"questions",label:"प्रश्नहरू",icon:MessageSquare},{id:"activities",label:"क्रियाकलाप",icon:Users},{id:"homework",label:"गृहकार्य",icon:PenSquare},{id:"rubric",label:"मूल्याङ्कन",icon:Layers}];
   const objectives=lesson.objectives||[];
   const vocabulary=lesson.vocabulary||[];
@@ -611,7 +617,18 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, teacherNam
         <div className="no-print" style={{padding:"12px 16px 8px",background:SURFACE,borderBottom:`1px solid ${BORDER}`}}>
           <div style={{fontSize:15,color:INK_SOFT,marginBottom:5,fontWeight:600}}>आजको उद्देश्य</div>
           <ul style={{margin:0,paddingLeft:16,fontSize:16.5,color:INK,lineHeight:1.6}}>{objectives.map((o,i)=><li key={i}>{o}</li>)}</ul>
-          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>{vocabulary.map((v)=><span key={v} style={{background:WARN_BG,color:MARIGOLD_DARK,fontSize:15,fontWeight:600,padding:"3px 8px",borderRadius:6}}>{v}</span>)}</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>
+            {vocabulary.map((v)=>{
+              const idx=v.indexOf(":");
+              const word=idx>-1?v.slice(0,idx).trim():v.trim();
+              const meaning=idx>-1?v.slice(idx+1).trim():"";
+              return(
+                <button key={v} onClick={()=>meaning&&setVocabPopup({word,meaning})} style={{background:WARN_BG,color:MARIGOLD_DARK,fontSize:15,fontWeight:600,padding:"3px 8px",borderRadius:6,border:"none",display:"flex",alignItems:"center",gap:3,cursor:meaning?"pointer":"default"}}>
+                  {word}{meaning&&<HelpCircle size={11}/>}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
       <div className="no-print" style={{display:"flex",overflowX:"auto",background:SURFACE,borderBottom:`1px solid ${BORDER}`}}>
@@ -624,6 +641,16 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, teacherNam
         {tab==="homework"&&<div><SectionLabel icon={PenSquare} color={MARIGOLD_DARK}>दिने गृहकार्य</SectionLabel><Card><div style={{fontSize:17,color:INK,lineHeight:1.6}}>{lesson.homework||"गृहकार्य थपिएको छैन।"}</div></Card></div>}
         {tab==="rubric"&&<div><SectionLabel icon={Layers} color={ROSE}>मूल्याङ्कन मापदण्ड</SectionLabel>{rubric.length===0?<div style={{color:INK_SOFT}}>मूल्याङ्कन मापदण्ड थपिएको छैन।</div>:<div style={{display:"flex",flexDirection:"column",gap:8}}>{rubric.map((r,i)=>{const c=r.level==="उत्कृष्ट"?ACCENT:r.level==="सहयोग आवश्यक"?ROSE:MARIGOLD_DARK;return<Card key={i} accentColor={c}><div style={{fontWeight:700,color:c,fontSize:16.5,marginBottom:3}}>{r.level}</div><div style={{fontSize:16.5,color:INK}}>{r.desc}</div></Card>;})}</div>}</div>}
       </div>
+
+      {vocabPopup&&(
+        <div className="no-print" onClick={()=>setVocabPopup(null)} style={{position:"fixed",inset:0,zIndex:80,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.5)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",padding:20}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:16,padding:20,maxWidth:320,width:"100%",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`}}>
+            <div style={{fontSize:19,fontWeight:800,color:MARIGOLD_DARK,marginBottom:8}}>{vocabPopup.word}</div>
+            <div style={{fontSize:16.5,color:INK,lineHeight:1.6}}>{vocabPopup.meaning}</div>
+            <button onClick={()=>setVocabPopup(null)} style={{marginTop:16,width:"100%",padding:"10px",borderRadius:10,border:"none",background:ACCENT,color:"#fff",fontWeight:700,cursor:"pointer"}}>बुझें</button>
+          </div>
+        </div>
+      )}
 
       {/* print-only — the full plan, every section, always in this order,
           regardless of which tab was open on screen. Styled as a proper
@@ -1264,7 +1291,9 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
               </>
             )}
             <div style={{display:"flex",gap:8}}>
-              {["missing","prep","ready"].map((s)=><button key={s} onClick={()=>setForm({...form,status:s})} style={{flex:1,padding:"8px",borderRadius:10,border:`2px solid ${form.status===s?ACCENT:BORDER}`,background:form.status===s?ACCENT_LIGHT:SURFACE,cursor:"pointer"}}><StatusPill status={s}/></button>)}
+              {["missing","prep","ready"].map((s)=>{const meta=STATUS_META[s];const active=form.status===s;return(
+                <button key={s} onClick={()=>setForm({...form,status:s})} style={{flex:1,padding:"8px",borderRadius:10,border:`1.5px solid ${active?meta.color:`color-mix(in srgb, ${meta.color} 25%, ${BORDER})`}`,background:active?`color-mix(in srgb, ${meta.color} 14%, ${SURFACE})`:SURFACE,cursor:"pointer",boxShadow:active?`0 4px 10px color-mix(in srgb, ${meta.color} 25%, transparent)`:"none"}}><StatusPill status={s}/></button>
+              );})}
             </div>
             <div style={{display:"flex",gap:8}}>
               <button onClick={()=>{setShowForm(false);setForm(EMPTY_LESSON_FORM);setShowDetails(false);}} style={{flex:1,padding:"11px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer"}}>रद्द</button>
@@ -1306,8 +1335,9 @@ function CategoryPicker({ value, onChange }) {
       {CATEGORY_ORDER.map((key)=>{
         const meta=CATEGORY_META[key];const Icon=meta.icon;const active=value===key;
         return(
-          <button key={key} type="button" onClick={()=>onChange(key)} className="ss-chip" style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,padding:"10px 6px",borderRadius:12,border:`2px solid ${active?meta.color:BORDER}`,background:active?tint(meta.color,14):SURFACE,color:active?meta.color:INK_SOFT,fontWeight:700,fontSize:15,cursor:"pointer"}}>
-            <Icon size={17}/>{meta.label}
+          <button key={key} type="button" onClick={()=>onChange(key)} className="ss-chip" style={{display:"flex",flexDirection:"column",alignItems:"center",gap:7,padding:"12px 6px",borderRadius:14,border:`1.5px solid ${active?meta.color:`color-mix(in srgb, ${meta.color} 25%, ${BORDER})`}`,background:active?`color-mix(in srgb, ${meta.color} 14%, ${SURFACE})`:SURFACE,color:active?meta.color:INK,fontWeight:700,fontSize:15,cursor:"pointer",boxShadow:active?`0 6px 16px color-mix(in srgb, ${meta.color} 30%, transparent)`:SHADOW.sm}}>
+            <div style={{width:38,height:38,borderRadius:11,background:`linear-gradient(160deg, ${meta.color} 0%, color-mix(in srgb, ${meta.color} 70%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 10px color-mix(in srgb, ${meta.color} 40%, transparent)`}}><Icon size={18} color="#fff"/></div>
+            {meta.label}
           </button>
         );
       })}
@@ -1845,7 +1875,12 @@ function TeachingJournal({ lessons }) {
             <textarea placeholder="के गाह्रो भयो?" value={form.difficulty} onChange={(e)=>setForm({...form,difficulty:e.target.value})} rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
             <textarea placeholder="अर्को पटककालागि सुझाव" value={form.idea} onChange={(e)=>setForm({...form,idea:e.target.value})} rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
             <div style={{display:"flex",gap:8}}>
-              {Object.entries(MOOD_META).map(([key,m])=>{const Icon=m.icon;return<button key={key} onClick={()=>setForm({...form,mood:key})} style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:5,padding:"8px",borderRadius:10,border:form.mood===key?`2px solid ${m.color}`:`1px solid ${BORDER}`,background:form.mood===key?tint(m.color,15):SURFACE,color:m.color,fontSize:15,fontWeight:700,cursor:"pointer"}}><Icon size={13}/>{m.label}</button>;})}
+              {Object.entries(MOOD_META).map(([key,m])=>{const Icon=m.icon;const active=form.mood===key;return(
+                <button key={key} onClick={()=>setForm({...form,mood:key})} style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:7,padding:"7px 8px",borderRadius:11,border:`1.5px solid ${active?m.color:`color-mix(in srgb, ${m.color} 25%, ${BORDER})`}`,background:active?`color-mix(in srgb, ${m.color} 14%, ${SURFACE})`:SURFACE,color:active?m.color:INK,fontSize:15,fontWeight:700,cursor:"pointer",boxShadow:active?`0 4px 10px color-mix(in srgb, ${m.color} 30%, transparent)`:"none"}}>
+                  <div style={{width:22,height:22,borderRadius:7,background:`linear-gradient(160deg, ${m.color} 0%, color-mix(in srgb, ${m.color} 70%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={11} color="#fff"/></div>
+                  {m.label}
+                </button>
+              );})}
             </div>
             <div style={{display:"flex",gap:8}}>
               <button onClick={()=>setShowForm(false)} style={{flex:1,padding:"10px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer"}}>रद्द</button>
@@ -2166,7 +2201,12 @@ function AssessmentBuilder({ chapters, onAddChapter, classContext, classLabel })
             <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} chapters={chapters||[]} onAddChapter={onAddChapter} placeholder="— अध्याय छान्नुहोस् (AI का लागि) —"/>
             <MaterialAttach chapterTitle={form.chapter_title} classLabel={classLabel}/>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7}}>
-              {TYPES.map((t)=>{const Icon=t.icon;return<button key={t.id} onClick={()=>setForm({...form,type:t.id})} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"10px 6px",borderRadius:10,border:`2px solid ${form.type===t.id?ACCENT:BORDER}`,background:form.type===t.id?ACCENT_LIGHT:SURFACE,color:form.type===t.id?ACCENT:INK,fontWeight:600,fontSize:14.5,cursor:"pointer"}}><Icon size={15}/>{t.label}</button>;})}
+              {TYPES.map((t,i)=>{const Icon=t.icon;const c=PALETTE[i%PALETTE.length];const active=form.type===t.id;return(
+                <button key={t.id} onClick={()=>setForm({...form,type:t.id})} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6,padding:"11px 6px",borderRadius:12,border:`1.5px solid ${active?c:`color-mix(in srgb, ${c} 25%, ${BORDER})`}`,background:active?`color-mix(in srgb, ${c} 14%, ${SURFACE})`:SURFACE,color:active?c:INK,fontWeight:600,fontSize:14.5,cursor:"pointer",boxShadow:active?`0 6px 14px color-mix(in srgb, ${c} 30%, transparent)`:SHADOW.sm}}>
+                  <div style={{width:32,height:32,borderRadius:9,background:`linear-gradient(160deg, ${c} 0%, color-mix(in srgb, ${c} 70%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 3px 8px color-mix(in srgb, ${c} 40%, transparent)`}}><Icon size={15} color="#fff"/></div>
+                  {t.label}
+                </button>
+              );})}
             </div>
             <textarea placeholder={"मापदण्ड:\nउत्कृष्ट: ...\nराम्रो: ...\nसहयोग आवश्यक: ..."} value={form.rubric_text} onChange={(e)=>setForm({...form,rubric_text:e.target.value})} rows={4} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
             <input type="date" value={form.due_date} onChange={(e)=>setForm({...form,due_date:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
@@ -2274,7 +2314,12 @@ function ActivitiesLibrary({ chapters, onAddChapter, classContext, classLabel })
             <input placeholder="समय" value={form.duration} onChange={(e)=>setForm({...form,duration:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
             <textarea placeholder="विवरण" value={form.description} onChange={(e)=>setForm({...form,description:e.target.value})} rows={3} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
-              {TYPES.map((t)=>{const Icon=t.icon;return<button key={t.id} onClick={()=>setForm({...form,type:t.id})} style={{display:"flex",alignItems:"center",gap:6,padding:"9px 10px",borderRadius:10,border:`2px solid ${form.type===t.id?ACCENT:BORDER}`,background:form.type===t.id?ACCENT_LIGHT:SURFACE,color:form.type===t.id?ACCENT:INK,fontWeight:600,fontSize:15.5,cursor:"pointer"}}><Icon size={14}/>{t.label}</button>;})}
+              {TYPES.map((t,i)=>{const Icon=t.icon;const c=PALETTE[i%PALETTE.length];const active=form.type===t.id;return(
+                <button key={t.id} onClick={()=>setForm({...form,type:t.id})} style={{display:"flex",alignItems:"center",gap:7,padding:"7px 12px 7px 7px",borderRadius:11,border:`1.5px solid ${active?c:`color-mix(in srgb, ${c} 25%, ${BORDER})`}`,background:active?`color-mix(in srgb, ${c} 14%, ${SURFACE})`:SURFACE,color:active?c:INK,fontWeight:600,fontSize:15.5,cursor:"pointer",boxShadow:active?`0 4px 10px color-mix(in srgb, ${c} 30%, transparent)`:"none"}}>
+                  <div style={{width:24,height:24,borderRadius:7,background:`linear-gradient(160deg, ${c} 0%, color-mix(in srgb, ${c} 70%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={12} color="#fff"/></div>
+                  {t.label}
+                </button>
+              );})}
             </div>
             <div style={{display:"flex",gap:8}}>
               <button onClick={()=>setShowForm(false)} style={{flex:1,padding:"10px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer"}}>रद्द</button>
