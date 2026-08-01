@@ -205,7 +205,7 @@ function Card({ children, onClick, style, accentColor }) {
 }
 function SectionLabel({ children, icon:Icon, color }) {
   return (
-    <div style={{ display:"flex",alignItems:"center",gap:7, fontSize:16, letterSpacing:"0.06em", textTransform:"uppercase", color:INK_SOFT, marginBottom:11, fontWeight:700 }}>
+    <div style={{ display:"flex",alignItems:"center",gap:7, fontSize:16, letterSpacing:"0.06em", textTransform:"uppercase", color:`color-mix(in srgb, ${color||ACCENT} 45%, ${INK_SOFT})`, marginBottom:11, fontWeight:700 }}>
       {Icon&&<Icon size={14} color={color||ACCENT}/>}
       {children}
     </div>
@@ -384,7 +384,7 @@ function GetStartedCard({ chapters, materialsCount, lessons, onGoMaterials, onGo
 
   const Step=({ done, num, title, sub, onClick })=>(
     <div onClick={onClick} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 6px",cursor:onClick?"pointer":"default",opacity:done?0.55:1}}>
-      <div style={{width:28,height:28,borderRadius:"50%",background:done?ACCENT:WARN_BG,color:done?"#fff":"#7A6F3E",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:16,flexShrink:0}}>{done?"✓":num}</div>
+      <div style={{width:28,height:28,borderRadius:"50%",background:done?ACCENT:WARN_BG,color:done?"#fff":WARN,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:16,flexShrink:0}}>{done?"✓":num}</div>
       <div style={{flex:1}}>
         <div style={{fontSize:16.5,fontWeight:700,color:INK,textDecoration:done?"line-through":"none"}}>{title}</div>
         {sub&&<div style={{fontSize:15,color:INK_SOFT,marginTop:1}}>{sub}</div>}
@@ -618,7 +618,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, teacherNam
         {tabs.map((t)=>{const Icon=t.icon;const active=tab===t.id;return<button key={t.id} onClick={()=>setTab(t.id)} style={{display:"flex",alignItems:"center",gap:5,padding:"11px 12px",border:"none",background:"none",borderBottom:active?`3px solid ${ACCENT}`:"3px solid transparent",color:active?ACCENT:INK_SOFT,fontWeight:600,fontSize:16,cursor:"pointer",whiteSpace:"nowrap"}}><Icon size={15}/>{t.label}</button>;})}
       </div>
       <div className="no-print" style={{flex:1,overflowY:"auto",padding:16,maxWidth:720,margin:"0 auto",width:"100%"}}>
-        {tab==="sequence"&&(<div><SectionLabel icon={ClipboardList}>पढाउने क्रम</SectionLabel>{sequence.length===0?<div style={{color:INK_SOFT}}>पढाउने क्रम थपिएको छैन।</div>:(<ol style={{margin:0,paddingLeft:0,listStyle:"none"}}>{sequence.map((s,i)=>(<li key={i} style={{display:"flex",gap:12,padding:"12px 0",borderBottom:i<sequence.length-1?`1px solid ${BORDER}`:"none"}}><div style={{width:26,height:26,borderRadius:"50%",background:ACCENT_LIGHT,color:ACCENT,fontWeight:700,fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div><div style={{fontSize:17,color:INK,lineHeight:1.5,paddingTop:2}}>{s}</div></li>))}</ol>)}{lesson.notes&&<div style={{marginTop:14,background:WARN_BG,borderRadius:10,padding:12}}><div style={{fontSize:15,fontWeight:700,color:WARN,marginBottom:3}}>नोट</div><div style={{fontSize:16.5,color:"#5E4622"}}>{lesson.notes}</div></div>}</div>)}
+        {tab==="sequence"&&(<div><SectionLabel icon={ClipboardList}>पढाउने क्रम</SectionLabel>{sequence.length===0?<div style={{color:INK_SOFT}}>पढाउने क्रम थपिएको छैन।</div>:(<ol style={{margin:0,paddingLeft:0,listStyle:"none"}}>{sequence.map((s,i)=>(<li key={i} style={{display:"flex",gap:12,padding:"12px 0",borderBottom:i<sequence.length-1?`1px solid ${BORDER}`:"none"}}><div style={{width:26,height:26,borderRadius:"50%",background:ACCENT_LIGHT,color:ACCENT,fontWeight:700,fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div><div style={{fontSize:17,color:INK,lineHeight:1.5,paddingTop:2}}>{s}</div></li>))}</ol>)}{lesson.notes&&<div style={{marginTop:14,background:WARN_BG,borderRadius:10,padding:12}}><div style={{fontSize:15,fontWeight:700,color:WARN,marginBottom:3}}>नोट</div><div style={{fontSize:16.5,color:INK}}>{lesson.notes}</div></div>}</div>)}
         {tab==="questions"&&<div><SectionLabel icon={MessageSquare} color={VIOLET}>कक्षामा सोध्नुहोस्</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:8}}>{keyQuestions.length===0?<div style={{color:INK_SOFT}}>प्रश्नहरू थपिएका छैनन्।</div>:keyQuestions.map((q,i)=><Card key={i} accentColor={PALETTE[i%PALETTE.length]}><div style={{fontSize:17,color:INK}}>{q}</div></Card>)}</div></div>}
         {tab==="activities"&&<div><SectionLabel icon={Users} color={TEAL}>क्रियाकलापहरू</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:8}}>{activities.length===0?<div style={{color:INK_SOFT}}>क्रियाकलापहरू थपिएका छैनन्।</div>:activities.map((a,i)=><Card key={i} accentColor={PALETTE[i%PALETTE.length]}><div style={{fontSize:17,color:INK}}>{a}</div></Card>)}</div></div>}
         {tab==="homework"&&<div><SectionLabel icon={PenSquare} color={MARIGOLD_DARK}>दिने गृहकार्य</SectionLabel><Card><div style={{fontSize:17,color:INK,lineHeight:1.6}}>{lesson.homework||"गृहकार्य थपिएको छैन।"}</div></Card></div>}
@@ -911,7 +911,7 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, on
             </div>
             <div style={{fontSize:19.5,fontWeight:800,margin:"2px 0 12px",letterSpacing:"-0.01em",overflowWrap:"break-word"}}>{today.title}</div>
             {pickingToday?(
-              <div style={{background:"rgba(255,255,255,0.97)",borderRadius:12,padding:8,marginBottom:4,maxHeight:220,overflowY:"auto"}}>
+              <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:8,marginBottom:4,maxHeight:220,overflowY:"auto",boxShadow:SHADOW.lg}}>
                 {lessons.map((l)=>(
                   <div key={l.id} onClick={()=>chooseToday(l)} style={{padding:"9px 10px",borderRadius:8,cursor:"pointer",background:l.id===today.id?ACCENT_LIGHT:"transparent"}}>
                     <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:600}}>{l.chapters?.title||l.chapter_title||""}</div>
@@ -1445,8 +1445,7 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
     setUploading(false);setUploadProgress(null);load();e.target.value="";
   };
 
-  const deleteMat=async(mat,e)=>{
-    e.stopPropagation();
+  const deleteMat=async(mat)=>{
     if(!confirm(`"${mat.name}" मेटाउने?`))return;
     await db.deleteMaterial(mat.id,mat.storage_path);load();
   };
@@ -1490,8 +1489,7 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
   // NEW: tag (or re-tag) an already-uploaded material's chapter + category.
   // If it's a docx/pptx/xlsx uploaded before this feature existed and has
   // no extracted_text yet, re-download it and extract now.
-  const openTagEditor=(mat,e)=>{
-    e.stopPropagation();
+  const openTagEditor=(mat)=>{
     setTagging(mat);setTagValue(mat.chapters?.title||"");setTagCategory(mat.category||"other");setTagError("");
   };
 
@@ -1566,7 +1564,7 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
             <CategoryPicker value={uploadCategory} onChange={setUploadCategory}/>
           </div>
           <ChapterPicker value={uploadChapter} onChange={setUploadChapter} chapters={chapters||[]} onAddChapter={addChapterAndRefresh} placeholder="यो फाइल कुन अध्यायको हो? *"/>
-          <label className="ss-btn" style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:uploadChapter.trim()?`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`:"#D8D2C0",color:"#fff",border:"none",borderRadius:12,padding:"13px",fontSize:16.5,fontWeight:700,cursor:uploadChapter.trim()?"pointer":"not-allowed",boxShadow:uploadChapter.trim()?SHADOW.accent:"none"}}>
+          <label className="ss-btn" style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:uploadChapter.trim()?`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`:SURFACE_2,color:uploadChapter.trim()?"#fff":INK_SOFT,border:uploadChapter.trim()?"none":`1.5px solid ${BORDER}`,borderRadius:12,padding:"13px",fontSize:16.5,fontWeight:700,cursor:uploadChapter.trim()?"pointer":"not-allowed",boxShadow:uploadChapter.trim()?SHADOW.accent:"none"}}>
             <Plus size={16}/>{uploading?(uploadProgress?`अपलोड हुँदै... (${uploadProgress.current}/${uploadProgress.total})`:"अपलोड र प्रशोधन गर्दै..."):"फाइल(हरू) छान्नुहोस्"}
             <input type="file" multiple onChange={upload} disabled={!uploadChapter.trim()||uploading} style={{display:"none"}} accept=".pdf,.pptx,.ppt,.doc,.docx,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.mp4,.mp3"/>
           </label>
@@ -1649,32 +1647,39 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
             const catMeta=CATEGORY_META[f.category||"other"];const CatIcon=catMeta.icon;
             const needsExtraction=["doc","sheet","pptx"].includes(f.file_type);
             return(
-              <Card key={f.id} onClick={()=>openPreview(f)} accentColor={catMeta.color} style={{padding:14,paddingTop:46,position:"relative",overflow:"visible"}}>
+              <Card key={f.id} accentColor={catMeta.color} style={{padding:14,paddingTop:46,position:"relative",overflow:"visible"}}>
                 <PinBadge color={catMeta.color}/>
                 <div style={{position:"absolute",top:6,right:6,display:"flex",gap:2,zIndex:2}}>
-                  <button onClick={(e)=>openTagEditor(f,e)} style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,width:40,height:40,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:f.chapters?.title?ACCENT:"#C7A34A",boxShadow:SHADOW.sm}} title="अध्याय/प्रकार तोक्नुहोस्"><Tag size={18}/></button>
-                  <button onClick={(e)=>deleteMat(f,e)} style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,width:40,height:40,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:INK_SOFT,boxShadow:SHADOW.sm}}><Trash2 size={18}/></button>
+                  <button onClick={()=>openTagEditor(f)} style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,width:40,height:40,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:f.chapters?.title?ACCENT:"#C7A34A",boxShadow:SHADOW.sm}} title="अध्याय/प्रकार तोक्नुहोस्"><Tag size={18}/></button>
+                  <button onClick={()=>deleteMat(f)} style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,width:40,height:40,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:INK_SOFT,boxShadow:SHADOW.sm}}><Trash2 size={18}/></button>
                 </div>
-                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:9}}>
-                  <div style={{width:40,height:40,borderRadius:11,background:`linear-gradient(160deg, color-mix(in srgb, ${meta.color} 32%, transparent) 0%, color-mix(in srgb, ${meta.color} 14%, transparent) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 10px color-mix(in srgb, ${meta.color} 25%, transparent)`}}><Icon size={19} color={meta.color}/></div>
-                  <div style={{fontSize:13.5,background:tint(catMeta.color,15),color:catMeta.color,padding:"3px 9px",borderRadius:999,fontWeight:700,display:"flex",alignItems:"center",gap:4,border:`1px solid color-mix(in srgb, ${catMeta.color} 30%, transparent)`}}><CatIcon size={11}/>{catMeta.label}</div>
+                {/* FIX — onClick now lives only on this inner block, not on
+                    the Card. The tag/delete buttons above are a sibling
+                    with no shared clickable ancestor, so tapping them can
+                    never also trigger the preview modal — no reliance on
+                    stopPropagation timing at all. */}
+                <div onClick={()=>openPreview(f)} style={{cursor:"pointer"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:9}}>
+                    <div style={{width:40,height:40,borderRadius:11,background:`linear-gradient(160deg, color-mix(in srgb, ${meta.color} 32%, transparent) 0%, color-mix(in srgb, ${meta.color} 14%, transparent) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 10px color-mix(in srgb, ${meta.color} 25%, transparent)`}}><Icon size={19} color={meta.color}/></div>
+                    <div style={{fontSize:13.5,background:tint(catMeta.color,15),color:catMeta.color,padding:"3px 9px",borderRadius:999,fontWeight:700,display:"flex",alignItems:"center",gap:4,border:`1px solid color-mix(in srgb, ${catMeta.color} 30%, transparent)`}}><CatIcon size={11}/>{catMeta.label}</div>
+                  </div>
+                  <div style={{fontSize:16,fontWeight:700,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:4}}>{f.name}</div>
+                  <div style={{fontSize:14,color:INK_SOFT,marginBottom:6,fontWeight:600}}>{f.file_type?.toUpperCase()}</div>
+                  {f.chapters?.title?(
+                    <span style={{fontSize:13.5,background:ACCENT_LIGHT,color:ACCENT,padding:"3px 8px",borderRadius:999,fontWeight:700,display:"inline-block",maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",verticalAlign:"bottom"}}>{f.chapters.title}</span>
+                  ):(
+                    <span style={{fontSize:13.5,background:WARN_BG,color:WARN,padding:"3px 8px",borderRadius:999,fontWeight:700,display:"inline-block"}}>अध्याय छैन</span>
+                  )}
+                  {needsExtraction&&f.extraction_status==="done"&&<div style={{fontSize:13.5,color:ACCENT,marginTop:5,fontWeight:700}}>✓ AI तयार</div>}
+                  {needsExtraction&&f.extraction_status==="failed"&&<div style={{fontSize:13.5,color:DANGER,marginTop:5,fontWeight:700}}>⚠ टेक्स्ट निकाल्न सकिएन</div>}
                 </div>
-                <div style={{fontSize:16,fontWeight:700,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:4}}>{f.name}</div>
-                <div style={{fontSize:14,color:INK_SOFT,marginBottom:6,fontWeight:600}}>{f.file_type?.toUpperCase()}</div>
-                {f.chapters?.title?(
-                  <span style={{fontSize:13.5,background:ACCENT_LIGHT,color:ACCENT,padding:"3px 8px",borderRadius:999,fontWeight:700,display:"inline-block",maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",verticalAlign:"bottom"}}>{f.chapters.title}</span>
-                ):(
-                  <span style={{fontSize:13.5,background:WARN_BG,color:WARN,padding:"3px 8px",borderRadius:999,fontWeight:700,display:"inline-block"}}>अध्याय छैन</span>
-                )}
-                {needsExtraction&&f.extraction_status==="done"&&<div style={{fontSize:13.5,color:ACCENT,marginTop:5,fontWeight:700}}>✓ AI तयार</div>}
-                {needsExtraction&&f.extraction_status==="failed"&&<div style={{fontSize:13.5,color:DANGER,marginTop:5,fontWeight:700}}>⚠ टेक्स्ट निकाल्न सकिएन</div>}
               </Card>
             );
           })}
         </div>
       )}
       {preview&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.6)",zIndex:60,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setPreview(null)}>
+        <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.6)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)",zIndex:60,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setPreview(null)}>
           <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,padding:20,maxWidth:640,width:"100%",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:SHADOW.lg}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
               <div style={{fontSize:18,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",paddingRight:10}}>{preview.name}</div>
@@ -1706,7 +1711,7 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
         </div>
       )}
       {tagging&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.6)",zIndex:65,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setTagging(null)}>
+        <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.6)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)",zIndex:65,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setTagging(null)}>
           <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,padding:24,maxWidth:420,width:"100%",maxHeight:"85vh",overflowY:"auto",WebkitOverflowScrolling:"touch",boxShadow:SHADOW.lg}}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
               <div style={{fontSize:18,fontWeight:700}}>अध्याय र प्रकार तोक्नुहोस्</div>
@@ -2081,7 +2086,7 @@ function QuestionBank({ chapters, onAddChapter, classContext, classLabel }) {
       )}
     </div>
     {showSet&&(
-      <div className="print-area" style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.55)",zIndex:60,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={()=>setShowSet(false)}>
+      <div className="print-area" style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.55)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)",zIndex:60,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={()=>setShowSet(false)}>
         <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:"18px 18px 0 0",padding:22,maxWidth:600,width:"100%",maxHeight:"80vh",overflowY:"auto"}}>
           <div className="no-print" style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
             <div style={{fontSize:18,fontWeight:700}}>प्रश्न सेट ({selected.length})</div>
@@ -2491,8 +2496,8 @@ function DocumentSearch({ lessons, homework, classLabel, onOpenLesson, onGoMater
     return[
       ...lessons.filter((l)=>l.title?.toLowerCase().includes(q)||(l.objectives||[]).some((o)=>o.toLowerCase().includes(q))).map((l)=>({kind:"पाठ",title:l.title,sub:l.chapters?.title||l.chapter_title||"",icon:ClipboardList,color:ACCENT,onClick:()=>onOpenLesson?.(l)})),
       ...allMaterials.filter((m)=>m.name?.toLowerCase().includes(q)||m.chapters?.title?.toLowerCase().includes(q)).map((m)=>({kind:"सामग्री",title:m.name,sub:(m.chapters?.title?m.chapters.title+" · ":"")+(m.file_type?.toUpperCase()||""),icon:FileText,color:DANGER,onClick:onGoMaterials})),
-      ...allQuestions.filter((qq)=>qq.text?.toLowerCase().includes(q)).map((qq)=>({kind:"प्रश्न",title:qq.text,sub:qq.type+" · "+qq.difficulty,icon:HelpCircle,color:"#6B3FA0",onClick:()=>onGoAITools?.("questions")})),
-      ...allActivities.filter((a)=>a.title?.toLowerCase().includes(q)||a.description?.toLowerCase().includes(q)).map((a)=>({kind:"क्रियाकलाप",title:a.title,sub:a.chapter_title||"",icon:Gamepad2,color:"#1B7A4A",onClick:()=>onGoAITools?.("activities")})),
+      ...allQuestions.filter((qq)=>qq.text?.toLowerCase().includes(q)).map((qq)=>({kind:"प्रश्न",title:qq.text,sub:qq.type+" · "+qq.difficulty,icon:HelpCircle,color:VIOLET,onClick:()=>onGoAITools?.("questions")})),
+      ...allActivities.filter((a)=>a.title?.toLowerCase().includes(q)||a.description?.toLowerCase().includes(q)).map((a)=>({kind:"क्रियाकलाप",title:a.title,sub:a.chapter_title||"",icon:Gamepad2,color:TEAL,onClick:()=>onGoAITools?.("activities")})),
       ...homework.filter((h)=>h.title?.toLowerCase().includes(q)).map((h)=>({kind:"गृहकार्य",title:h.title,sub:`${h.checked_count}/${h.total_students}`,icon:ListChecks,color:WARN,onClick:onGoHomework})),
     ];
   },[query,lessons,allMaterials,allQuestions,allActivities,homework,onOpenLesson,onGoMaterials,onGoAITools,onGoHomework]);
@@ -2501,7 +2506,7 @@ function DocumentSearch({ lessons, homework, classLabel, onOpenLesson, onGoMater
       <div style={{fontSize:20,fontWeight:700,color:INK,marginBottom:4}}>सबैतिर खोज</div>
       <div style={{display:"flex",alignItems:"center",gap:8,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:14,padding:"12px 14px",marginBottom:14,marginTop:10}}>
         <Search size={17} color={INK_SOFT}/>
-        <input autoFocus value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:17,flex:1,minWidth:0,background:"transparent",color:INK,caretColor:ACCENT,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
+        <input autoFocus autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false" value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="खोज्नुहोस्..." style={{border:"none",outline:"none",boxShadow:"none",WebkitAppearance:"none",appearance:"none",fontSize:17,flex:1,minWidth:0,background:"transparent",color:INK,caretColor:ACCENT,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
       </div>
       {!query.trim()?<EmptyState icon={Search} text="टाइप गर्नुहोस्..."/>:results.length===0?<EmptyState icon={Search} text={`"${query}" फेला परेन।`}/>:(
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -3122,7 +3127,7 @@ export default function App() {
 
       <div className="no-print"><SectionSelector sections={sections} current={currentSection} onChange={setCurrentSection} onAdd={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}}/></div>
 
-      <div className="desktop-sidebar no-print" style={{position:"fixed",top:0,left:0,bottom:0,width:232,background:SURFACE,borderRight:`1px solid ${BORDER}`,flexDirection:"column",paddingTop:118,paddingLeft:12,paddingRight:12,zIndex:5,overflowY:"auto",gap:2}}>
+      <div className="desktop-sidebar no-print" style={{position:"fixed",top:0,left:0,bottom:0,width:232,background:`color-mix(in srgb, ${SURFACE} 90%, transparent)`,backdropFilter:"blur(14px)",WebkitBackdropFilter:"blur(14px)",borderRight:`1px solid ${BORDER}`,flexDirection:"column",paddingTop:118,paddingLeft:12,paddingRight:12,zIndex:5,overflowY:"auto",gap:2}}>
         {[...nav,...navMore].map((n)=>{const Icon=n.icon;const active=screen===n.id;return(
           <button key={n.id} onClick={()=>setScreen(n.id)} className="ss-btn" style={{display:"flex",alignItems:"center",gap:11,padding:"11px 14px",border:"none",background:active?`linear-gradient(135deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`:"transparent",color:active?"#fff":INK_SOFT,fontWeight:active?700:600,fontSize:16,cursor:"pointer",textAlign:"left",width:"100%",borderRadius:12,boxShadow:active?SHADOW.accent:"none"}}>
             <Icon size={18}/>{n.label}
