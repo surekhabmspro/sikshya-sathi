@@ -1,4 +1,5 @@
 // gemini.js — Google Gemini AI integration (free tier)
+import { supabase } from "./lib/supabase";
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
@@ -19,21 +20,35 @@ const openDB = () =>
 // teach changes year to year, even though the subject stays the same.
 const textbookKey = (classLabel) => `textbook_pdf::${classLabel || "default"}`;
 
-export const saveTextbook = async (base64, classLabel = null) => {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, "readwrite");
-    tx.objectStore(STORE_NAME).put(base64, textbookKey(classLabel));
-    tx.oncomplete = resolve;
-    tx.onerror = () => reject(tx.error);
-  });
+// FIX — the textbook used to live ONLY in this browser's IndexedDB, so it
+// never followed a teacher who opened the app on a second phone/computer —
+// they'd have to re-upload it there from scratch, with no indication why
+// the AI suddenly had no textbook to work from. It now saves to Supabase
+// Storage (the same "materials" bucket materials already use, under a
+// reserved `<teacher>/textbook/<class>.pdf` path — no new bucket or table
+// needed, and it reuses the same per-teacher storage policy that already
+// protects everything else in that bucket), so it's tied to the account,
+// not the device. IndexedDB is kept as a fast local cache and an offline
+// fallback, but Supabase is always the source of truth when reachable.
+const textbookStoragePath = (teacherId, classLabel) => `${teacherId}/textbook/${encodeURIComponent(classLabel || "default")}.pdf`;
+
+const cacheTextbookLocally = async (base64, classLabel) => {
+  try {
+    const idb = await openDB();
+    await new Promise((resolve, reject) => {
+      const tx = idb.transaction(STORE_NAME, "readwrite");
+      tx.objectStore(STORE_NAME).put(base64, textbookKey(classLabel));
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch { /* local cache is best-effort — Supabase Storage is what matters */ }
 };
 
-export const loadTextbook = async (classLabel = null) => {
+const loadTextbookFromCache = async (classLabel) => {
   try {
-    const db = await openDB();
-    return new Promise((resolve) => {
-      const req = db.transaction(STORE_NAME).objectStore(STORE_NAME).get(textbookKey(classLabel));
+    const idb = await openDB();
+    return await new Promise((resolve) => {
+      const req = idb.transaction(STORE_NAME).objectStore(STORE_NAME).get(textbookKey(classLabel));
       req.onsuccess = () => resolve(req.result || null);
       req.onerror = () => resolve(null);
     });
@@ -42,13 +57,52 @@ export const loadTextbook = async (classLabel = null) => {
   }
 };
 
+export const saveTextbook = async (base64, classLabel = null) => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("लगइन गरिएको छैन।");
+  const path = textbookStoragePath(user.id, classLabel);
+  // Convert base64 -> Blob for the storage upload (base64 is what the rest
+  // of the app already works with, since that's what Gemini needs inline).
+  const byteChars = atob(base64);
+  const bytes = new Uint8Array(byteChars.length);
+  for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+  const blob = new Blob([bytes], { type: "application/pdf" });
+  const { error } = await supabase.storage.from("materials").upload(path, blob, { contentType: "application/pdf", upsert: true });
+  if (error) throw error; // don't silently fall back to device-only storage — the teacher needs to know if sync failed
+  await cacheTextbookLocally(base64, classLabel); // best-effort speed/offline cache, not the source of truth
+};
+
+export const loadTextbook = async (classLabel = null) => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const path = textbookStoragePath(user.id, classLabel);
+      const { data: blob, error } = await supabase.storage.from("materials").download(path);
+      if (!error && blob) {
+        const base64 = await blobToBase64(blob);
+        cacheTextbookLocally(base64, classLabel); // refresh the local cache in the background
+        return base64;
+      }
+    }
+  } catch { /* offline or Supabase unreachable — fall through to local cache below */ }
+  // Fallback: no network, or nothing uploaded from this account yet but an
+  // older device-only copy exists locally.
+  return await loadTextbookFromCache(classLabel);
+};
+
 export const clearTextbook = async (classLabel = null) => {
-  const db = await openDB();
-  return new Promise((resolve) => {
-    const tx = db.transaction(STORE_NAME, "readwrite");
-    tx.objectStore(STORE_NAME).delete(textbookKey(classLabel));
-    tx.oncomplete = resolve;
-  });
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) await supabase.storage.from("materials").remove([textbookStoragePath(user.id, classLabel)]);
+  } catch { /* best-effort — still clear the local cache below either way */ }
+  try {
+    const idb = await openDB();
+    await new Promise((resolve) => {
+      const tx = idb.transaction(STORE_NAME, "readwrite");
+      tx.objectStore(STORE_NAME).delete(textbookKey(classLabel));
+      tx.oncomplete = resolve;
+    });
+  } catch { /* nothing to clear locally */ }
 };
 
 // ─── File utilities ───────────────────────────────────────────────────────────
@@ -202,14 +256,15 @@ export const generateLessonPlan = async (chapterTitle, ctx = null, classContext 
 यो ठ्याक्कै यो JSON संरचनामा मात्र जवाफ दिनुहोस्:
 {
   "objectives": ["उद्देश्य १","उद्देश्य २","उद्देश्य ३"],
-  "vocabulary": ["शब्द १","शब्द २","शब्द ३","शब्द ४","शब्द ५"],
+  "vocabulary": ["शब्द १: छोटो र सरल अर्थ","शब्द २: छोटो र सरल अर्थ","शब्द ३: छोटो र सरल अर्थ","शब्द ४: छोटो र सरल अर्थ","शब्द ५: छोटो र सरल अर्थ"],
   "sequence": ["चरण १","चरण २","चरण ३","चरण ४","चरण ५"],
   "key_questions": ["प्रश्न १?","प्रश्न २?","प्रश्न ३?"],
   "activities": ["क्रियाकलाप १","क्रियाकलाप २"],
   "homework": "गृहकार्य विवरण",
   "notes": "शिक्षकका लागि टिप्पणी",
   "rubric": [{"level":"उत्कृष्ट","desc":"विवरण"},{"level":"राम्रो","desc":"विवरण"},{"level":"सहयोग आवश्यक","desc":"विवरण"}]
-}`;
+}
+महत्त्वपूर्ण: "vocabulary" मा हरेक शब्दसँग अनिवार्य रूपमा छोटो अर्थ ":" चिन्हले छुट्याएर दिनुहोस् (जस्तै "अनुभूति: महसुस भएको कुरा")। शब्द वा अर्थमा अल्पविराम (,) कहिल्यै नराख्नुहोस्।`;
   const text = await runPromptJSON(prompt, ctx);
   const result = parseJSON(text);
   if (!result) {

@@ -1018,7 +1018,7 @@ function lessonToForm(l){
     id:l.id, title:l.title||"", status:l.status||"missing",
     chapter_title:l.chapters?.title||l.chapter_title||"",
     objectives:(l.objectives||[]).join("\n"),
-    vocabulary:(l.vocabulary||[]).join(", "),
+    vocabulary:(l.vocabulary||[]).join("; "),
     sequence:(l.sequence||[]).join("\n"),
     key_questions:(l.key_questions||[]).join("\n"),
     activities:(l.activities||[]).join("\n"),
@@ -1143,7 +1143,7 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
       if(result){
         setForm((prev)=>({...prev,
           objectives:(result.objectives||[]).join("\n"),
-          vocabulary:(result.vocabulary||[]).join(", "),
+          vocabulary:(result.vocabulary||[]).join("; "),
           sequence:(result.sequence||[]).join("\n"),
           key_questions:(result.key_questions||[]).join("\n"),
           activities:(result.activities||[]).join("\n"),
@@ -1173,7 +1173,7 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
     const chapter_id=await resolveChapterId(form.chapter_title,classLabel);
     const payload={...form,chapter_id,section_id:section?.id||null,class_label:classLabel,
       objectives:form.objectives.split("\n").filter(Boolean),
-      vocabulary:form.vocabulary.split(",").map((v)=>v.trim()).filter(Boolean),
+      vocabulary:form.vocabulary.split(";").map((v)=>v.trim()).filter(Boolean),
       sequence:form.sequence.split("\n").filter(Boolean),
       key_questions:form.key_questions.split("\n").filter(Boolean),
       activities:form.activities.split("\n").filter(Boolean),
@@ -1285,7 +1285,7 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
                 {[["homework","गृहकार्य"],["notes","नोट"]].map(([f,p])=>(
                   <input key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
                 ))}
-                {[["objectives","उद्देश्यहरू (प्रत्येक नयाँ लाइनमा)"],["vocabulary","शब्दावली (कमाले छुट्याउनुहोस्)"],["sequence","पढाउने क्रम (प्रत्येक नयाँ लाइनमा)"],["key_questions","मुख्य प्रश्नहरू (प्रत्येक नयाँ लाइनमा)"],["activities","क्रियाकलापहरू (प्रत्येक नयाँ लाइनमा)"]].map(([f,p])=>(
+                {[["objectives","उद्देश्यहरू (प्रत्येक नयाँ लाइनमा)"],["vocabulary","शब्दावली — यसरी लेख्नुहोस्: शब्द: अर्थ; अर्को शब्द: अर्थ"],["sequence","पढाउने क्रम (प्रत्येक नयाँ लाइनमा)"],["key_questions","मुख्य प्रश्नहरू (प्रत्येक नयाँ लाइनमा)"],["activities","क्रियाकलापहरू (प्रत्येक नयाँ लाइनमा)"]].map(([f,p])=>(
                   <textarea key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} rows={3} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
                 ))}
               </>
