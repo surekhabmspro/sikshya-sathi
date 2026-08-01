@@ -2952,18 +2952,18 @@ export default function App() {
   useEffect(()=>{if(session){loadLessons();loadHomework();}},[session,loadLessons,loadHomework]);
 
   const nav=[
-    {id:"dashboard",label:"आज",icon:Home},
-    {id:"ai",label:"AI",icon:Bot},
-    {id:"planner",label:"योजना",icon:CalendarDays},
-    {id:"materials",label:"सामग्री",icon:BookOpen},
+    {id:"dashboard",label:"आज",icon:Home,color:ACCENT},
+    {id:"ai",label:"AI",icon:Bot,color:VIOLET},
+    {id:"planner",label:"योजना",icon:CalendarDays,color:TEAL},
+    {id:"materials",label:"सामग्री",icon:BookOpen,color:MARIGOLD_DARK},
   ];
   const navMore=[
-    {id:"aitools",label:"AI उपकरण",icon:Wand2},
-    {id:"homework",label:"गृहकार्य",icon:ListChecks},
-    {id:"journal",label:"डायरी",icon:Heart},
-    {id:"search",label:"खोज",icon:Search},
-    {id:"calendar",label:"पात्रो",icon:CalendarDays},
-    {id:"settings",label:"सेटिङ",icon:SettingsIcon},
+    {id:"aitools",label:"AI उपकरण",icon:Wand2,color:VIOLET},
+    {id:"homework",label:"गृहकार्य",icon:ListChecks,color:BLUE},
+    {id:"journal",label:"डायरी",icon:Heart,color:ROSE},
+    {id:"search",label:"खोज",icon:Search,color:TEAL},
+    {id:"calendar",label:"पात्रो",icon:CalendarDays,color:MARIGOLD_DARK},
+    {id:"settings",label:"सेटिङ",icon:SettingsIcon,color:INK_SOFT},
   ];
 
   if(authLoading)return<div style={{minHeight:"100vh",background:"var(--bg,#F7F4EC)",display:"flex",alignItems:"center",justifyContent:"center"}}><Spinner/></div>;
@@ -3065,6 +3065,11 @@ export default function App() {
         .ss-chip:hover{transform:translateY(-1px);}
         .ss-chip:active{transform:translateY(0) scale(0.96);}
 
+        /* NEW — sidebar items were flat with no hover feedback at all on
+           desktop (mouse) use. A soft tint on hover for inactive items. */
+        .ss-nav-item{transition:background .15s ease, color .15s ease;}
+        .ss-nav-item:hover{background:var(--surface-2) !important;color:var(--ink) !important;}
+
         ::-webkit-scrollbar{height:9px;width:9px;}
         ::-webkit-scrollbar-track{background:transparent;}
 
@@ -3108,9 +3113,9 @@ export default function App() {
         }
       `}</style>
 
-      <div className="no-print" style={{background:`color-mix(in srgb, ${SURFACE} 88%, transparent)`,backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",borderBottom:`1px solid ${BORDER}`,padding:"13px 18px",display:"flex",alignItems:"center",gap:12,position:"sticky",top:0,zIndex:10,boxShadow:SHADOW.sm}}>
+      <div className="no-print" style={{background:`linear-gradient(120deg, color-mix(in srgb, color-mix(in srgb, ${ACCENT} 8%, ${SURFACE}) 88%, transparent) 0%, color-mix(in srgb, color-mix(in srgb, ${TEAL} 7%, ${SURFACE}) 88%, transparent) 100%)`,backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",borderBottom:`1px solid ${BORDER}`,padding:"13px 18px",display:"flex",alignItems:"center",gap:12,position:"sticky",top:0,zIndex:10,boxShadow:"0 4px 16px rgba(var(--shadow-rgb),0.09)"}}>
         <img src="/icons/icon-64.png" alt="शिक्षा साथी" width={40} height={40} style={{borderRadius:12,boxShadow:SHADOW.accent,flexShrink:0}}/>
-        <div style={{minWidth:0,overflow:"hidden"}}><div style={{fontWeight:800,fontSize:18.5,letterSpacing:"-0.015em",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>शिक्षा साथी</div><div style={{fontSize:14.5,color:INK_SOFT,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{classLabel} · {subjectLabel}</div></div>
+        <div style={{minWidth:0,overflow:"hidden"}}><div style={{fontWeight:800,fontSize:18.5,letterSpacing:"-0.015em",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",background:`linear-gradient(100deg, ${ACCENT} 0%, ${TEAL} 100%)`,WebkitBackgroundClip:"text",backgroundClip:"text",color:"transparent"}}>शिक्षा साथी</div><div style={{fontSize:14.5,color:`color-mix(in srgb, ${ACCENT} 35%, ${INK_SOFT})`,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{classLabel} · {subjectLabel}</div></div>
         <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
           <div title={lessonsLoading?"सिंक हुँदैछ...":synced?"सिंक भयो":"सिंक भएको"} style={{display:"flex",alignItems:"center",gap:4,fontSize:13.5,color:synced?ACCENT:INK_SOFT,fontWeight:700,transition:"color .3s",whiteSpace:"nowrap",background:synced?ACCENT_LIGHT:"transparent",padding:"5px 9px",borderRadius:999}}>
             <RefreshCw size={13} style={{animation:lessonsLoading?"spin 1s linear infinite":"none",flexShrink:0}}/>
@@ -3127,10 +3132,18 @@ export default function App() {
 
       <div className="no-print"><SectionSelector sections={sections} current={currentSection} onChange={setCurrentSection} onAdd={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}}/></div>
 
-      <div className="desktop-sidebar no-print" style={{position:"fixed",top:0,left:0,bottom:0,width:232,background:`color-mix(in srgb, ${SURFACE} 90%, transparent)`,backdropFilter:"blur(14px)",WebkitBackdropFilter:"blur(14px)",borderRight:`1px solid ${BORDER}`,flexDirection:"column",paddingTop:118,paddingLeft:12,paddingRight:12,zIndex:5,overflowY:"auto",gap:2}}>
-        {[...nav,...navMore].map((n)=>{const Icon=n.icon;const active=screen===n.id;return(
-          <button key={n.id} onClick={()=>setScreen(n.id)} className="ss-btn" style={{display:"flex",alignItems:"center",gap:11,padding:"11px 14px",border:"none",background:active?`linear-gradient(135deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`:"transparent",color:active?"#fff":INK_SOFT,fontWeight:active?700:600,fontSize:16,cursor:"pointer",textAlign:"left",width:"100%",borderRadius:12,boxShadow:active?SHADOW.accent:"none"}}>
-            <Icon size={18}/>{n.label}
+      <div className="desktop-sidebar no-print" style={{position:"fixed",top:0,left:0,bottom:0,width:232,background:`linear-gradient(170deg, color-mix(in srgb, color-mix(in srgb, ${ACCENT} 6%, ${SURFACE}) 90%, transparent) 0%, color-mix(in srgb, color-mix(in srgb, ${TEAL} 5%, ${SURFACE}) 90%, transparent) 100%)`,backdropFilter:"blur(14px)",WebkitBackdropFilter:"blur(14px)",borderRight:`1px solid ${BORDER}`,flexDirection:"column",paddingTop:118,paddingLeft:12,paddingRight:12,zIndex:5,overflowY:"auto",gap:2}}>
+        <div style={{fontSize:12.5,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:INK_SOFT,padding:"0 14px",marginBottom:6}}>मुख्य</div>
+        {nav.map((n)=>{const Icon=n.icon;const active=screen===n.id;return(
+          <button key={n.id} onClick={()=>setScreen(n.id)} className={`ss-btn${active?"":" ss-nav-item"}`} style={{display:"flex",alignItems:"center",gap:11,padding:"11px 14px",border:"none",background:active?`linear-gradient(135deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`:"transparent",color:active?"#fff":INK_SOFT,fontWeight:active?700:600,fontSize:16,cursor:"pointer",textAlign:"left",width:"100%",borderRadius:12,boxShadow:active?SHADOW.accent:"none"}}>
+            <Icon size={18} color={active?"#fff":n.color}/>{n.label}
+          </button>
+        );})}
+        <div style={{height:1,background:BORDER,margin:"10px 4px"}}/>
+        <div style={{fontSize:12.5,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:INK_SOFT,padding:"0 14px",marginBottom:6}}>थप</div>
+        {navMore.map((n)=>{const Icon=n.icon;const active=screen===n.id;return(
+          <button key={n.id} onClick={()=>setScreen(n.id)} className={`ss-btn${active?"":" ss-nav-item"}`} style={{display:"flex",alignItems:"center",gap:11,padding:"11px 14px",border:"none",background:active?`linear-gradient(135deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`:"transparent",color:active?"#fff":INK_SOFT,fontWeight:active?700:600,fontSize:16,cursor:"pointer",textAlign:"left",width:"100%",borderRadius:12,boxShadow:active?SHADOW.accent:"none"}}>
+            <Icon size={18} color={active?"#fff":n.color}/>{n.label}
           </button>
         );})}
       </div>
