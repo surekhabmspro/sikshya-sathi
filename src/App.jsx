@@ -3163,13 +3163,13 @@ export default function App() {
 
       <div className="mobile-bottom-nav no-print" style={{position:"fixed",bottom:0,left:0,right:0,background:`color-mix(in srgb, ${SURFACE} 94%, transparent)`,backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",borderTop:`1px solid ${BORDER}`,justifyContent:"space-around",padding:"7px 6px calc(7px + env(safe-area-inset-bottom))",zIndex:10,boxShadow:"0 -6px 20px rgba(0,0,0,0.07)"}}>
         {nav.map((n)=>{const Icon=n.icon;const active=screen===n.id;return(
-          <button key={n.id} onClick={()=>setScreen(n.id)} className="ss-btn" style={{background:"none",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:active?ACCENT:INK_SOFT,fontSize:12.5,fontWeight:700,cursor:"pointer",padding:"5px 8px 3px",flex:1,borderRadius:14}}>
-            <div style={{width:44,height:26,borderRadius:999,background:active?ACCENT_LIGHT:"transparent",display:"flex",alignItems:"center",justifyContent:"center",transition:"background .15s ease"}}><Icon size={19}/></div>
+          <button key={n.id} onClick={()=>setScreen(n.id)} className="ss-btn" style={{background:"none",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:active?n.color:INK_SOFT,fontSize:12.5,fontWeight:700,cursor:"pointer",padding:"5px 8px 3px",flex:1,borderRadius:14}}>
+            <div style={{width:44,height:30,borderRadius:14,background:active?`linear-gradient(160deg, ${n.color} 0%, color-mix(in srgb, ${n.color} 70%, black) 100%)`:`linear-gradient(160deg, color-mix(in srgb, ${n.color} 18%, transparent) 0%, color-mix(in srgb, ${n.color} 7%, transparent) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:active?`inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 10px color-mix(in srgb, ${n.color} 45%, transparent)`:"none",transition:"all .18s ease"}}><Icon size={19} color={active?"#fff":n.color}/></div>
             {n.label}
           </button>
         );})}
-        <button onClick={()=>setShowMore(true)} className="ss-btn" style={{background:"none",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:navMore.some((n)=>n.id===screen)?ACCENT:INK_SOFT,fontSize:12.5,fontWeight:700,cursor:"pointer",padding:"5px 8px 3px",flex:1,borderRadius:14}}>
-          <div style={{width:44,height:26,borderRadius:999,background:navMore.some((n)=>n.id===screen)?ACCENT_LIGHT:"transparent",display:"flex",alignItems:"center",justifyContent:"center"}}><Layers size={19}/></div>
+        <button onClick={()=>setShowMore(true)} className="ss-btn" style={{background:"none",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:navMore.some((n)=>n.id===screen)?ROSE:INK_SOFT,fontSize:12.5,fontWeight:700,cursor:"pointer",padding:"5px 8px 3px",flex:1,borderRadius:14}}>
+          <div style={{width:44,height:30,borderRadius:14,background:navMore.some((n)=>n.id===screen)?`linear-gradient(160deg, ${ROSE} 0%, color-mix(in srgb, ${ROSE} 70%, black) 100%)`:`linear-gradient(160deg, color-mix(in srgb, ${ROSE} 18%, transparent) 0%, color-mix(in srgb, ${ROSE} 7%, transparent) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:navMore.some((n)=>n.id===screen)?`inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 10px color-mix(in srgb, ${ROSE} 45%, transparent)`:"none",transition:"all .18s ease"}}><Layers size={19} color={navMore.some((n)=>n.id===screen)?"#fff":ROSE}/></div>
           थप
         </button>
       </div>
@@ -3182,7 +3182,17 @@ export default function App() {
               <button onClick={()=>setShowMore(false)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><X size={22}/></button>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
-              {navMore.map((n)=>{const Icon=n.icon;const active=screen===n.id;return<button key={n.id} onClick={()=>{setScreen(n.id);setShowMore(false);}} className="ss-btn" style={{display:"flex",flexDirection:"column",alignItems:"center",gap:7,padding:"16px 6px",borderRadius:14,border:`1.5px solid ${active?ACCENT:BORDER}`,background:active?ACCENT_LIGHT:SURFACE,color:active?ACCENT:INK,cursor:"pointer",fontSize:15.5,fontWeight:700,boxShadow:active?SHADOW.sm:"none"}}><Icon size={22}/>{n.label}</button>;})}
+              {/* FIX — every tile used to be an identical bordered box with a
+                  plain line icon; now each gets a glossy, colored 3D badge
+                  (same recipe as the Materials file-type icons) so all six
+                  are visually distinct from each other, not just from the
+                  one active tile. */}
+              {navMore.map((n)=>{const Icon=n.icon;const active=screen===n.id;return(
+                <button key={n.id} onClick={()=>{setScreen(n.id);setShowMore(false);}} className="ss-btn" style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8,padding:"16px 6px",borderRadius:16,border:`1.5px solid ${active?n.color:`color-mix(in srgb, ${n.color} 25%, ${BORDER})`}`,background:active?`color-mix(in srgb, ${n.color} 14%, ${SURFACE})`:SURFACE,color:active?n.color:INK,cursor:"pointer",fontSize:15.5,fontWeight:700,boxShadow:active?`0 6px 16px color-mix(in srgb, ${n.color} 30%, transparent)`:SHADOW.sm}}>
+                  <div style={{width:46,height:46,borderRadius:14,background:`linear-gradient(160deg, ${n.color} 0%, color-mix(in srgb, ${n.color} 70%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 10px color-mix(in srgb, ${n.color} 40%, transparent)`}}><Icon size={22} color="#fff"/></div>
+                  {n.label}
+                </button>
+              );})}
             </div>
           </div>
         </div>
