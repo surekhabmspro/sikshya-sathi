@@ -617,6 +617,53 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, teacherNam
   const vocabulary=lesson.vocabulary||[];
   const sequence=lesson.sequence||[];
   const keyQuestions=lesson.key_questions||[];
+  // NEW — "प्रश्नहरू" used to just print each question with nothing to do
+  // with it. Answers were never part of the data model (these are open
+  // discussion prompts, not a quiz bank with a stored correct answer), so
+  // tapping a question now asks Gemini for a short suggested answer on the
+  // spot, grounded in this chapter. Answers are cached in "प्रश्न||उत्तर"
+  // form back into key_questions once generated, so re-opening this same
+  // lesson later shows it instantly instead of regenerating.
+  const [qState,setQState]=useState(()=>keyQuestions.map((raw)=>{
+    const idx=raw.indexOf("||");
+    return idx>-1?{q:raw.slice(0,idx),a:raw.slice(idx+2)}:{q:raw,a:null};
+  }));
+  const [qOpen,setQOpen]=useState(()=>new Set());
+  const [qLoading,setQLoading]=useState(()=>new Set());
+  const [qErrors,setQErrors]=useState({});
+  useEffect(()=>{
+    setQState(keyQuestions.map((raw)=>{
+      const idx=raw.indexOf("||");
+      return idx>-1?{q:raw.slice(0,idx),a:raw.slice(idx+2)}:{q:raw,a:null};
+    }));
+    setQOpen(new Set());setQLoading(new Set());setQErrors({});
+  },[lesson.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const fetchAnswer=async(i,forceRetry=false)=>{
+    setQOpen((prev)=>new Set(prev).add(i));
+    if((qState[i]?.a&&!forceRetry)||qLoading.has(i))return;
+    setQErrors((prev)=>{const n={...prev};delete n[i];return n;});
+    setQLoading((prev)=>new Set(prev).add(i));
+    try{
+      const prompt=`तपाईं नेपाली शिक्षक हुनुहुन्छ। "${chapterTitle}" पाठको सन्दर्भमा तलको कक्षा-छलफल प्रश्नको छोटो, स्पष्ट सुझाव-उत्तर (३-४ वाक्यमा, कक्षामा भन्न मिल्ने सरल भाषामा) दिनुहोस्। प्रश्न नदोहोर्‍याई सिधै उत्तर मात्र दिनुहोस्।\n\nप्रश्न: ${qState[i].q}`;
+      const answer=(await gemini.generateText(prompt)).trim();
+      if(!answer)throw new Error("empty");
+      setQState((prev)=>{
+        const next=prev.map((it,idx)=>idx===i?{...it,a:answer}:it);
+        db.upsertLesson({id:lesson.id,key_questions:next.map((it)=>it.a?`${it.q}||${it.a}`:it.q)});
+        return next;
+      });
+    }catch{
+      setQErrors((prev)=>({...prev,[i]:"उत्तर तयार गर्न सकिएन।"}));
+    }finally{
+      setQLoading((prev)=>{const next=new Set(prev);next.delete(i);return next;});
+    }
+  };
+  const toggleQuestion=(i)=>{
+    if(qOpen.has(i)){setQOpen((prev)=>{const n=new Set(prev);n.delete(i);return n;});return;}
+    fetchAnswer(i);
+  };
+
   const activities=lesson.activities||[];
   const rubric=lesson.rubric||[];
   const chapterTitle=lesson.chapters?.title||lesson.chapter_title||"";
@@ -713,7 +760,26 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, teacherNam
         </div>
         <div className="lesson-content">
         {tab==="sequence"&&(<div><SectionLabel icon={ClipboardList}>पढाउने क्रम</SectionLabel>{sequence.length===0?<div style={{color:INK_SOFT}}>पढाउने क्रम थपिएको छैन।</div>:(<ol style={{margin:0,paddingLeft:0,listStyle:"none",display:"flex",flexDirection:"column",gap:8}}>{sequence.map((s,i)=>(<li key={i} style={{display:"flex",gap:12,padding:"12px 13px",background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12}}><div style={{width:26,height:26,borderRadius:"50%",background:`linear-gradient(160deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:SHADOW.accent}}>{i+1}</div><div style={{fontSize:17,color:INK,lineHeight:1.5,paddingTop:2}}>{s}</div></li>))}</ol>)}{lesson.notes&&<div style={{marginTop:14,background:WARN_BG,borderRadius:10,padding:12}}><div style={{fontSize:15,fontWeight:700,color:WARN,marginBottom:3}}>नोट</div><div style={{fontSize:16.5,color:INK}}>{lesson.notes}</div></div>}</div>)}
-        {tab==="questions"&&<div><SectionLabel icon={MessageSquare} color={VIOLET}>कक्षामा सोध्नुहोस्</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:8}}>{keyQuestions.length===0?<div style={{color:INK_SOFT}}>प्रश्नहरू थपिएका छैनन्।</div>:keyQuestions.map((q,i)=><Card key={i} accentColor={PALETTE[i%PALETTE.length]}><div style={{fontSize:17,color:INK}}>{q}</div></Card>)}</div></div>}
+        {tab==="questions"&&<div><SectionLabel icon={MessageSquare} color={VIOLET}>कक्षामा सोध्नुहोस्</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:8}}>{qState.length===0?<div style={{color:INK_SOFT}}>प्रश्नहरू थपिएका छैनन्।</div>:qState.map((item,i)=>{
+          const isOpen=qOpen.has(i);const isLoading=qLoading.has(i);const color=PALETTE[i%PALETTE.length];
+          return(
+            <Card key={i} accentColor={color} onClick={()=>toggleQuestion(i)} style={{cursor:"pointer"}}>
+              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
+                <div style={{fontSize:17,color:INK,fontWeight:isOpen?700:500}}>{item.q}</div>
+                <ChevronDown size={18} color={INK_SOFT} style={{flexShrink:0,marginTop:2,transform:isOpen?"rotate(180deg)":"none",transition:"transform .15s ease"}}/>
+              </div>
+              {isOpen&&(
+                <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${BORDER}`,fontSize:16,color:INK_SOFT,lineHeight:1.55}}>
+                  {isLoading?(
+                    <span style={{display:"flex",alignItems:"center",gap:7}}><Loader size={14} style={{animation:"spin 1s linear infinite"}}/>उत्तर तयार गर्दै...</span>
+                  ):qErrors[i]?(
+                    <span style={{color:DANGER}}>{qErrors[i]} <button className="ss-btn" onClick={(e)=>{e.stopPropagation();fetchAnswer(i,true);}} style={{color:ACCENT,fontWeight:700,background:"none",border:"none",cursor:"pointer",padding:0}}>फेरि प्रयास गर्नुहोस्</button></span>
+                  ):item.a}
+                </div>
+              )}
+            </Card>
+          );
+        })}</div></div>}
         {tab==="activities"&&<div><SectionLabel icon={Users} color={TEAL}>क्रियाकलापहरू</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:8}}>{activities.length===0?<div style={{color:INK_SOFT}}>क्रियाकलापहरू थपिएका छैनन्।</div>:activities.map((a,i)=><Card key={i} accentColor={PALETTE[i%PALETTE.length]}><div style={{fontSize:17,color:INK}}>{a}</div></Card>)}</div></div>}
         {tab==="homework"&&<div><SectionLabel icon={PenSquare} color={MARIGOLD_DARK}>दिने गृहकार्य</SectionLabel><Card><div style={{fontSize:17,color:INK,lineHeight:1.6}}>{lesson.homework||"गृहकार्य थपिएको छैन।"}</div></Card></div>}
         {tab==="rubric"&&<div><SectionLabel icon={Layers} color={ROSE}>मूल्याङ्कन मापदण्ड</SectionLabel>{rubric.length===0?<div style={{color:INK_SOFT}}>मूल्याङ्कन मापदण्ड थपिएको छैन।</div>:<div style={{display:"flex",flexDirection:"column",gap:8}}>{rubric.map((r,i)=>{const c=r.level==="उत्कृष्ट"?ACCENT:r.level==="सहयोग आवश्यक"?ROSE:MARIGOLD_DARK;return<Card key={i} accentColor={c}><div style={{fontWeight:700,color:c,fontSize:16.5,marginBottom:3}}>{r.level}</div><div style={{fontSize:16.5,color:INK}}>{r.desc}</div></Card>;})}</div>}</div>}
@@ -801,7 +867,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, teacherNam
 
         <div style={{marginBottom:16,breakInside:"avoid"}}>
           <div style={{fontWeight:700,fontSize:13.5,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1.5px solid #111",paddingBottom:3,marginBottom:7}}>कक्षामा सोध्ने प्रश्नहरू</div>
-          {keyQuestions.length===0?<div>—</div>:<ol style={{margin:0,paddingLeft:20,lineHeight:1.65}}>{keyQuestions.map((q,i)=><li key={i} style={{marginBottom:5}}>{q}</li>)}</ol>}
+          {keyQuestions.length===0?<div>—</div>:<ol style={{margin:0,paddingLeft:20,lineHeight:1.65}}>{keyQuestions.map((q,i)=><li key={i} style={{marginBottom:5}}>{q.includes("||")?q.slice(0,q.indexOf("||")):q}</li>)}</ol>}
         </div>
 
         <div style={{marginBottom:16,breakInside:"avoid"}}>
@@ -1125,7 +1191,7 @@ function lessonToForm(l){
     objectives:(l.objectives||[]).join("\n"),
     vocabulary:(l.vocabulary||[]).join("; "),
     sequence:(l.sequence||[]).join("\n"),
-    key_questions:(l.key_questions||[]).join("\n"),
+    key_questions:(l.key_questions||[]).map((q)=>q.includes("||")?q.slice(0,q.indexOf("||")):q).join("\n"),
     activities:(l.activities||[]).join("\n"),
     homework:l.homework||"", notes:l.notes||"",
   };
@@ -3358,8 +3424,8 @@ export default function App() {
   const [currentSection,setCurrentSection]=useState(null);
   const [lessons,setLessons]=useState([]);
   const [homework,setHomework]=useState([]);
-  const [lessonsLoading,setLessonsLoading]=useState(false);
-  const [hwLoading,setHwLoading]=useState(false);
+  const [lessonsLoading,setLessonsLoading]=useState(true);
+  const [hwLoading,setHwLoading]=useState(true);
   const [synced,setSynced]=useState(false);
   const [chapters,setChapters]=useState([]);
 
