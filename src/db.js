@@ -74,27 +74,50 @@ export const upsertChapter = async (chapter) => {
 // creating anything. Used when fetching materials for a chapter someone
 // typed into Lessons/Questions/Activities/Assessments.
 export const getChapterIdByTitle = async (title, classLabel = null) => {
-  if (!title || !title.trim()) return null;
-  let query = supabase.from("chapters").select("id").ilike("title", title.trim());
+  const clean = normalizeChapterTitle(title);
+  if (!clean) return null;
+  let query = supabase.from("chapters").select("id").ilike("title", clean);
   if (classLabel) query = query.eq("class_label", classLabel);
   const { data } = await query.limit(1).maybeSingle();
   return data?.id || null;
 };
 
-// NEW — look up a chapter by title, or create it if it doesn't exist yet.
-// Used when uploading/tagging a Material, so a freely-typed chapter name
-// always resolves to a real row in the chapters table. Scoped to the current
-// class so "अध्याय १" in Class 5 and "अध्याय १" in Class 6 stay separate.
+// FIX — root cause of tagging a file successfully but it not consistently
+// showing up under its chapter afterward: getOrCreateChapterId used to be
+// "look it up, and if nothing's there, insert" with no protection between
+// those two steps. If a chapter got resolved from two places close together
+// (e.g. adding a chapter from the tag dialog, then the save button
+// re-resolving the same title a moment later), both calls could find
+// nothing yet and both insert — leaving TWO chapter rows with the identical
+// title but different ids. Every material tagged to that title afterward
+// silently splits across whichever duplicate a given lookup happens to
+// match, so the same chapter title stops reliably grouping its materials.
+// Also normalizes whitespace (collapsing double spaces, trimming) the same
+// way everywhere a title is compared or stored, so "जान्ने रुख" and
+// "जान्ने  रुख" (extra space) can never be treated as different chapters.
+function normalizeChapterTitle(title) {
+  return (title || "").trim().replace(/\s+/g, " ");
+}
+
 export const getOrCreateChapterId = async (title, classLabel = null) => {
-  const existingId = await getChapterIdByTitle(title, classLabel);
+  const clean = normalizeChapterTitle(title);
+  if (!clean) return null;
+  const existingId = await getChapterIdByTitle(clean, classLabel);
   if (existingId) return existingId;
   const { data: { user } } = await supabase.auth.getUser();
   const { data, error } = await supabase
     .from("chapters")
-    .insert({ title: title.trim(), teacher_id: user.id, class_label: classLabel })
+    .insert({ title: clean, teacher_id: user.id, class_label: classLabel })
     .select("id")
     .single();
-  if (error) throw error;
+  if (error) {
+    // Someone else (another tab, another quick call) won the race and
+    // inserted this exact title between our lookup and our insert. Re-check
+    // instead of surfacing the error or creating a duplicate.
+    const retryId = await getChapterIdByTitle(clean, classLabel);
+    if (retryId) return retryId;
+    throw error;
+  }
   return data.id;
 };
 
@@ -289,6 +312,113 @@ export const repairChapterTagging = async (onProgress) => {
     }
   }
   return { fixed, failed, total, error: null };
+};
+
+// ─── CALENDAR EVENTS ─────────────────────────────────────────────────────────
+// NEW — Phase 3: the Calendar tab used to just be a month grid with no real
+// data behind it — "आजका कार्यहरू" was a hardcoded splice of the first 3
+// lessons and first 2 pending homework, never actually matched to the
+// selected date. This is a real events table: school events, holidays,
+// exam schedules, training/programs, and reminders, each with a category
+// and color, optionally scoped to one class (class_label = null means
+// "applies to every class", e.g. a school-wide holiday).
+//
+// Sync-ready by design: `source` distinguishes events a teacher typed in
+// ("manual") from ones brought in later from an official school calendar
+// ("imported"), and `external_id` is reserved for whatever stable id/UID
+// that external calendar uses per event (e.g. an ICS UID or a school
+// system's row id). A future import routine can upsert on
+// (teacher_id, external_id) to avoid ever creating duplicates on re-sync,
+// without any change needed here. See the migration note at the bottom of
+// this file for the table definition.
+export const getCalendarEvents = async (classLabel = null) => {
+  let query = supabase.from("calendar_events").select("*").order("start_date", { ascending: true });
+  if (classLabel) query = query.or(`class_label.eq.${classLabel},class_label.is.null`);
+  const { data, error } = await query;
+  return { data, error };
+};
+
+export const upsertCalendarEvent = async (event) => {
+  const { data: { user } } = await supabase.auth.getUser();
+  const { data, error } = await supabase
+    .from("calendar_events")
+    .upsert({ source: "manual", ...event, teacher_id: user.id })
+    .select()
+    .single();
+  return { data, error };
+};
+
+export const deleteCalendarEvent = async (id) => {
+  const { error } = await supabase.from("calendar_events").delete().eq("id", id);
+  return { error };
+};
+
+/* MIGRATION — run once in the Supabase SQL editor:
+
+create table calendar_events (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid references auth.users(id) not null,
+  class_label text,                    -- null = applies to every class
+  title text not null,
+  category text not null default 'event',  -- event | holiday | exam | deadline | training | reminder
+  start_date date not null,
+  end_date date,                       -- null = single-day; set for multi-day holidays
+  time text,                           -- optional "HH:MM", null = all-day
+  notes text,
+  source text not null default 'manual',   -- manual | imported
+  external_id text,                    -- id from an official calendar, for future sync
+  created_at timestamptz default now()
+);
+alter table calendar_events enable row level security;
+create policy "teachers manage their own events" on calendar_events
+  for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
+create index calendar_events_teacher_date on calendar_events(teacher_id, start_date);
+create unique index calendar_events_external_dedupe on calendar_events(teacher_id, external_id) where external_id is not null;
+
+*/
+// check-then-insert race in getOrCreateChapterId (fixed above, but this
+// repairs whatever it already produced). Groups chapters by normalized
+// title + class_label; where more than one row exists for the same chapter,
+// keeps the oldest one and re-points every material/lesson/question/
+// activity that referenced a duplicate onto the surviving chapter, then
+// deletes the duplicates. Safe to run more than once — a class with no
+// duplicates just reports 0 merged.
+export const repairDuplicateChapters = async (onProgress) => {
+  const { data: chapters, error } = await supabase
+    .from("chapters")
+    .select("id, title, class_label, created_at")
+    .order("created_at", { ascending: true });
+  if (error) return { merged: 0, rowsUpdated: 0, error };
+
+  const groups = {};
+  for (const c of chapters || []) {
+    const key = `${(c.title || "").trim().toLowerCase()}::${c.class_label || ""}`;
+    (groups[key] ||= []).push(c);
+  }
+
+  const tables = ["materials", "lessons", "questions", "activities"];
+  let merged = 0, rowsUpdated = 0;
+
+  for (const key in groups) {
+    const group = groups[key];
+    if (group.length < 2) continue; // no duplicates for this chapter
+    const [keep, ...dupes] = group; // oldest first (created_at ascending)
+    for (const dupe of dupes) {
+      for (const table of tables) {
+        const { data: rows, error: selErr } = await supabase
+          .from(table).select("id").eq("chapter_id", dupe.id);
+        if (selErr || !rows?.length) continue;
+        const { error: upErr } = await supabase
+          .from(table).update({ chapter_id: keep.id }).eq("chapter_id", dupe.id);
+        if (!upErr) rowsUpdated += rows.length;
+        onProgress?.({ merged, rowsUpdated, current: `${keep.title} ← ${table} (${rows.length})` });
+      }
+      await supabase.from("chapters").delete().eq("id", dupe.id);
+      merged++;
+      onProgress?.({ merged, rowsUpdated, current: `हटाइयो: ${dupe.title}` });
+    }
+  }
+  return { merged, rowsUpdated, error: null };
 };
 
 // ─── QUESTIONS ───────────────────────────────────────────────────────────────

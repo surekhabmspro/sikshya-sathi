@@ -9,6 +9,7 @@ import {
   Brain, Copy, ChevronRight, LogOut, User, AlertCircle, Loader,
   Settings as SettingsIcon, Trash2, RefreshCw, BookMarked, Zap,
   Sun, Moon, Lightbulb, Paperclip, ChevronDown, Pin, RotateCw,
+  GraduationCap, PartyPopper, Bell, Palmtree, Megaphone,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import * as db from "./db";
@@ -94,6 +95,19 @@ const CATEGORY_META = {
   other:       { label: "अन्य",              icon: FileText,      color: INK_SOFT },
 };
 const CATEGORY_ORDER = ["lesson_plan","presentation","qa_solution","exercise","assessment","other"];
+
+// NEW — Phase 3: calendar event categories. Same pattern as CATEGORY_META
+// above (Materials), so the calendar gets the same color-coding language
+// the rest of the app already uses.
+const EVENT_CATEGORY_META = {
+  event:    { label: "विद्यालय कार्यक्रम", icon: PartyPopper,   color: TEAL },
+  holiday:  { label: "बिदा",              icon: Palmtree,      color: MARIGOLD_DARK },
+  exam:     { label: "परीक्षा",            icon: GraduationCap, color: ROSE },
+  deadline: { label: "म्याद (गृहकार्य/काम)", icon: PenSquare,     color: VIOLET },
+  training: { label: "तालिम/गोष्ठी",       icon: Megaphone,     color: "#2C5F9E" },
+  reminder: { label: "सम्झना",            icon: Bell,          color: ACCENT },
+};
+const EVENT_CATEGORY_ORDER = ["event","holiday","exam","deadline","training","reminder"];
 
 const MOOD_META = {
   good: { icon: Smile, color: ACCENT,    label: "राम्रो गयो"   },
@@ -585,6 +599,9 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, teacherNam
   // both always visible, taking up space and cluttering the row). Now only
   // the word shows; tapping it reveals the meaning in a small popup.
   const [vocabPopup,setVocabPopup]=useState(null);
+  // NEW — Phase 2: lets a teacher collapse "आजको उद्देश्य" once they've
+  // glanced at it, so it stops eating vertical space on every visit.
+  const [objOpen,setObjOpen]=useState(true);
   const tabs=[{id:"sequence",label:"पढाउने",icon:ClipboardList},{id:"questions",label:"प्रश्नहरू",icon:MessageSquare},{id:"activities",label:"क्रियाकलाप",icon:Users},{id:"homework",label:"गृहकार्य",icon:PenSquare},{id:"rubric",label:"मूल्याङ्कन",icon:Layers}];
   const objectives=lesson.objectives||[];
   const vocabulary=lesson.vocabulary||[];
@@ -604,43 +621,79 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, teacherNam
 
   return(
     <div className="print-area" style={{position:"fixed",inset:0,background:PAPER,zIndex:50,display:"flex",flexDirection:"column"}}>
-      <div className="no-print" style={{background:`linear-gradient(120deg, ${TEAL} 0%, ${ACCENT} 65%, ${ACCENT_DARK} 100%)`,color:"#fff",padding:"14px 16px",display:"flex",alignItems:"center",gap:10}}>
+      <style>{`
+        /* NEW — Phase 2: "आजको पाठ सुरु" used to be a single centered
+           720px column no matter the screen size — on a laptop/desktop
+           that meant huge empty margins left and right, with the tab bar
+           squeezed along the top exactly like on a phone. This gives
+           desktop its own real layout (tabs as a left rail, content using
+           the freed-up width) while keeping mobile tight and thumb-friendly. */
+        .lesson-shell{display:flex;flex-direction:column;flex:1;min-height:0;}
+        .lesson-tabs{display:flex;overflow-x:auto;background:${SURFACE};border-bottom:1px solid ${BORDER};}
+        .lesson-tab-btn{display:flex;align-items:center;gap:5px;padding:11px 12px;border:none;background:none;border-bottom:3px solid transparent;font-weight:600;font-size:16px;cursor:pointer;white-space:nowrap;}
+        .lesson-content{flex:1;overflow-y:auto;padding:14px 16px;width:100%;}
+        @media(min-width:860px){
+          .lesson-shell{flex-direction:row;overflow:hidden;}
+          .lesson-rail{width:260px;flex-shrink:0;display:flex;flex-direction:column;overflow-y:auto;border-right:1px solid ${BORDER};background:${SURFACE};}
+          .lesson-tabs{flex-direction:column;overflow-x:visible;border-bottom:none;padding:10px;gap:2px;}
+          .lesson-tab-btn{border-bottom:none;border-left:3px solid transparent;border-radius:10px;padding:11px 13px;justify-content:flex-start;}
+          .lesson-tab-btn.active{background:${ACCENT_LIGHT};border-left-color:${ACCENT};}
+          .lesson-obj{border-bottom:none !important;border-top:1px solid ${BORDER};}
+          .lesson-content{max-width:900px;padding:28px 34px;}
+        }
+      `}</style>
+      <div className="no-print" style={{background:`linear-gradient(120deg, ${TEAL} 0%, ${ACCENT} 65%, ${ACCENT_DARK} 100%)`,color:"#fff",padding:"12px 16px",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
         <button className="ss-icon-btn" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:10,display:"flex",cursor:"pointer"}}><ChevronLeft size={20}/></button>
         <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:14,opacity:0.75}}>{chapterTitle}</div>
-          <div style={{fontSize:18.5,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{lesson.title}</div>
+          <div style={{fontSize:13.5,opacity:0.75}}>{chapterTitle}</div>
+          <div style={{fontSize:18,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{lesson.title}</div>
         </div>
         {onEdit&&<button className="ss-icon-btn" onClick={()=>onEdit(lesson)} title="सम्पादन गर्नुहोस्" style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:10,display:"flex",cursor:"pointer",flexShrink:0}}><PenSquare size={19}/></button>}
         <button className="ss-icon-btn" onClick={()=>window.print()} title="पूरा पाठ योजना प्रिन्ट गर्नुहोस्" style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:10,display:"flex",cursor:"pointer",flexShrink:0}}><Printer size={19}/></button>
       </div>
-      {(objectives.length>0||vocabulary.length>0)&&(
-        <div className="no-print" style={{padding:"12px 16px 8px",background:SURFACE,borderBottom:`1px solid ${BORDER}`}}>
-          <div style={{fontSize:15,color:INK_SOFT,marginBottom:5,fontWeight:600}}>आजको उद्देश्य</div>
-          <ul style={{margin:0,paddingLeft:16,fontSize:16.5,color:INK,lineHeight:1.6}}>{objectives.map((o,i)=><li key={i}>{o}</li>)}</ul>
-          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>
-            {vocabulary.map((v)=>{
-              const idx=v.indexOf(":");
-              const word=idx>-1?v.slice(0,idx).trim():v.trim();
-              const meaning=idx>-1?v.slice(idx+1).trim():"";
-              return(
-                <button className="ss-btn" key={v} onClick={()=>meaning&&setVocabPopup({word,meaning})} style={{background:WARN_BG,color:MARIGOLD_DARK,fontSize:15,fontWeight:600,padding:"3px 8px",borderRadius:6,border:"none",display:"flex",alignItems:"center",gap:3,cursor:meaning?"pointer":"default"}}>
-                  {word}{meaning&&<HelpCircle size={11}/>}
-                </button>
-              );
-            })}
+
+      <div className="no-print lesson-shell">
+        <div className="lesson-rail">
+          <div className="lesson-tabs">
+            {tabs.map((t)=>{const Icon=t.icon;const active=tab===t.id;return<button key={t.id} onClick={()=>setTab(t.id)} className={`lesson-tab-btn${active?" active":""}`} style={{color:active?ACCENT:INK_SOFT,borderBottomColor:active?ACCENT:"transparent"}}><Icon size={15}/>{t.label}</button>;})}
           </div>
+          {(objectives.length>0||vocabulary.length>0)&&(
+            <div className="lesson-obj" style={{padding:"10px 16px 12px",borderBottom:`1px solid ${BORDER}`}}>
+              {/* NEW — collapsible: a teacher who already knows today's
+                  objective by heart (most days, after the first glance)
+                  can close this and get straight to the tab content
+                  instead of scrolling past it every time. */}
+              <button className="ss-btn" onClick={()=>setObjOpen((v)=>!v)} style={{display:"flex",alignItems:"center",gap:5,width:"100%",background:"none",border:"none",cursor:"pointer",padding:0,marginBottom:objOpen?5:0,color:INK_SOFT,fontSize:14.5,fontWeight:600}}>
+                <ChevronDown size={14} style={{transform:objOpen?"rotate(0deg)":"rotate(-90deg)",transition:"transform .15s ease",flexShrink:0}}/>
+                आजको उद्देश्य
+              </button>
+              {objOpen&&(<>
+                <ul style={{margin:0,paddingLeft:16,fontSize:16,color:INK,lineHeight:1.55}}>{objectives.map((o,i)=><li key={i}>{o}</li>)}</ul>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>
+                  {vocabulary.map((v)=>{
+                    const idx=v.indexOf(":");
+                    const word=idx>-1?v.slice(0,idx).trim():v.trim();
+                    const meaning=idx>-1?v.slice(idx+1).trim():"";
+                    return(
+                      <button className="ss-btn" key={v} onClick={()=>meaning&&setVocabPopup({word,meaning})} style={{background:WARN_BG,color:MARIGOLD_DARK,fontSize:15,fontWeight:600,padding:"3px 8px",borderRadius:6,border:"none",display:"flex",alignItems:"center",gap:3,cursor:meaning?"pointer":"default"}}>
+                        {word}{meaning&&<HelpCircle size={11}/>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>)}
+            </div>
+          )}
         </div>
-      )}
-      <div className="no-print" style={{display:"flex",overflowX:"auto",background:SURFACE,borderBottom:`1px solid ${BORDER}`}}>
-        {tabs.map((t)=>{const Icon=t.icon;const active=tab===t.id;return<button key={t.id} onClick={()=>setTab(t.id)} style={{display:"flex",alignItems:"center",gap:5,padding:"11px 12px",border:"none",background:"none",borderBottom:active?`3px solid ${ACCENT}`:"3px solid transparent",color:active?ACCENT:INK_SOFT,fontWeight:600,fontSize:16,cursor:"pointer",whiteSpace:"nowrap"}}><Icon size={15}/>{t.label}</button>;})}
-      </div>
-      <div className="no-print" style={{flex:1,overflowY:"auto",padding:16,maxWidth:720,margin:"0 auto",width:"100%"}}>
+        <div className="lesson-content">
         {tab==="sequence"&&(<div><SectionLabel icon={ClipboardList}>पढाउने क्रम</SectionLabel>{sequence.length===0?<div style={{color:INK_SOFT}}>पढाउने क्रम थपिएको छैन।</div>:(<ol style={{margin:0,paddingLeft:0,listStyle:"none"}}>{sequence.map((s,i)=>(<li key={i} style={{display:"flex",gap:12,padding:"12px 0",borderBottom:i<sequence.length-1?`1px solid ${BORDER}`:"none"}}><div style={{width:26,height:26,borderRadius:"50%",background:ACCENT_LIGHT,color:ACCENT,fontWeight:700,fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div><div style={{fontSize:17,color:INK,lineHeight:1.5,paddingTop:2}}>{s}</div></li>))}</ol>)}{lesson.notes&&<div style={{marginTop:14,background:WARN_BG,borderRadius:10,padding:12}}><div style={{fontSize:15,fontWeight:700,color:WARN,marginBottom:3}}>नोट</div><div style={{fontSize:16.5,color:INK}}>{lesson.notes}</div></div>}</div>)}
         {tab==="questions"&&<div><SectionLabel icon={MessageSquare} color={VIOLET}>कक्षामा सोध्नुहोस्</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:8}}>{keyQuestions.length===0?<div style={{color:INK_SOFT}}>प्रश्नहरू थपिएका छैनन्।</div>:keyQuestions.map((q,i)=><Card key={i} accentColor={PALETTE[i%PALETTE.length]}><div style={{fontSize:17,color:INK}}>{q}</div></Card>)}</div></div>}
         {tab==="activities"&&<div><SectionLabel icon={Users} color={TEAL}>क्रियाकलापहरू</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:8}}>{activities.length===0?<div style={{color:INK_SOFT}}>क्रियाकलापहरू थपिएका छैनन्।</div>:activities.map((a,i)=><Card key={i} accentColor={PALETTE[i%PALETTE.length]}><div style={{fontSize:17,color:INK}}>{a}</div></Card>)}</div></div>}
         {tab==="homework"&&<div><SectionLabel icon={PenSquare} color={MARIGOLD_DARK}>दिने गृहकार्य</SectionLabel><Card><div style={{fontSize:17,color:INK,lineHeight:1.6}}>{lesson.homework||"गृहकार्य थपिएको छैन।"}</div></Card></div>}
         {tab==="rubric"&&<div><SectionLabel icon={Layers} color={ROSE}>मूल्याङ्कन मापदण्ड</SectionLabel>{rubric.length===0?<div style={{color:INK_SOFT}}>मूल्याङ्कन मापदण्ड थपिएको छैन।</div>:<div style={{display:"flex",flexDirection:"column",gap:8}}>{rubric.map((r,i)=>{const c=r.level==="उत्कृष्ट"?ACCENT:r.level==="सहयोग आवश्यक"?ROSE:MARIGOLD_DARK;return<Card key={i} accentColor={c}><div style={{fontWeight:700,color:c,fontSize:16.5,marginBottom:3}}>{r.level}</div><div style={{fontSize:16.5,color:INK}}>{r.desc}</div></Card>;})}</div>}</div>}
+        </div>
       </div>
+
 
       {vocabPopup&&(
         <div className="no-print" onClick={()=>setVocabPopup(null)} style={{position:"fixed",inset:0,zIndex:80,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.5)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",padding:20}}>
@@ -2563,22 +2616,118 @@ function DocumentSearch({ lessons, homework, classLabel, onOpenLesson, onGoMater
   );
 }
 
-function CalendarView({ lessons, homework }) {
+// NEW — Phase 3: date helpers for the calendar module (local dates, not
+// UTC, so a day never shifts by one depending on timezone).
+const fmtDate=(d)=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const parseDate=(s)=>{const[y,m,d]=s.split("-").map(Number);return new Date(y,m-1,d);};
+
+function CalendarView({ classLabel }) {
   const today=new Date();
   const [year,setYear]=useState(today.getFullYear());
   const [month,setMonth]=useState(today.getMonth());
+  const [selected,setSelected]=useState(fmtDate(today));
   const MONTHS=["जनवरी","फेब्रुअरी","मार्च","अप्रिल","मे","जुन","जुलाई","अगस्ट","सेप्टेम्बर","अक्टोबर","नोभेम्बर","डिसेम्बर"];
   const DAYS=["आ","सो","म","बु","बि","शु","श"];
   const daysInMonth=new Date(year,month+1,0).getDate();
   const firstDay=new Date(year,month,1).getDay();
-  const [selected,setSelected]=useState(today.getDate());
+
+  const [events,setEvents]=useState([]);
+  const [assessments,setAssessments]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [activeCats,setActiveCats]=useState(()=>new Set(EVENT_CATEGORY_ORDER));
+  const [showForm,setShowForm]=useState(false);
+  const [editing,setEditing]=useState(null);
+  const [form,setForm]=useState(null);
+  const [saving,setSaving]=useState(false);
+
+  const load=useCallback(async()=>{
+    setLoading(true);
+    const [{data:ev},{data:as}]=await Promise.all([db.getCalendarEvents(classLabel),db.getAssessments()]);
+    setEvents(ev||[]);
+    setAssessments((as||[]).filter((a)=>a.due_date));
+    setLoading(false);
+  },[classLabel]);
+  useEffect(()=>{load();},[load]);
+
+  // NEW — teacher-added events and existing assessment due-dates (already
+  // real dates in the database) merged into one shape, so "परीक्षा
+  // तालिका" isn't a separate disconnected list — an assessment with a due
+  // date IS an exam-schedule entry on this calendar automatically.
+  const allItems=useMemo(()=>{
+    const fromEvents=events.map((e)=>({id:`ev-${e.id}`,title:e.title,category:e.category,start:e.start_date,end:e.end_date||e.start_date,time:e.time,notes:e.notes,editable:true,raw:e}));
+    const fromAssessments=assessments.map((a)=>({id:`as-${a.id}`,title:a.title,category:"exam",start:a.due_date,end:a.due_date,editable:false,raw:a}));
+    return [...fromEvents,...fromAssessments];
+  },[events,assessments]);
+
+  const visibleItems=useMemo(()=>allItems.filter((i)=>activeCats.has(i.category)),[allItems,activeCats]);
+
+  const itemsByDate=useMemo(()=>{
+    const map={};
+    for(const it of visibleItems){
+      let d=parseDate(it.start);const end=parseDate(it.end);let guard=0;
+      while(d<=end&&guard<62){
+        (map[fmtDate(d)] ||= []).push(it);
+        d=new Date(d.getFullYear(),d.getMonth(),d.getDate()+1);guard++;
+      }
+    }
+    return map;
+  },[visibleItems]);
+
+  const selectedItems=(itemsByDate[selected]||[]).sort((a,b)=>(a.time||"99:99").localeCompare(b.time||"99:99"));
+
+  const openNew=()=>{setEditing(null);setForm({title:"",category:"event",start_date:selected,end_date:"",multiDay:false,time:"",notes:"",allClasses:false});setShowForm(true);};
+  const openEdit=(it)=>{if(!it.editable)return;const raw=it.raw;setEditing(raw);setForm({title:raw.title,category:raw.category,start_date:raw.start_date,end_date:raw.end_date||"",multiDay:!!raw.end_date,time:raw.time||"",notes:raw.notes||"",allClasses:!raw.class_label});setShowForm(true);};
+
+  const saveEvent=async()=>{
+    if(!form.title.trim()||!form.start_date)return;
+    setSaving(true);
+    const payload={
+      ...(editing?{id:editing.id}:{}),
+      title:form.title.trim(),
+      category:form.category,
+      start_date:form.start_date,
+      end_date:form.multiDay&&form.end_date?form.end_date:null,
+      time:form.time||null,
+      notes:form.notes.trim()||null,
+      class_label:form.allClasses?null:classLabel,
+    };
+    const{error}=await db.upsertCalendarEvent(payload);
+    setSaving(false);
+    if(!error){setShowForm(false);setEditing(null);load();}
+  };
+
+  const deleteEvent=async(raw)=>{
+    if(!confirm(`"${raw.title}" मेटाउने?`))return;
+    await db.deleteCalendarEvent(raw.id);
+    load();
+  };
+
+  const toggleCat=(key)=>setActiveCats((prev)=>{const next=new Set(prev);next.has(key)?next.delete(key):next.add(key);return next;});
+
+  const selectedLabel=(()=>{const d=parseDate(selected);return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;})();
 
   return(
-    <div style={{padding:"20px 20px 130px",maxWidth:560,margin:"0 auto"}}>
-      <div style={{fontSize:20,fontWeight:700,color:INK,marginBottom:14,display:"flex",alignItems:"center",gap:8}}><CalendarDays size={20} color={ACCENT}/>पात्रो</div>
+    <div style={{padding:"20px 20px 130px",maxWidth:640,margin:"0 auto"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,gap:10,flexWrap:"wrap"}}>
+        <div style={{fontSize:20,fontWeight:700,color:INK,display:"flex",alignItems:"center",gap:8}}><CalendarDays size={20} color={ACCENT}/>पात्रो</div>
+        <button className="ss-btn" onClick={openNew} style={{display:"flex",alignItems:"center",gap:6,background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"9px 15px",fontWeight:700,fontSize:15.5,cursor:"pointer",boxShadow:SHADOW.accent}}><Plus size={16}/>कार्यक्रम थप्नुहोस्</button>
+      </div>
+
+      {/* NEW — category filter chips, same visual language as Materials'
+          category chips: tap to hide/show that category's dots on the
+          grid and entries in the day list. */}
+      <div style={{display:"flex",gap:7,overflowX:"auto",marginBottom:14,paddingBottom:2}}>
+        {EVENT_CATEGORY_ORDER.map((key)=>{
+          const meta=EVENT_CATEGORY_META[key];const Icon=meta.icon;const active=activeCats.has(key);
+          return(
+            <button key={key} onClick={()=>toggleCat(key)} className="ss-chip" style={{display:"flex",alignItems:"center",gap:5,padding:"7px 13px",borderRadius:999,background:active?meta.color:SURFACE,color:active?"#fff":INK_SOFT,fontWeight:700,fontSize:14.5,whiteSpace:"nowrap",cursor:"pointer",border:`1.5px solid ${active?meta.color:BORDER}`,boxShadow:active?SHADOW.sm:"none"}}><Icon size={13}/>{meta.label}</button>
+          );
+        })}
+      </div>
+
       <Card style={{marginBottom:14,padding:14}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-          <button className="ss-btn" onClick={()=>{if(month===0){setMonth(11);setYear(y=>y-1);}else setMonth(m=>m-1);}} style={{background:WARN_BG,border:"none",borderRadius:8,padding:"6px 12px",fontWeight:700,cursor:"pointer",color:ACCENT,fontSize:18}}>‹</button>
+          <button className="ss-btn" onClick={()=>{if(month===0){setMonth(11);setYear((y)=>y-1);}else setMonth((m)=>m-1);}} style={{background:WARN_BG,border:"none",borderRadius:8,padding:"6px 12px",fontWeight:700,cursor:"pointer",color:ACCENT,fontSize:18}}>‹</button>
           <div style={{textAlign:"center"}}>
             <select value={month} onChange={(e)=>setMonth(Number(e.target.value))} style={{border:"none",fontWeight:700,fontSize:18,color:INK,cursor:"pointer",background:"transparent",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}>
               {MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}
@@ -2587,7 +2736,7 @@ function CalendarView({ lessons, homework }) {
               {Array.from({length:5},(_,i)=>today.getFullYear()-1+i).map((y)=><option key={y} value={y}>{y}</option>)}
             </select>
           </div>
-          <button className="ss-btn" onClick={()=>{if(month===11){setMonth(0);setYear(y=>y+1);}else setMonth(m=>m+1);}} style={{background:WARN_BG,border:"none",borderRadius:8,padding:"6px 12px",fontWeight:700,cursor:"pointer",color:ACCENT,fontSize:18}}>›</button>
+          <button className="ss-btn" onClick={()=>{if(month===11){setMonth(0);setYear((y)=>y+1);}else setMonth((m)=>m+1);}} style={{background:WARN_BG,border:"none",borderRadius:8,padding:"6px 12px",fontWeight:700,cursor:"pointer",color:ACCENT,fontSize:18}}>›</button>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4,marginBottom:6}}>
           {DAYS.map((d)=><div key={d} style={{textAlign:"center",fontSize:15,fontWeight:700,color:INK_SOFT,padding:"4px 0"}}>{d}</div>)}
@@ -2595,22 +2744,91 @@ function CalendarView({ lessons, homework }) {
         <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4}}>
           {Array.from({length:firstDay}).map((_,i)=><div key={`e${i}`}/>)}
           {Array.from({length:daysInMonth},(_,i)=>i+1).map((day)=>{
-            const isToday=day===today.getDate()&&month===today.getMonth()&&year===today.getFullYear();
-            const isSel=day===selected;
-            return<button key={day} onClick={()=>setSelected(day)} style={{aspectRatio:1,borderRadius:8,border:"none",background:isToday?ACCENT:isSel?ACCENT_LIGHT:"transparent",color:isToday?"#fff":isSel?ACCENT:INK,fontWeight:isToday||isSel?700:400,fontSize:16.5,cursor:"pointer"}}>{day}</button>;
+            const dateStr=fmtDate(new Date(year,month,day));
+            const isToday=dateStr===fmtDate(today);
+            const isSel=dateStr===selected;
+            const dayItems=itemsByDate[dateStr]||[];
+            const dots=[...new Set(dayItems.map((i)=>i.category))].slice(0,3);
+            return(
+              <button key={day} className="ss-btn" onClick={()=>setSelected(dateStr)} style={{aspectRatio:1,borderRadius:8,border:"none",background:isToday?ACCENT:isSel?ACCENT_LIGHT:"transparent",color:isToday?"#fff":isSel?ACCENT:INK,fontWeight:isToday||isSel?700:400,fontSize:16.5,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,padding:0}}>
+                <span>{day}</span>
+                {dots.length>0&&(
+                  <span style={{display:"flex",gap:2,height:5}}>
+                    {dots.map((cat)=><span key={cat} style={{width:5,height:5,borderRadius:"50%",background:isToday?"#fff":EVENT_CATEGORY_META[cat]?.color||INK_SOFT,flexShrink:0}}/>)}
+                  </span>
+                )}
+              </button>
+            );
           })}
         </div>
       </Card>
-      <SectionLabel icon={CalendarDays}>आजका कार्यहरू</SectionLabel>
-      {[...lessons.slice(0,3).map((l)=>({type:"पाठ",title:l.title,color:ACCENT,bg:ACCENT_LIGHT})),...homework.filter((h)=>h.checked_count<h.total_students).slice(0,2).map((h)=>({type:"गृहकार्य",title:h.title,color:WARN,bg:WARN_BG}))].length===0?<div style={{color:INK_SOFT,fontSize:16.5}}>कुनै कार्य छैन।</div>:(
+
+      <SectionLabel icon={CalendarDays}>{selectedLabel}</SectionLabel>
+      {loading?<Spinner/>:selectedItems.length===0?(
+        <div style={{color:INK_SOFT,fontSize:16.5}}>यो दिन कुनै कार्यक्रम छैन।</div>
+      ):(
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          {[...lessons.slice(0,3).map((l)=>({type:"पाठ",title:l.title,color:ACCENT,bg:ACCENT_LIGHT})),...homework.filter((h)=>h.checked_count<h.total_students).slice(0,2).map((h)=>({type:"गृहकार्य",title:h.title,color:WARN,bg:WARN_BG}))].map((item,i)=>(
-            <Card key={i} accentColor={item.color} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",paddingTop:20,position:"relative",overflow:"visible"}}>
-              <PinBadge color={item.color}/>
-              <span style={{fontSize:14,fontWeight:700,color:item.color,background:item.bg,padding:"3px 8px",borderRadius:5,flexShrink:0}}>{item.type}</span>
-              <div style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:16.5,color:INK,fontWeight:600}}>{item.title}</div>
-            </Card>
-          ))}
+          {selectedItems.map((it)=>{
+            const meta=EVENT_CATEGORY_META[it.category]||EVENT_CATEGORY_META.event;const Icon=meta.icon;
+            return(
+              <Card key={it.id} accentColor={meta.color} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",paddingTop:20,position:"relative",overflow:"visible"}}>
+                <PinBadge color={meta.color}/>
+                <div style={{width:36,height:36,borderRadius:10,background:`linear-gradient(160deg, ${meta.color} 0%, color-mix(in srgb, ${meta.color} 70%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 3px 8px color-mix(in srgb, ${meta.color} 40%, transparent)`}}><Icon size={17} color="#fff"/></div>
+                <div style={{flex:1,minWidth:0}} onClick={()=>openEdit(it)} title={it.editable?"सम्पादन गर्नुहोस्":""} className={it.editable?"ss-btn":""}>
+                  <div style={{fontSize:16.5,color:INK,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.title}</div>
+                  <div style={{fontSize:14,color:INK_SOFT,display:"flex",gap:6,flexWrap:"wrap"}}>
+                    <span>{meta.label}</span>{it.time&&<span>· {it.time}</span>}{!it.editable&&<span>· मूल्याङ्कनबाट</span>}{it.start!==it.end&&<span>· {parseDate(it.start).getDate()}–{parseDate(it.end).getDate()} {MONTHS[parseDate(it.end).getMonth()]}</span>}
+                  </div>
+                </div>
+                {it.editable&&<button className="ss-icon-btn" onClick={()=>deleteEvent(it.raw)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,padding:4,flexShrink:0}}><Trash2 size={16}/></button>}
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {showForm&&form&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.55)",backdropFilter:"blur(3px)",WebkitBackdropFilter:"blur(3px)",zIndex:70,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={()=>setShowForm(false)}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:"20px 20px 0 0",padding:20,maxWidth:520,width:"100%",maxHeight:"85vh",overflowY:"auto",boxShadow:SHADOW.lg}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div style={{fontSize:19,fontWeight:800,color:INK}}>{editing?"कार्यक्रम सम्पादन":"नयाँ कार्यक्रम"}</div>
+              <button className="ss-icon-btn" onClick={()=>setShowForm(false)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><X size={20}/></button>
+            </div>
+            <input autoFocus value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} placeholder="कार्यक्रमको नाम" className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,marginBottom:10}}/>
+            <div style={{display:"flex",gap:7,overflowX:"auto",marginBottom:12,paddingBottom:2}}>
+              {EVENT_CATEGORY_ORDER.map((key)=>{
+                const meta=EVENT_CATEGORY_META[key];const Icon=meta.icon;const active=form.category===key;
+                return<button key={key} onClick={()=>setForm({...form,category:key})} className="ss-chip" style={{display:"flex",alignItems:"center",gap:5,padding:"7px 12px",borderRadius:999,background:active?meta.color:SURFACE,color:active?"#fff":INK_SOFT,fontWeight:700,fontSize:14,whiteSpace:"nowrap",cursor:"pointer",border:`1.5px solid ${active?meta.color:BORDER}`}}><Icon size={12}/>{meta.label}</button>;
+              })}
+            </div>
+            <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+              <div style={{flex:1,minWidth:140}}>
+                <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:600,marginBottom:4}}>मिति</div>
+                <input type="date" value={form.start_date} onChange={(e)=>setForm({...form,start_date:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:10,padding:"9px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+              </div>
+              <div style={{flex:1,minWidth:120}}>
+                <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:600,marginBottom:4}}>समय (वैकल्पिक)</div>
+                <input type="time" value={form.time} onChange={(e)=>setForm({...form,time:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:10,padding:"9px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+              </div>
+            </div>
+            <label style={{display:"flex",alignItems:"center",gap:7,marginBottom:10,cursor:"pointer",fontSize:15,color:INK,fontWeight:600}}>
+              <input type="checkbox" checked={form.multiDay} onChange={(e)=>setForm({...form,multiDay:e.target.checked})}/> धेरै दिनसम्म चल्ने (जस्तै: बिदा)
+            </label>
+            {form.multiDay&&(
+              <div style={{marginBottom:10}}>
+                <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:600,marginBottom:4}}>अन्तिम मिति</div>
+                <input type="date" value={form.end_date} min={form.start_date} onChange={(e)=>setForm({...form,end_date:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:10,padding:"9px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+              </div>
+            )}
+            <label style={{display:"flex",alignItems:"center",gap:7,marginBottom:10,cursor:"pointer",fontSize:15,color:INK,fontWeight:600}}>
+              <input type="checkbox" checked={form.allClasses} onChange={(e)=>setForm({...form,allClasses:e.target.checked})}/> सबै कक्षाका लागि (विद्यालयब्यापी)
+            </label>
+            <textarea value={form.notes} onChange={(e)=>setForm({...form,notes:e.target.value})} placeholder="टिप्पणी (वैकल्पिक)" rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical",marginBottom:14}}/>
+            <div style={{display:"flex",gap:8}}>
+              {editing&&<button className="ss-btn" onClick={()=>{deleteEvent(editing);setShowForm(false);}} style={{padding:"11px 16px",borderRadius:10,border:`1px solid ${DANGER_BG}`,background:DANGER_BG,color:DANGER,fontWeight:700,cursor:"pointer"}}><Trash2 size={16}/></button>}
+              <button className="ss-btn" onClick={saveEvent} disabled={saving||!form.title.trim()} style={{flex:1,padding:"11px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}>{saving?"सुरक्षित हुँदैछ...":"सुरक्षित गर्नुहोस्"}</button>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -2629,6 +2847,25 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
   const [sectionMsg,setSectionMsg]=useState("");
   const [uploading,setUploading]=useState(false);
   const [pdfLoaded,setPdfLoaded]=useState(!!getTextbookPDF());
+  const [repairBusy,setRepairBusy]=useState(null);
+  const [repairMsg,setRepairMsg]=useState({});
+
+  const runRepair=async(key,fn)=>{
+    setRepairBusy(key);setRepairMsg((m)=>({...m,[key]:""}));
+    try{
+      const res=await fn((p)=>setRepairMsg((m)=>({...m,[key]:p.current?`...${p.current}`:"चलिरहेको..."})));
+      if(res?.error) throw res.error;
+      const parts=[];
+      if("merged" in res) parts.push(`${res.merged} अध्याय गाभियो`,`${res.rowsUpdated} रेकर्ड सारियो`);
+      if("fixed" in res) parts.push(`${res.fixed} मिलाइयो`,res.failed?`${res.failed} असफल`:null);
+      if("repaired" in res) parts.push(`${res.repaired} मिलाइयो`);
+      setRepairMsg((m)=>({...m,[key]:`✓ सम्पन्न — ${parts.filter(Boolean).join(", ")||"केही मिलाउन पर्ने भेटिएन"}`}));
+    }catch(e){
+      setRepairMsg((m)=>({...m,[key]:`त्रुटि: ${e.message||"असफल भयो"}`}));
+    }finally{
+      setRepairBusy(null);
+    }
+  };
 
   useEffect(()=>{
     gemini.loadTextbook(classLabel).then((b64)=>{
@@ -2825,6 +3062,39 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
           <button className="ss-btn" onClick={addSection} disabled={saving} style={{background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontWeight:700,fontSize:16.5,cursor:"pointer",boxShadow:SHADOW.accent}}>{saving?"...":"थप"}</button>
         </div>
         {sectionMsg&&<div style={{marginTop:8,fontSize:15,color:sectionMsg.startsWith("त्रुटि")||sectionMsg.includes("पहिल्यै")?DANGER:ACCENT,fontWeight:600}}>{sectionMsg}</div>}
+      </Card>
+
+      {/* NEW — Phase 5: repairChapterTagging and repairMaterialContentTypes
+          already existed in db.js but were never wired into any screen —
+          a teacher had no way to actually run them. repairDuplicateChapters
+          is the fix for the tagging bug itself: chapters that got
+          accidentally duplicated by a race condition (same title, two
+          different ids) get merged back into one, and every material/
+          lesson/question/activity pointed at a duplicate gets reassigned
+          to the surviving chapter. */}
+      <Card style={{marginBottom:14}}>
+        <SectionLabel icon={Wand2} color={VIOLET}>मर्मत उपकरण</SectionLabel>
+        <div style={{fontSize:15,color:INK_SOFT,marginBottom:12,lineHeight:1.5}}>
+          ट्याग गर्दा/अध्याय देखाउँदा समस्या आएमा यहाँबाट मर्मत गर्नुहोस्। यसले पुराना डाटा मात्र मिलाउँछ, केही मेटाउँदैन।
+        </div>
+        {[
+          {key:"dupChapters",label:"दोहोरिएका अध्याय मिलाउनुहोस्",desc:"एउटै नामका दोहोरिएका अध्यायलाई एउटैमा गाभ्छ र सबै फाइल/पाठ/प्रश्न सोहीमा सार्छ।",fn:db.repairDuplicateChapters},
+          {key:"chapterTag",label:"पुराना ट्याग मिलाउनुहोस्",desc:"पुरानो नामबाट मात्र बचेका पाठ/प्रश्न/क्रियाकलापलाई सही अध्यायसँग जोड्छ।",fn:db.repairChapterTagging},
+          {key:"materialType",label:"फाइल प्रकार मिलाउनुहोस्",desc:"पुराना फाइलहरूको प्रकार (content type) मर्मत गर्छ।",fn:db.repairMaterialContentTypes},
+        ].map((tool)=>(
+          <div key={tool.key} style={{padding:"10px 0",borderBottom:`1px solid ${BORDER}`}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+              <div style={{flex:1,minWidth:180}}>
+                <div style={{fontSize:16,fontWeight:700,color:INK}}>{tool.label}</div>
+                <div style={{fontSize:14,color:INK_SOFT}}>{tool.desc}</div>
+              </div>
+              <button className="ss-btn" disabled={repairBusy===tool.key} onClick={()=>runRepair(tool.key,tool.fn)} style={{background:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"9px 14px",fontWeight:700,fontSize:15,cursor:"pointer",color:INK,flexShrink:0,boxShadow:SHADOW.sm}}>
+                {repairBusy===tool.key?"चलिरहेको...":"चलाउनुहोस्"}
+              </button>
+            </div>
+            {repairMsg[tool.key]&&<div style={{fontSize:14.5,color:ACCENT,fontWeight:600,marginTop:6}}>{repairMsg[tool.key]}</div>}
+          </div>
+        ))}
       </Card>
 
       <Card>
@@ -3210,7 +3480,7 @@ export default function App() {
         {screen==="journal"&&<TeachingJournal lessons={lessons}/>}
         {screen==="aitools"&&<AITools lessons={lessons} chapters={chapters} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel} initialTab={aiToolsTab} onInitialTabConsumed={()=>setAiToolsTab(null)}/>}
         {screen==="search"&&<DocumentSearch lessons={lessons} homework={homework} classLabel={classLabel} onOpenLesson={openLesson} onGoMaterials={()=>setScreen("materials")} onGoAITools={goAITools} onGoHomework={()=>setScreen("homework")}/>}
-        {screen==="calendar"&&<CalendarView lessons={lessons} homework={homework}/>}
+        {screen==="calendar"&&<CalendarView classLabel={classLabel}/>}
         {screen==="settings"&&<Settings session={session} sections={sections} currentSection={currentSection} onSectionAdded={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}} onSectionUpdated={(s)=>{setSections((prev)=>prev.map((x)=>x.id===s.id?s:x));if(currentSection?.id===s.id)setCurrentSection(s);}} onSectionDeleted={(id)=>{setSections((prev)=>prev.filter((x)=>x.id!==id));if(currentSection?.id===id)setCurrentSection(sections.find((x)=>x.id!==id)||null);}} theme={theme} onToggleTheme={toggleTheme} installPrompt={installPrompt} isStandalone={isStandalone} isIOS={isIOS} onInstall={promptInstall} classLabel={classLabel} subjectLabel={subjectLabel} onClassChange={setClassLabel} onSubjectChange={setSubjectLabel} teacherName={teacherName} onTeacherNameChange={setTeacherName}/>}
       </div>
 
