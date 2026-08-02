@@ -353,29 +353,10 @@ export const deleteCalendarEvent = async (id) => {
   return { error };
 };
 
-/* MIGRATION — run once in the Supabase SQL editor:
+// The one-time Supabase table setup for calendar_events lives in its own
+// file, calendar_events.sql — run that in Supabase's SQL Editor, not this
+// file. This file (db.js) only ever goes into your app/GitHub deployment.
 
-create table calendar_events (
-  id uuid primary key default gen_random_uuid(),
-  teacher_id uuid references auth.users(id) not null,
-  class_label text,                    -- null = applies to every class
-  title text not null,
-  category text not null default 'event',  -- event | holiday | exam | deadline | training | reminder
-  start_date date not null,
-  end_date date,                       -- null = single-day; set for multi-day holidays
-  time text,                           -- optional "HH:MM", null = all-day
-  notes text,
-  source text not null default 'manual',   -- manual | imported
-  external_id text,                    -- id from an official calendar, for future sync
-  created_at timestamptz default now()
-);
-alter table calendar_events enable row level security;
-create policy "teachers manage their own events" on calendar_events
-  for all using (auth.uid() = teacher_id) with check (auth.uid() = teacher_id);
-create index calendar_events_teacher_date on calendar_events(teacher_id, start_date);
-create unique index calendar_events_external_dedupe on calendar_events(teacher_id, external_id) where external_id is not null;
-
-*/
 // check-then-insert race in getOrCreateChapterId (fixed above, but this
 // repairs whatever it already produced). Groups chapters by normalized
 // title + class_label; where more than one row exists for the same chapter,

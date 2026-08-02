@@ -250,7 +250,7 @@ function Spinner({ small }) {
 function ErrorMsg({ msg }) {
   return <div style={{ display:"flex", alignItems:"center", gap:9, background:DANGER_BG, borderRadius:12, padding:"12px 15px", fontSize:16, color:DANGER, margin:"10px 0", fontWeight:500 }}><AlertCircle size={17}/>{msg}</div>;
 }
-function EmptyState({ icon:Icon=FileText, text }) {
+function EmptyState({ icon:Icon=FileText, text, actionLabel, onAction }) {
   return (
     <div style={{textAlign:"center",padding:"30px 20px"}}>
       <div style={{
@@ -260,6 +260,12 @@ function EmptyState({ icon:Icon=FileText, text }) {
         boxShadow:SHADOW.raised,
       }}><Icon size={21} color={INK_SOFT}/></div>
       <div style={{fontSize:16.5,fontWeight:600,color:INK_SOFT}}>{text}</div>
+      {/* NEW — a message alone in a big empty area doesn't tell you what to
+          do next. Giving the empty state its own action button puts the
+          obvious next step right where your eye already landed. */}
+      {actionLabel&&onAction&&(
+        <button className="ss-btn" onClick={onAction} style={{marginTop:14,display:"inline-flex",alignItems:"center",gap:6,background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"9px 16px",fontWeight:700,fontSize:15,cursor:"pointer",boxShadow:SHADOW.accent}}><Plus size={15}/>{actionLabel}</button>
+      )}
     </div>
   );
 }
@@ -602,6 +608,10 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, teacherNam
   // NEW — Phase 2: lets a teacher collapse "आजको उद्देश्य" once they've
   // glanced at it, so it stops eating vertical space on every visit.
   const [objOpen,setObjOpen]=useState(true);
+  // NEW — on desktop, objectives move into a popup instead of always
+  // sitting in the rail, so the rail stays a slim tab list and the actual
+  // content gets the space (see the "empty space on PC" fix below).
+  const [objPopup,setObjPopup]=useState(false);
   const tabs=[{id:"sequence",label:"पढाउने",icon:ClipboardList},{id:"questions",label:"प्रश्नहरू",icon:MessageSquare},{id:"activities",label:"क्रियाकलाप",icon:Users},{id:"homework",label:"गृहकार्य",icon:PenSquare},{id:"rubric",label:"मूल्याङ्कन",icon:Layers}];
   const objectives=lesson.objectives||[];
   const vocabulary=lesson.vocabulary||[];
@@ -632,14 +642,23 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, teacherNam
         .lesson-tabs{display:flex;overflow-x:auto;background:${SURFACE};border-bottom:1px solid ${BORDER};}
         .lesson-tab-btn{display:flex;align-items:center;gap:5px;padding:11px 12px;border:none;background:none;border-bottom:3px solid transparent;font-weight:600;font-size:16px;cursor:pointer;white-space:nowrap;}
         .lesson-content{flex:1;overflow-y:auto;padding:14px 16px;width:100%;}
+        .lesson-obj-mobile{display:block;}
+        .lesson-obj-trigger{display:none;}
         @media(min-width:860px){
           .lesson-shell{flex-direction:row;overflow:hidden;}
-          .lesson-rail{width:260px;flex-shrink:0;display:flex;flex-direction:column;overflow-y:auto;border-right:1px solid ${BORDER};background:${SURFACE};}
+          .lesson-rail{width:250px;flex-shrink:0;display:flex;flex-direction:column;overflow-y:auto;border-right:1px solid ${BORDER};background:${SURFACE};}
           .lesson-tabs{flex-direction:column;overflow-x:visible;border-bottom:none;padding:10px;gap:2px;}
           .lesson-tab-btn{border-bottom:none;border-left:3px solid transparent;border-radius:10px;padding:11px 13px;justify-content:flex-start;}
           .lesson-tab-btn.active{background:${ACCENT_LIGHT};border-left-color:${ACCENT};}
-          .lesson-obj{border-bottom:none !important;border-top:1px solid ${BORDER};}
-          .lesson-content{max-width:900px;padding:28px 34px;}
+          /* FIX — this used to be max-width:900px with no centering, so on
+             a wide monitor the content pane sat pinned against the rail
+             and everything past 900px was just dead empty screen. Centered
+             now, so any leftover space is balanced on both sides instead
+             of wasted on one, and objectives move out of the rail into a
+             popup (below) so the rail stays a slim, uncluttered tab list. */
+          .lesson-content{max-width:1040px;margin:0 auto;padding:30px 40px;}
+          .lesson-obj-mobile{display:none;}
+          .lesson-obj-trigger{display:flex;}
         }
       `}</style>
       <div className="no-print" style={{background:`linear-gradient(120deg, ${TEAL} 0%, ${ACCENT} 65%, ${ACCENT_DARK} 100%)`,color:"#fff",padding:"12px 16px",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
@@ -657,8 +676,8 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, teacherNam
           <div className="lesson-tabs">
             {tabs.map((t)=>{const Icon=t.icon;const active=tab===t.id;return<button key={t.id} onClick={()=>setTab(t.id)} className={`lesson-tab-btn${active?" active":""}`} style={{color:active?ACCENT:INK_SOFT,borderBottomColor:active?ACCENT:"transparent"}}><Icon size={15}/>{t.label}</button>;})}
           </div>
-          {(objectives.length>0||vocabulary.length>0)&&(
-            <div className="lesson-obj" style={{padding:"10px 16px 12px",borderBottom:`1px solid ${BORDER}`}}>
+          {(objectives.length>0||vocabulary.length>0)&&(<>
+            <div className="lesson-obj-mobile" style={{padding:"10px 16px 12px",borderBottom:`1px solid ${BORDER}`}}>
               {/* NEW — collapsible: a teacher who already knows today's
                   objective by heart (most days, after the first glance)
                   can close this and get straight to the tab content
@@ -683,10 +702,17 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, teacherNam
                 </div>
               </>)}
             </div>
-          )}
+            {/* NEW — desktop: instead of objectives permanently taking up
+                rail space, a slim trigger opens them in a popup. Keeps the
+                rail down to just the tab list, and the objectives are one
+                tap away whenever actually needed. */}
+            <button className="lesson-obj-trigger ss-btn" onClick={()=>setObjPopup(true)} style={{alignItems:"center",gap:8,margin:"4px 10px 10px",padding:"11px 13px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE_2,cursor:"pointer",color:INK,fontWeight:700,fontSize:15}}>
+              <ClipboardList size={15} color={ACCENT}/>आजको उद्देश्य हेर्नुहोस्
+            </button>
+          </>)}
         </div>
         <div className="lesson-content">
-        {tab==="sequence"&&(<div><SectionLabel icon={ClipboardList}>पढाउने क्रम</SectionLabel>{sequence.length===0?<div style={{color:INK_SOFT}}>पढाउने क्रम थपिएको छैन।</div>:(<ol style={{margin:0,paddingLeft:0,listStyle:"none"}}>{sequence.map((s,i)=>(<li key={i} style={{display:"flex",gap:12,padding:"12px 0",borderBottom:i<sequence.length-1?`1px solid ${BORDER}`:"none"}}><div style={{width:26,height:26,borderRadius:"50%",background:ACCENT_LIGHT,color:ACCENT,fontWeight:700,fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div><div style={{fontSize:17,color:INK,lineHeight:1.5,paddingTop:2}}>{s}</div></li>))}</ol>)}{lesson.notes&&<div style={{marginTop:14,background:WARN_BG,borderRadius:10,padding:12}}><div style={{fontSize:15,fontWeight:700,color:WARN,marginBottom:3}}>नोट</div><div style={{fontSize:16.5,color:INK}}>{lesson.notes}</div></div>}</div>)}
+        {tab==="sequence"&&(<div><SectionLabel icon={ClipboardList}>पढाउने क्रम</SectionLabel>{sequence.length===0?<div style={{color:INK_SOFT}}>पढाउने क्रम थपिएको छैन।</div>:(<ol style={{margin:0,paddingLeft:0,listStyle:"none",display:"flex",flexDirection:"column",gap:8}}>{sequence.map((s,i)=>(<li key={i} style={{display:"flex",gap:12,padding:"12px 13px",background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12}}><div style={{width:26,height:26,borderRadius:"50%",background:`linear-gradient(160deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:SHADOW.accent}}>{i+1}</div><div style={{fontSize:17,color:INK,lineHeight:1.5,paddingTop:2}}>{s}</div></li>))}</ol>)}{lesson.notes&&<div style={{marginTop:14,background:WARN_BG,borderRadius:10,padding:12}}><div style={{fontSize:15,fontWeight:700,color:WARN,marginBottom:3}}>नोट</div><div style={{fontSize:16.5,color:INK}}>{lesson.notes}</div></div>}</div>)}
         {tab==="questions"&&<div><SectionLabel icon={MessageSquare} color={VIOLET}>कक्षामा सोध्नुहोस्</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:8}}>{keyQuestions.length===0?<div style={{color:INK_SOFT}}>प्रश्नहरू थपिएका छैनन्।</div>:keyQuestions.map((q,i)=><Card key={i} accentColor={PALETTE[i%PALETTE.length]}><div style={{fontSize:17,color:INK}}>{q}</div></Card>)}</div></div>}
         {tab==="activities"&&<div><SectionLabel icon={Users} color={TEAL}>क्रियाकलापहरू</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:8}}>{activities.length===0?<div style={{color:INK_SOFT}}>क्रियाकलापहरू थपिएका छैनन्।</div>:activities.map((a,i)=><Card key={i} accentColor={PALETTE[i%PALETTE.length]}><div style={{fontSize:17,color:INK}}>{a}</div></Card>)}</div></div>}
         {tab==="homework"&&<div><SectionLabel icon={PenSquare} color={MARIGOLD_DARK}>दिने गृहकार्य</SectionLabel><Card><div style={{fontSize:17,color:INK,lineHeight:1.6}}>{lesson.homework||"गृहकार्य थपिएको छैन।"}</div></Card></div>}
@@ -694,6 +720,32 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, teacherNam
         </div>
       </div>
 
+
+      {objPopup&&(
+        <div className="no-print" onClick={()=>setObjPopup(false)} style={{position:"fixed",inset:0,zIndex:80,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.5)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",padding:20}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:16,padding:22,maxWidth:440,width:"100%",maxHeight:"80vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div style={{fontSize:18,fontWeight:800,color:INK}}>आजको उद्देश्य</div>
+              <button className="ss-icon-btn" onClick={()=>setObjPopup(false)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><X size={19}/></button>
+            </div>
+            <ul style={{margin:0,paddingLeft:18,fontSize:16.5,color:INK,lineHeight:1.6}}>{objectives.map((o,i)=><li key={i}>{o}</li>)}</ul>
+            {vocabulary.length>0&&(
+              <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:12}}>
+                {vocabulary.map((v)=>{
+                  const idx=v.indexOf(":");
+                  const word=idx>-1?v.slice(0,idx).trim():v.trim();
+                  const meaning=idx>-1?v.slice(idx+1).trim():"";
+                  return(
+                    <button className="ss-btn" key={v} onClick={()=>meaning&&setVocabPopup({word,meaning})} style={{background:WARN_BG,color:MARIGOLD_DARK,fontSize:15,fontWeight:600,padding:"4px 9px",borderRadius:7,border:"none",display:"flex",alignItems:"center",gap:3,cursor:meaning?"pointer":"default"}}>
+                      {word}{meaning&&<HelpCircle size={11}/>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {vocabPopup&&(
         <div className="no-print" onClick={()=>setVocabPopup(null)} style={{position:"fixed",inset:0,zIndex:80,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.5)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",padding:20}}>
@@ -964,7 +1016,7 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, on
   const timeGreeting=hour<11?"शुभ प्रभात":hour<16?"नमस्ते":"शुभ साँझ";
 
   return(
-    <div style={{padding:"18px 18px 130px",maxWidth:760,margin:"0 auto"}}>
+    <div className="ss-page" style={{padding:"18px 18px 130px",maxWidth:760,margin:"0 auto"}}>
       {teacherName&&<div style={{fontSize:16.5,fontWeight:700,color:INK,marginBottom:10}}>{timeGreeting}, {teacherName} जी 👋</div>}
 
       {!textbookReady&&(
@@ -1248,7 +1300,7 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
   };
 
   return(
-    <div style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
+    <div className="ss-page" style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={{fontSize:20,fontWeight:700,color:INK}}>पाठ योजना</div>
         <div style={{display:"flex",gap:8}}>
@@ -1355,7 +1407,7 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
           </div>
         </Card>
       )}
-      {loading?<Spinner/>:lessons.length===0?<EmptyState icon={ClipboardList} text="कुनै पाठ छैन।"/>:(
+      {loading?<Spinner/>:lessons.length===0?<EmptyState icon={ClipboardList} text="कुनै पाठ छैन।" actionLabel="पहिलो पाठ थप्नुहोस्" onAction={startNew}/>:(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {lessons.map((l)=>(
             <Card key={l.id} onClick={()=>onOpenLesson(l)} accentColor={STATUS_META[l.status]?.color||STATUS_META.prep.color} style={{paddingTop:20,position:"relative",overflow:"visible"}}>
@@ -1627,7 +1679,7 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
   },[materials]);
 
   return(
-    <div style={{padding:"18px 18px 130px",maxWidth:1040,margin:"0 auto"}}>
+    <div className="ss-page" style={{padding:"18px 18px 130px",maxWidth:1040,margin:"0 auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
         <div style={{fontSize:22,fontWeight:800,color:INK,letterSpacing:"-0.01em"}}>सामग्री पुस्तकालय</div>
         <Button variant="ghost" size="sm" icon={RefreshCw} onClick={sync} disabled={syncing}>{syncing?"...":"सिंक"}</Button>
@@ -1833,7 +1885,7 @@ function HomeworkManager({ section, loading, homework, onRefresh }) {
     await supabase.from("homework").delete().eq("id",hw.id);onRefresh();
   };
   return(
-    <div style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
+    <div className="ss-page" style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={{fontSize:20,fontWeight:700,color:INK}}>गृहकार्य</div>
         <button className="ss-btn" onClick={()=>setShowForm(true)} style={{display:"flex",alignItems:"center",gap:5,background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}><Plus size={14}/>नयाँ</button>
@@ -1851,8 +1903,8 @@ function HomeworkManager({ section, loading, homework, onRefresh }) {
           </div>
         </Card>
       )}
-      {loading?<Spinner/>:homework.length===0?<EmptyState icon={ListChecks} text="कुनै गृहकार्य छैन।"/>:(
-        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+      {loading?<Spinner/>:homework.length===0?<EmptyState icon={ListChecks} text="कुनै गृहकार्य छैन।" actionLabel="पहिलो गृहकार्य थप्नुहोस्" onAction={()=>setShowForm(true)}/>:(
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(340px,1fr))",gap:12,alignItems:"start"}}>
           {homework.map((h)=>{
             const pct=h.total_students>0?Math.round((h.checked_count/h.total_students)*100):0;
             const done=h.checked_count>=h.total_students;
@@ -1905,7 +1957,7 @@ function TeachingJournal({ lessons }) {
     setSaving(false);setShowForm(false);setForm({lesson_id:"",taught:"",difficulty:"",idea:"",mood:"good"});load();
   };
   return(
-    <div style={{padding:"20px 20px 130px",maxWidth:820,margin:"0 auto"}}>
+    <div className="ss-page" style={{padding:"20px 20px 130px",maxWidth:820,margin:"0 auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={{fontSize:20,fontWeight:700,color:INK,display:"flex",alignItems:"center",gap:8}}><Heart size={20} color={ACCENT}/>डायरी</div>
         {!showForm&&<button className="ss-btn" onClick={()=>setShowForm(true)} style={{display:"flex",alignItems:"center",gap:5,background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}><Plus size={14}/>थप</button>}
@@ -1942,8 +1994,8 @@ function TeachingJournal({ lessons }) {
           </div>
         </Card>
       )}
-      {loading?<Spinner/>:entries.length===0?<EmptyState icon={Heart} text="कुनै प्रविष्टि छैन।"/>:(
-        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      {loading?<Spinner/>:entries.length===0?<EmptyState icon={Heart} text="कुनै प्रविष्टि छैन।" actionLabel="पहिलो प्रविष्टि थप्नुहोस्" onAction={()=>setShowForm(true)}/>:(
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:10,alignItems:"start"}}>
           {entries.map((e)=>{const mood=MOOD_META[e.mood]||MOOD_META.okay;const MIcon=mood.icon;return(
             <Card key={e.id} accentColor={mood.color} style={{paddingTop:20,position:"relative",overflow:"visible"}}>
               <PinBadge color={mood.color}/>
@@ -2003,7 +2055,7 @@ function AIAssistant({ lessons, classContext, classLabel }) {
     setLoading(false);
   };
   return(
-    <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 170px)",maxWidth:720,margin:"0 auto",width:"100%"}}>
+    <div className="ss-page-read" style={{display:"flex",flexDirection:"column",height:"calc(100vh - 170px)",maxWidth:720,margin:"0 auto",width:"100%"}}>
       <div style={{padding:"14px 16px 8px"}}>
         <div style={{fontSize:19,fontWeight:700,color:INK,display:"flex",alignItems:"center",gap:8}}><Bot size={20} color={ACCENT}/>AI शिक्षण सहायक</div>
         {lessons.length>0&&(
@@ -2112,7 +2164,7 @@ function QuestionBank({ chapters, onAddChapter, classContext, classLabel }) {
   const selectedQs=questions.filter((q)=>selected.includes(q.id));
 
   return(<>
-    <div className={showSet?"no-print":""} style={{padding:"20px 20px 150px",maxWidth:1040,margin:"0 auto"}}>
+    <div className={`${showSet?"no-print":""} ss-page`} style={{padding:"20px 20px 150px",maxWidth:1040,margin:"0 auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={{fontSize:20,fontWeight:700,color:INK}}>प्रश्न बैंक</div>
         <button className="ss-btn" onClick={()=>setShowForm(!showForm)} style={{display:"flex",alignItems:"center",gap:5,background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}><Plus size={14}/>नयाँ</button>
@@ -2236,7 +2288,7 @@ function AssessmentBuilder({ chapters, onAddChapter, classContext, classLabel })
   };
 
   return(<>
-    <div className={printing?"no-print":""} style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
+    <div className={`${printing?"no-print":""} ss-page`} style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={{fontSize:20,fontWeight:700,color:INK}}>मूल्याङ्कन</div>
         <button className="ss-btn" onClick={()=>setShowForm(!showForm)} style={{display:"flex",alignItems:"center",gap:5,background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}><Plus size={14}/>नयाँ</button>
@@ -2346,7 +2398,7 @@ function ActivitiesLibrary({ chapters, onAddChapter, classContext, classLabel })
   const filtered=typeFilter==="सबै"?activities:activities.filter((a)=>a.type===typeFilter);
 
   return(<>
-    <div className={printing?"no-print":""} style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
+    <div className={`${printing?"no-print":""} ss-page`} style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={{fontSize:20,fontWeight:700,color:INK}}>क्रियाकलाप</div>
         <button className="ss-btn" onClick={()=>setShowForm(!showForm)} style={{display:"flex",alignItems:"center",gap:5,background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}><Plus size={14}/>नयाँ</button>
@@ -2435,6 +2487,49 @@ const resourceTemplateMeta=(id)=>RESOURCE_TEMPLATES.find((t)=>t.id===id)||{title
 // Assessment, Resources) behind one nav item with internal tabs, instead of
 // four separate items cluttering the "थप" menu. Same screens underneath,
 // just fewer places to hunt for them.
+// NEW — गृहकार्य, डायरी, खोज, पात्रो, and सेटिङ used to each be a full
+// separate top-level screen. On desktop especially, most of them are
+// short lists or forms — as their own screen, each one left most of the
+// window empty. Same fix as AI Tools already uses below: one screen, an
+// internal tab bar, real content filling the space either way instead of
+// five mostly-empty pages.
+function MoreHub({
+  initialTab,onInitialTabConsumed,
+  section,homework,hwLoading,onRefreshHomework,
+  lessons,classLabel,onOpenLesson,onGoMaterials,onGoAITools,
+  session,sections,currentSection,onSectionAdded,onSectionUpdated,onSectionDeleted,
+  theme,onToggleTheme,installPrompt,isStandalone,isIOS,onInstall,
+  subjectLabel,onClassChange,onSubjectChange,teacherName,onTeacherNameChange,
+}) {
+  const [tab,setTab]=useState("homework");
+  useEffect(()=>{
+    if(!initialTab)return;
+    setTab(initialTab);
+    onInitialTabConsumed?.();
+  },[initialTab,onInitialTabConsumed]);
+  const TABS=[
+    {id:"homework",label:"गृहकार्य",icon:ListChecks,color:BLUE,bg:BLUE_LIGHT},
+    {id:"journal",label:"डायरी",icon:Heart,color:ROSE,bg:ROSE_LIGHT},
+    {id:"search",label:"खोज",icon:Search,color:TEAL,bg:TEAL_LIGHT},
+    {id:"calendar",label:"पात्रो",icon:CalendarDays,color:MARIGOLD_DARK,bg:WARN_BG},
+    {id:"settings",label:"सेटिङ",icon:SettingsIcon,color:INK_SOFT,bg:SURFACE_2},
+  ];
+  return(
+    <div>
+      <div className="no-print" style={{display:"flex",overflowX:"auto",background:SURFACE,borderBottom:`1px solid ${BORDER}`,position:"sticky",top:0,zIndex:8}}>
+        {TABS.map((t)=>{const Icon=t.icon;const active=tab===t.id;return(
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{display:"flex",alignItems:"center",gap:7,padding:"13px 18px",border:"none",background:active?t.bg:"none",borderBottom:active?`3px solid ${t.color}`:"3px solid transparent",color:active?t.color:INK_SOFT,fontWeight:700,fontSize:16,cursor:"pointer",whiteSpace:"nowrap",transition:"background .15s"}}><Icon size={16}/>{t.label}</button>
+        );})}
+      </div>
+      {tab==="homework"&&<HomeworkManager section={section} loading={hwLoading} homework={homework} onRefresh={onRefreshHomework}/>}
+      {tab==="journal"&&<TeachingJournal lessons={lessons}/>}
+      {tab==="search"&&<DocumentSearch lessons={lessons} homework={homework} classLabel={classLabel} onOpenLesson={onOpenLesson} onGoMaterials={onGoMaterials} onGoAITools={onGoAITools} onGoHomework={()=>setTab("homework")}/>}
+      {tab==="calendar"&&<CalendarView classLabel={classLabel}/>}
+      {tab==="settings"&&<Settings session={session} sections={sections} currentSection={currentSection} onSectionAdded={onSectionAdded} onSectionUpdated={onSectionUpdated} onSectionDeleted={onSectionDeleted} theme={theme} onToggleTheme={onToggleTheme} installPrompt={installPrompt} isStandalone={isStandalone} isIOS={isIOS} onInstall={onInstall} classLabel={classLabel} subjectLabel={subjectLabel} onClassChange={onClassChange} onSubjectChange={onSubjectChange} teacherName={teacherName} onTeacherNameChange={onTeacherNameChange}/>}
+    </div>
+  );
+}
+
 function AITools({ lessons, chapters, onAddChapter, classContext, classLabel, initialTab, onInitialTabConsumed }) {
   const [tab,setTab]=useState("questions");
   // NEW — arriving here from a Search result: jump straight to the
@@ -2502,7 +2597,7 @@ function ResourceCreator({ lessons, classContext, classLabel }) {
   };
 
   return(
-    <div style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
+    <div className="ss-page" style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
       <div className="no-print" style={{fontSize:20,fontWeight:700,color:INK,marginBottom:4,display:"flex",alignItems:"center",gap:8}}><Wand2 size={20} color={ACCENT}/>स्रोत निर्माता</div>
       <div className="no-print" style={{fontSize:16,color:INK_SOFT,marginBottom:16}}>{lesson?`"${lesson.title}" — AI बाट स्वतः बनाइन्छ।`:"पहिले पाठ योजनामा पाठ थप्नुहोस्।"}</div>
       <div className="no-print"><MaterialsHint count={matchedCount} chapterTitle={chapterTitle}/></div>
@@ -2546,7 +2641,7 @@ function SavedResources() {
   };
 
   return(
-    <div style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
+    <div className="ss-page" style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
       <div style={{fontSize:20,fontWeight:700,color:INK,marginBottom:4,display:"flex",alignItems:"center",gap:8}}><BookMarked size={20} color={ROSE}/>सुरक्षित स्रोतहरू</div>
       <div style={{fontSize:16,color:INK_SOFT,marginBottom:16}}>AI बाट बनाएका र सुरक्षित गरेका कार्यपत्र, फ्ल्यासकार्ड, पुनरावलोकन पाना — पछि हेर्न वा प्रिन्ट गर्न।</div>
       {loading?<Spinner/>:items.length===0?(
@@ -2600,7 +2695,7 @@ function DocumentSearch({ lessons, homework, classLabel, onOpenLesson, onGoMater
     ];
   },[query,lessons,allMaterials,allQuestions,allActivities,homework,onOpenLesson,onGoMaterials,onGoAITools,onGoHomework]);
   return(
-    <div style={{padding:"20px 20px 130px",maxWidth:820,margin:"0 auto"}}>
+    <div className="ss-page-read" style={{padding:"20px 20px 130px",maxWidth:820,margin:"0 auto"}}>
       <div style={{fontSize:20,fontWeight:700,color:INK,marginBottom:4}}>सबैतिर खोज</div>
       <div style={{display:"flex",alignItems:"center",gap:8,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:14,padding:"12px 14px",marginBottom:14,marginTop:10}}>
         <Search size={17} color={INK_SOFT}/>
@@ -2707,7 +2802,7 @@ function CalendarView({ classLabel }) {
   const selectedLabel=(()=>{const d=parseDate(selected);return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;})();
 
   return(
-    <div style={{padding:"20px 20px 130px",maxWidth:640,margin:"0 auto"}}>
+    <div className="ss-page-read" style={{padding:"20px 20px 130px",maxWidth:640,margin:"0 auto"}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,gap:10,flexWrap:"wrap"}}>
         <div style={{fontSize:20,fontWeight:700,color:INK,display:"flex",alignItems:"center",gap:8}}><CalendarDays size={20} color={ACCENT}/>पात्रो</div>
         <button className="ss-btn" onClick={openNew} style={{display:"flex",alignItems:"center",gap:6,background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"9px 15px",fontWeight:700,fontSize:15.5,cursor:"pointer",boxShadow:SHADOW.accent}}><Plus size={16}/>कार्यक्रम थप्नुहोस्</button>
@@ -2948,7 +3043,7 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
   };
 
   return(
-    <div style={{padding:"20px 20px 130px",maxWidth:680,margin:"0 auto"}}>
+    <div className="ss-page-read" style={{padding:"20px 20px 130px",maxWidth:680,margin:"0 auto"}}>
       <div style={{fontSize:20,fontWeight:700,color:INK,marginBottom:16,display:"flex",alignItems:"center",gap:8}}><SettingsIcon size={20} color={ACCENT}/>सेटिङ</div>
 
       {!isStandalone&&(
@@ -3129,6 +3224,8 @@ export default function App() {
   // what they searched for.
   const [aiToolsTab,setAiToolsTab]=useState(null);
   const goAITools=useCallback((tab)=>{setAiToolsTab(typeof tab==="string"?tab:null);setScreen("aitools");},[]);
+  const [moreTab,setMoreTab]=useState(null);
+  const goMore=useCallback((tab)=>{setMoreTab(typeof tab==="string"?tab:null);setScreen("more");},[]);
   // NEW — one-click print from the Planner list: open the lesson AND print
   // it immediately, no second tap required.
   const openLesson=useCallback((l,opts)=>{setActiveLesson(l);setActiveLessonAutoPrint(!!opts?.autoPrint);},[]);
@@ -3274,11 +3371,7 @@ export default function App() {
   ];
   const navMore=[
     {id:"aitools",label:"AI उपकरण",icon:Wand2,color:VIOLET},
-    {id:"homework",label:"गृहकार्य",icon:ListChecks,color:BLUE},
-    {id:"journal",label:"डायरी",icon:Heart,color:ROSE},
-    {id:"search",label:"खोज",icon:Search,color:TEAL},
-    {id:"calendar",label:"पात्रो",icon:CalendarDays,color:MARIGOLD_DARK},
-    {id:"settings",label:"सेटिङ",icon:SettingsIcon,color:INK_SOFT},
+    {id:"more",label:"थप विकल्प",icon:Layers,color:INK_SOFT},
   ];
 
   if(authLoading)return<div style={{minHeight:"100vh",background:"var(--bg,#F7F4EC)",display:"flex",alignItems:"center",justifyContent:"center"}}><Spinner/></div>;
@@ -3351,6 +3444,22 @@ export default function App() {
         .ss-icon-btn{border-radius:8px;padding:6px;transition:background .15s ease, transform .12s ease; -webkit-tap-highlight-color:transparent; display:inline-flex;}
         .ss-icon-btn:hover:not(:disabled){background:var(--surface-2);}
         .ss-icon-btn:active:not(:disabled){transform:scale(0.92);background:var(--border);}
+
+        /* NEW — every screen (Home, AI chat, Homework, Diary, Search,
+           Settings, question/activity/assessment builders...) was wrapped
+           in a fixed maxWidth meant for a phone, centered on the page.
+           On a phone that's correct. On a desktop monitor, with the
+           sidebar already handling navigation, that left a huge dead
+           strip of empty screen on the right of every single page. This
+           lets each screen keep its comfortable reading width up to a
+           point, then actually grow to use a real desktop's space instead
+           of floating in the middle of it. */
+        .ss-page{width:100%;box-sizing:border-box;}
+        .ss-page-read{width:100%;box-sizing:border-box;}
+        @media(min-width:860px){
+          .ss-page{max-width:1180px !important;}
+          .ss-page-read{max-width:860px !important;}
+        }
 
         /* Inputs — consistent, modern resting + focus appearance across the
            whole app: rounded, softly bordered, with a visible focus ring
@@ -3447,7 +3556,7 @@ export default function App() {
           <button onClick={toggleTheme} title={theme==="light"?"गाढा मोडमा जानुहोस्":"उज्यालो मोडमा जानुहोस्"} className="ss-btn" style={{background:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:INK,flexShrink:0}}>
             {theme==="light"?<Moon size={16}/>:<Sun size={16}/>}
           </button>
-          <button onClick={()=>setScreen("settings")} className="ss-btn" style={{background:screen==="settings"?ACCENT_LIGHT:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:screen==="settings"?ACCENT:INK_SOFT,flexShrink:0}}><SettingsIcon size={17}/></button>
+          <button onClick={()=>goMore("settings")} className="ss-btn" style={{background:screen==="more"?ACCENT_LIGHT:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:screen==="more"?ACCENT:INK_SOFT,flexShrink:0}}><SettingsIcon size={17}/></button>
         </div>
       </div>
 
@@ -3472,16 +3581,21 @@ export default function App() {
       </div>
 
       <div className="main-content">
-        {screen==="dashboard"&&<HomeScreen onOpenLesson={openLesson} onGoPlanner={goPlanner} onGoHomework={()=>setScreen("homework")} onGoMaterials={()=>setScreen("materials")} onGoAITools={goAITools} onGoSettings={()=>setScreen("settings")} section={currentSection} lessons={lessons} homework={homework} loading={lessonsLoading} chapters={chapters} teacherName={teacherName} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel}/>}
+        {screen==="dashboard"&&<HomeScreen onOpenLesson={openLesson} onGoPlanner={goPlanner} onGoHomework={()=>goMore("homework")} onGoMaterials={()=>setScreen("materials")} onGoAITools={goAITools} onGoSettings={()=>goMore("settings")} section={currentSection} lessons={lessons} homework={homework} loading={lessonsLoading} chapters={chapters} teacherName={teacherName} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel}/>}
         {screen==="planner"&&<Planner onOpenLesson={openLesson} section={currentSection} lessons={lessons} loading={lessonsLoading} onRefresh={loadLessons} chapters={chapters} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel} editLessonId={editLessonId} onEditConsumed={()=>setEditLessonId(null)} prefillChapter={prefillChapter} onPrefillConsumed={()=>setPrefillChapter(null)}/>}
         {screen==="materials"&&<Materials chapters={chapters} onAddChapter={addChapter} onChaptersChanged={loadChapters} classLabel={classLabel}/>}
         {screen==="ai"&&<AIAssistant lessons={lessons} classContext={classContext} classLabel={classLabel}/>}
-        {screen==="homework"&&<HomeworkManager section={currentSection} loading={hwLoading} homework={homework} onRefresh={loadHomework}/>}
-        {screen==="journal"&&<TeachingJournal lessons={lessons}/>}
+        {screen==="more"&&<MoreHub initialTab={moreTab} onInitialTabConsumed={()=>setMoreTab(null)}
+          section={currentSection} homework={homework} hwLoading={hwLoading} onRefreshHomework={loadHomework}
+          lessons={lessons} classLabel={classLabel} onOpenLesson={openLesson} onGoMaterials={()=>setScreen("materials")} onGoAITools={goAITools}
+          session={session} sections={sections} currentSection={currentSection}
+          onSectionAdded={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}}
+          onSectionUpdated={(s)=>{setSections((prev)=>prev.map((x)=>x.id===s.id?s:x));if(currentSection?.id===s.id)setCurrentSection(s);}}
+          onSectionDeleted={(id)=>{setSections((prev)=>prev.filter((x)=>x.id!==id));if(currentSection?.id===id)setCurrentSection(sections.find((x)=>x.id!==id)||null);}}
+          theme={theme} onToggleTheme={toggleTheme} installPrompt={installPrompt} isStandalone={isStandalone} isIOS={isIOS} onInstall={promptInstall}
+          subjectLabel={subjectLabel} onClassChange={setClassLabel} onSubjectChange={setSubjectLabel} teacherName={teacherName} onTeacherNameChange={setTeacherName}
+        />}
         {screen==="aitools"&&<AITools lessons={lessons} chapters={chapters} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel} initialTab={aiToolsTab} onInitialTabConsumed={()=>setAiToolsTab(null)}/>}
-        {screen==="search"&&<DocumentSearch lessons={lessons} homework={homework} classLabel={classLabel} onOpenLesson={openLesson} onGoMaterials={()=>setScreen("materials")} onGoAITools={goAITools} onGoHomework={()=>setScreen("homework")}/>}
-        {screen==="calendar"&&<CalendarView classLabel={classLabel}/>}
-        {screen==="settings"&&<Settings session={session} sections={sections} currentSection={currentSection} onSectionAdded={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}} onSectionUpdated={(s)=>{setSections((prev)=>prev.map((x)=>x.id===s.id?s:x));if(currentSection?.id===s.id)setCurrentSection(s);}} onSectionDeleted={(id)=>{setSections((prev)=>prev.filter((x)=>x.id!==id));if(currentSection?.id===id)setCurrentSection(sections.find((x)=>x.id!==id)||null);}} theme={theme} onToggleTheme={toggleTheme} installPrompt={installPrompt} isStandalone={isStandalone} isIOS={isIOS} onInstall={promptInstall} classLabel={classLabel} subjectLabel={subjectLabel} onClassChange={setClassLabel} onSubjectChange={setSubjectLabel} teacherName={teacherName} onTeacherNameChange={setTeacherName}/>}
       </div>
 
       <div className="mobile-bottom-nav no-print" style={{position:"fixed",bottom:0,left:0,right:0,background:`color-mix(in srgb, ${SURFACE} 94%, transparent)`,backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",borderTop:`1px solid ${BORDER}`,justifyContent:"space-around",padding:"7px 6px calc(7px + env(safe-area-inset-bottom))",zIndex:10,boxShadow:"0 -6px 20px rgba(0,0,0,0.07)"}}>
