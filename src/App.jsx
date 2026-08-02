@@ -2497,9 +2497,6 @@ function MoreHub({
   initialTab,onInitialTabConsumed,
   section,homework,hwLoading,onRefreshHomework,
   lessons,classLabel,onOpenLesson,onGoMaterials,onGoAITools,
-  session,sections,currentSection,onSectionAdded,onSectionUpdated,onSectionDeleted,
-  theme,onToggleTheme,installPrompt,isStandalone,isIOS,onInstall,
-  subjectLabel,onClassChange,onSubjectChange,teacherName,onTeacherNameChange,
 }) {
   const [tab,setTab]=useState("homework");
   useEffect(()=>{
@@ -2507,12 +2504,15 @@ function MoreHub({
     setTab(initialTab);
     onInitialTabConsumed?.();
   },[initialTab,onInitialTabConsumed]);
+  // NEW — Settings used to be a tab here too, but a teacher reaching for
+  // Settings almost always wants to pop in, change one thing, and pop back
+  // out — not lose their place in whatever screen they were on. It's now a
+  // popup from the header gear icon instead (see Settings modal in App()).
   const TABS=[
     {id:"homework",label:"गृहकार्य",icon:ListChecks,color:BLUE,bg:BLUE_LIGHT},
     {id:"journal",label:"डायरी",icon:Heart,color:ROSE,bg:ROSE_LIGHT},
     {id:"search",label:"खोज",icon:Search,color:TEAL,bg:TEAL_LIGHT},
     {id:"calendar",label:"पात्रो",icon:CalendarDays,color:MARIGOLD_DARK,bg:WARN_BG},
-    {id:"settings",label:"सेटिङ",icon:SettingsIcon,color:INK_SOFT,bg:SURFACE_2},
   ];
   return(
     <div>
@@ -2525,7 +2525,6 @@ function MoreHub({
       {tab==="journal"&&<TeachingJournal lessons={lessons}/>}
       {tab==="search"&&<DocumentSearch lessons={lessons} homework={homework} classLabel={classLabel} onOpenLesson={onOpenLesson} onGoMaterials={onGoMaterials} onGoAITools={onGoAITools} onGoHomework={()=>setTab("homework")}/>}
       {tab==="calendar"&&<CalendarView classLabel={classLabel}/>}
-      {tab==="settings"&&<Settings session={session} sections={sections} currentSection={currentSection} onSectionAdded={onSectionAdded} onSectionUpdated={onSectionUpdated} onSectionDeleted={onSectionDeleted} theme={theme} onToggleTheme={onToggleTheme} installPrompt={installPrompt} isStandalone={isStandalone} isIOS={isIOS} onInstall={onInstall} classLabel={classLabel} subjectLabel={subjectLabel} onClassChange={onClassChange} onSubjectChange={onSubjectChange} teacherName={teacherName} onTeacherNameChange={onTeacherNameChange}/>}
     </div>
   );
 }
@@ -2734,6 +2733,14 @@ function CalendarView({ classLabel }) {
   const [editing,setEditing]=useState(null);
   const [form,setForm]=useState(null);
   const [saving,setSaving]=useState(false);
+  // NEW — AI calendar upload: a teacher uploads a photo/PDF of the actual
+  // school calendar, Gemini reads it and proposes events, the teacher
+  // reviews/edits/deselects before anything is saved. Manual add (above)
+  // stays completely separate and untouched.
+  const [uploading,setUploading]=useState(false);
+  const [uploadError,setUploadError]=useState("");
+  const [reviewEvents,setReviewEvents]=useState(null); // null = no review open; array = extracted, pending confirm
+  const [savingReview,setSavingReview]=useState(false);
 
   const load=useCallback(async()=>{
     setLoading(true);
@@ -2797,6 +2804,69 @@ function CalendarView({ classLabel }) {
     load();
   };
 
+  // NEW — sends the uploaded calendar (photo or PDF) to Gemini and asks
+  // for a structured list of events back. Nepali school calendars are
+  // often printed in Bikram Sambat (BS) dates, not AD — Gemini is asked to
+  // convert to AD, but this is exactly the kind of thing worth double-
+  // checking, which is why nothing is saved until the teacher reviews and
+  // confirms each item below, and every date field stays editable there.
+  const handleCalendarUpload=async(e)=>{
+    const file=e.target.files?.[0];
+    e.target.value="";
+    if(!file)return;
+    setUploading(true);setUploadError("");
+    try{
+      const base64=await gemini.fileToBase64(file);
+      const mimeType=file.type||(file.name.toLowerCase().endsWith(".pdf")?"application/pdf":"image/jpeg");
+      const prompt=`यो विद्यालयको पात्रो (school calendar) हो। यसमा भएका सबै घटनाहरू (विदा, परीक्षा, कार्यक्रम, तालिम, म्याद, आदि) पहिचान गरेर तलको JSON structure मा मात्र फर्काउनुहोस्, अरू कुनै टेक्स्ट नथप्नुहोस्:
+
+[{"title":"...", "category":"event|holiday|exam|deadline|training|reminder", "start_date":"YYYY-MM-DD", "end_date":"YYYY-MM-DD वा null (एकदिने भए null)", "notes":"थप विवरण भए, नत्र null"}]
+
+महत्त्वपूर्ण:
+- मिति नेपाली पात्रो (Bikram Sambat/BS) मा लेखिएको भए, अंग्रेजी (AD/Gregorian) मा रूपान्तर गरेर मात्र दिनुहोस्। कागजातमा दुवै (BS र AD) भएमा AD नै प्रयोग गर्नुहोस्।
+- category हरूमध्ये एउटा मात्र प्रयोग गर्नुहोस् (माथि सूचीबद्ध ६ वटा), अनुमान लगाएर सबैभन्दा मिल्दो छान्नुहोस्।
+- टिठिक मिति पत्ता नलागेको घटना हरू छोड्नुहोस्।
+- आजको मिति सन्दर्भको लागि: ${fmtDate(new Date())}`;
+      const raw=await gemini.generateWithFileJSON(prompt,base64,mimeType);
+      let parsed;
+      try{parsed=JSON.parse(raw);}catch{throw new Error("AI ले मिल्दो जानकारी दिन सकेन। अर्को फाइल प्रयास गर्नुहोस्।");}
+      if(!Array.isArray(parsed)||parsed.length===0){throw new Error("यो फाइलबाट कुनै घटना फेला परेन।");}
+      const cleaned=parsed
+        .filter((ev)=>ev?.title&&ev?.start_date&&/^\d{4}-\d{2}-\d{2}$/.test(ev.start_date))
+        .map((ev,i)=>({
+          _key:`u${i}`,selected:true,
+          title:String(ev.title).slice(0,200),
+          category:EVENT_CATEGORY_ORDER.includes(ev.category)?ev.category:"event",
+          start_date:ev.start_date,
+          end_date:(ev.end_date&&/^\d{4}-\d{2}-\d{2}$/.test(ev.end_date))?ev.end_date:"",
+          notes:ev.notes?String(ev.notes).slice(0,300):"",
+        }));
+      if(cleaned.length===0)throw new Error("यो फाइलबाट मिल्दो मिति भएका घटना फेला परेन।");
+      setReviewEvents(cleaned);
+    }catch(err){
+      setUploadError(err.message||"पात्रो पढ्न सकिएन। फेरि प्रयास गर्नुहोस्।");
+    }finally{
+      setUploading(false);
+    }
+  };
+
+  const updateReviewItem=(key,patch)=>setReviewEvents((prev)=>prev.map((it)=>it._key===key?{...it,...patch}:it));
+
+  const confirmReviewEvents=async()=>{
+    const selected=reviewEvents.filter((it)=>it.selected);
+    if(selected.length===0){setReviewEvents(null);return;}
+    setSavingReview(true);
+    const rows=selected.map((it)=>({
+      title:it.title.trim(),category:it.category,start_date:it.start_date,
+      end_date:it.end_date||null,notes:it.notes.trim()||null,
+      class_label:classLabel,source:"imported",
+    }));
+    const{error}=await db.bulkInsertCalendarEvents(rows);
+    setSavingReview(false);
+    if(!error){setReviewEvents(null);load();}
+    else setUploadError("सुरक्षित गर्न सकिएन: "+error.message);
+  };
+
   const toggleCat=(key)=>setActiveCats((prev)=>{const next=new Set(prev);next.has(key)?next.delete(key):next.add(key);return next;});
 
   const selectedLabel=(()=>{const d=parseDate(selected);return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;})();
@@ -2805,8 +2875,19 @@ function CalendarView({ classLabel }) {
     <div className="ss-page-read" style={{padding:"20px 20px 130px",maxWidth:640,margin:"0 auto"}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,gap:10,flexWrap:"wrap"}}>
         <div style={{fontSize:20,fontWeight:700,color:INK,display:"flex",alignItems:"center",gap:8}}><CalendarDays size={20} color={ACCENT}/>पात्रो</div>
-        <button className="ss-btn" onClick={openNew} style={{display:"flex",alignItems:"center",gap:6,background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"9px 15px",fontWeight:700,fontSize:15.5,cursor:"pointer",boxShadow:SHADOW.accent}}><Plus size={16}/>कार्यक्रम थप्नुहोस्</button>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {/* NEW — upload a photo/PDF of the actual school calendar and let
+              AI propose events, instead of typing every holiday/exam date
+              in by hand. Manual add (next button) still works exactly as
+              before — this is an addition, not a replacement. */}
+          <label className="ss-btn" style={{display:"flex",alignItems:"center",gap:6,background:SURFACE_2,color:INK,border:`1px solid ${BORDER}`,borderRadius:10,padding:"9px 15px",fontWeight:700,fontSize:15.5,cursor:uploading?"default":"pointer",boxShadow:SHADOW.sm}}>
+            <Paperclip size={16}/>{uploading?"पढ्दै...":"पात्रो अपलोड गर्नुहोस्"}
+            <input type="file" accept="application/pdf,.pdf,image/*" onChange={handleCalendarUpload} disabled={uploading} style={{display:"none"}}/>
+          </label>
+          <button className="ss-btn" onClick={openNew} style={{display:"flex",alignItems:"center",gap:6,background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"9px 15px",fontWeight:700,fontSize:15.5,cursor:"pointer",boxShadow:SHADOW.accent}}><Plus size={16}/>कार्यक्रम थप्नुहोस्</button>
+        </div>
       </div>
+      {uploadError&&<div style={{background:DANGER_BG,color:DANGER,borderRadius:10,padding:"10px 14px",fontSize:15,fontWeight:600,marginBottom:14}}>{uploadError}</div>}
 
       {/* NEW — category filter chips, same visual language as Materials'
           category chips: tap to hide/show that category's dots on the
@@ -2922,6 +3003,47 @@ function CalendarView({ classLabel }) {
             <div style={{display:"flex",gap:8}}>
               {editing&&<button className="ss-btn" onClick={()=>{deleteEvent(editing);setShowForm(false);}} style={{padding:"11px 16px",borderRadius:10,border:`1px solid ${DANGER_BG}`,background:DANGER_BG,color:DANGER,fontWeight:700,cursor:"pointer"}}><Trash2 size={16}/></button>}
               <button className="ss-btn" onClick={saveEvent} disabled={saving||!form.title.trim()} style={{flex:1,padding:"11px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}>{saving?"सुरक्षित हुँदैछ...":"सुरक्षित गर्नुहोस्"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* NEW — AI extraction review: nothing from an uploaded calendar
+          gets saved until the teacher confirms it here. Each row is
+          editable and can be unchecked, since AI reading a scanned/photo
+          calendar (and possibly converting BS dates to AD) won't always
+          be perfect. */}
+      {reviewEvents&&(
+        <div className="no-print" style={{position:"fixed",inset:0,zIndex:85,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",padding:16}}>
+          <div style={{background:SURFACE,borderRadius:18,padding:20,maxWidth:640,width:"100%",maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <div style={{fontSize:19,fontWeight:800,color:INK}}>{reviewEvents.length} घटना फेला पर्यो</div>
+              <button className="ss-icon-btn" onClick={()=>setReviewEvents(null)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><X size={20}/></button>
+            </div>
+            <div style={{fontSize:14.5,color:INK_SOFT,marginBottom:12,lineHeight:1.5}}>मिति र विवरण जाँच गर्नुहोस् — गलत भए सच्याउनुहोस् वा नचाहिने भए ✕ थिच्नुहोस्, त्यसपछि मात्र सुरक्षित हुनेछ।</div>
+            <div style={{overflowY:"auto",display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
+              {reviewEvents.map((it)=>{
+                const meta=EVENT_CATEGORY_META[it.category]||EVENT_CATEGORY_META.event;
+                return(
+                  <div key={it._key} style={{display:"flex",gap:8,padding:10,borderRadius:12,background:it.selected?SURFACE_2:"transparent",border:`1px solid ${it.selected?BORDER:"transparent"}`,opacity:it.selected?1:0.5}}>
+                    <input type="checkbox" checked={it.selected} onChange={(e)=>updateReviewItem(it._key,{selected:e.target.checked})} style={{marginTop:10,flexShrink:0}}/>
+                    <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:6}}>
+                      <input value={it.title} onChange={(e)=>updateReviewItem(it._key,{title:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:8,padding:"7px 10px",fontSize:15.5,fontWeight:700,border:`1px solid ${BORDER}`,background:SURFACE}}/>
+                      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                        <select value={it.category} onChange={(e)=>updateReviewItem(it._key,{category:e.target.value})} style={{borderRadius:7,padding:"5px 8px",fontSize:13.5,border:`1px solid ${BORDER}`,background:SURFACE,color:meta.color,fontWeight:700}}>
+                          {EVENT_CATEGORY_ORDER.map((k)=><option key={k} value={k}>{EVENT_CATEGORY_META[k].label}</option>)}
+                        </select>
+                        <input type="date" value={it.start_date} onChange={(e)=>updateReviewItem(it._key,{start_date:e.target.value})} style={{borderRadius:7,padding:"5px 8px",fontSize:13.5,border:`1px solid ${BORDER}`,background:SURFACE}}/>
+                        <input type="date" value={it.end_date} placeholder="अन्तिम मिति" onChange={(e)=>updateReviewItem(it._key,{end_date:e.target.value})} style={{borderRadius:7,padding:"5px 8px",fontSize:13.5,border:`1px solid ${BORDER}`,background:SURFACE,color:it.end_date?INK:INK_SOFT}}/>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button className="ss-btn" onClick={()=>setReviewEvents(null)} style={{flex:1,padding:"11px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer",boxShadow:SHADOW.sm}}>रद्द गर्नुहोस्</button>
+              <button className="ss-btn" onClick={confirmReviewEvents} disabled={savingReview} style={{flex:1,padding:"11px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}>{savingReview?"सुरक्षित हुँदैछ...":`${reviewEvents.filter((it)=>it.selected).length} थप्नुहोस्`}</button>
             </div>
           </div>
         </div>
@@ -3226,6 +3348,7 @@ export default function App() {
   const goAITools=useCallback((tab)=>{setAiToolsTab(typeof tab==="string"?tab:null);setScreen("aitools");},[]);
   const [moreTab,setMoreTab]=useState(null);
   const goMore=useCallback((tab)=>{setMoreTab(typeof tab==="string"?tab:null);setScreen("more");},[]);
+  const [settingsOpen,setSettingsOpen]=useState(false);
   // NEW — one-click print from the Planner list: open the lesson AND print
   // it immediately, no second tap required.
   const openLesson=useCallback((l,opts)=>{setActiveLesson(l);setActiveLessonAutoPrint(!!opts?.autoPrint);},[]);
@@ -3553,10 +3676,15 @@ export default function App() {
             <RefreshCw size={13} style={{animation:lessonsLoading?"spin 1s linear infinite":"none",flexShrink:0}}/>
             <span className="ss-sync-label">{lessonsLoading?"सिंक...":synced?"सिंक भयो ✓":"सिंक भएको"}</span>
           </div>
+          <button onClick={()=>goMore("search")} title="खोज" className="ss-btn" style={{background:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:INK_SOFT,flexShrink:0}}><Search size={16}/></button>
           <button onClick={toggleTheme} title={theme==="light"?"गाढा मोडमा जानुहोस्":"उज्यालो मोडमा जानुहोस्"} className="ss-btn" style={{background:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:INK,flexShrink:0}}>
             {theme==="light"?<Moon size={16}/>:<Sun size={16}/>}
           </button>
-          <button onClick={()=>goMore("settings")} className="ss-btn" style={{background:screen==="more"?ACCENT_LIGHT:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:screen==="more"?ACCENT:INK_SOFT,flexShrink:0}}><SettingsIcon size={17}/></button>
+          {/* FIX — this used to navigate to a whole separate screen (losing
+              your place wherever you were) just to change one setting. Now
+              it pops open on top of whatever you're doing and closes back
+              to exactly where you were. */}
+          <button onClick={()=>setSettingsOpen(true)} title="सेटिङ" className="ss-btn" style={{background:settingsOpen?ACCENT_LIGHT:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:settingsOpen?ACCENT:INK_SOFT,flexShrink:0}}><SettingsIcon size={17}/></button>
         </div>
       </div>
 
@@ -3581,22 +3709,37 @@ export default function App() {
       </div>
 
       <div className="main-content">
-        {screen==="dashboard"&&<HomeScreen onOpenLesson={openLesson} onGoPlanner={goPlanner} onGoHomework={()=>goMore("homework")} onGoMaterials={()=>setScreen("materials")} onGoAITools={goAITools} onGoSettings={()=>goMore("settings")} section={currentSection} lessons={lessons} homework={homework} loading={lessonsLoading} chapters={chapters} teacherName={teacherName} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel}/>}
+        {screen==="dashboard"&&<HomeScreen onOpenLesson={openLesson} onGoPlanner={goPlanner} onGoHomework={()=>goMore("homework")} onGoMaterials={()=>setScreen("materials")} onGoAITools={goAITools} onGoSettings={()=>setSettingsOpen(true)} section={currentSection} lessons={lessons} homework={homework} loading={lessonsLoading} chapters={chapters} teacherName={teacherName} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel}/>}
         {screen==="planner"&&<Planner onOpenLesson={openLesson} section={currentSection} lessons={lessons} loading={lessonsLoading} onRefresh={loadLessons} chapters={chapters} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel} editLessonId={editLessonId} onEditConsumed={()=>setEditLessonId(null)} prefillChapter={prefillChapter} onPrefillConsumed={()=>setPrefillChapter(null)}/>}
         {screen==="materials"&&<Materials chapters={chapters} onAddChapter={addChapter} onChaptersChanged={loadChapters} classLabel={classLabel}/>}
         {screen==="ai"&&<AIAssistant lessons={lessons} classContext={classContext} classLabel={classLabel}/>}
         {screen==="more"&&<MoreHub initialTab={moreTab} onInitialTabConsumed={()=>setMoreTab(null)}
           section={currentSection} homework={homework} hwLoading={hwLoading} onRefreshHomework={loadHomework}
           lessons={lessons} classLabel={classLabel} onOpenLesson={openLesson} onGoMaterials={()=>setScreen("materials")} onGoAITools={goAITools}
-          session={session} sections={sections} currentSection={currentSection}
-          onSectionAdded={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}}
-          onSectionUpdated={(s)=>{setSections((prev)=>prev.map((x)=>x.id===s.id?s:x));if(currentSection?.id===s.id)setCurrentSection(s);}}
-          onSectionDeleted={(id)=>{setSections((prev)=>prev.filter((x)=>x.id!==id));if(currentSection?.id===id)setCurrentSection(sections.find((x)=>x.id!==id)||null);}}
-          theme={theme} onToggleTheme={toggleTheme} installPrompt={installPrompt} isStandalone={isStandalone} isIOS={isIOS} onInstall={promptInstall}
-          subjectLabel={subjectLabel} onClassChange={setClassLabel} onSubjectChange={setSubjectLabel} teacherName={teacherName} onTeacherNameChange={setTeacherName}
         />}
         {screen==="aitools"&&<AITools lessons={lessons} chapters={chapters} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel} initialTab={aiToolsTab} onInitialTabConsumed={()=>setAiToolsTab(null)}/>}
       </div>
+
+      {/* NEW — Settings as a popup instead of a full screen: opens on top
+          of whatever screen you're already on, closes right back to it. */}
+      {settingsOpen&&(
+        <div className="no-print" onClick={()=>setSettingsOpen(false)} style={{position:"fixed",inset:0,zIndex:90,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",padding:20}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:18,width:"100%",maxWidth:760,maxHeight:"88vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative"}}>
+            <div style={{position:"sticky",top:0,zIndex:2,display:"flex",justifyContent:"flex-end",padding:"14px 14px 0",background:PAPER}}>
+              <button className="ss-icon-btn" onClick={()=>setSettingsOpen(false)} style={{background:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,cursor:"pointer",color:INK_SOFT}}><X size={19}/></button>
+            </div>
+            <div style={{padding:"0 4px 10px"}}>
+              <Settings session={session} sections={sections} currentSection={currentSection}
+                onSectionAdded={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}}
+                onSectionUpdated={(s)=>{setSections((prev)=>prev.map((x)=>x.id===s.id?s:x));if(currentSection?.id===s.id)setCurrentSection(s);}}
+                onSectionDeleted={(id)=>{setSections((prev)=>prev.filter((x)=>x.id!==id));if(currentSection?.id===id)setCurrentSection(sections.find((x)=>x.id!==id)||null);}}
+                theme={theme} onToggleTheme={toggleTheme} installPrompt={installPrompt} isStandalone={isStandalone} isIOS={isIOS} onInstall={promptInstall}
+                classLabel={classLabel} subjectLabel={subjectLabel} onClassChange={setClassLabel} onSubjectChange={setSubjectLabel} teacherName={teacherName} onTeacherNameChange={setTeacherName}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="mobile-bottom-nav no-print" style={{position:"fixed",bottom:0,left:0,right:0,background:`color-mix(in srgb, ${SURFACE} 94%, transparent)`,backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",borderTop:`1px solid ${BORDER}`,justifyContent:"space-around",padding:"7px 6px calc(7px + env(safe-area-inset-bottom))",zIndex:10,boxShadow:"0 -6px 20px rgba(0,0,0,0.07)"}}>
         {nav.map((n)=>{const Icon=n.icon;const active=screen===n.id;return(

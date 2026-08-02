@@ -182,6 +182,12 @@ export const generateTextJSON = (prompt) => callGemini([{ text: prompt }], { jso
 export const generateWithPDFJSON = (prompt, pdfBase64) =>
   callGemini([{ inline_data: { mime_type: "application/pdf", data: pdfBase64 } }, { text: prompt }], { jsonMode: true });
 
+// NEW — same idea as generateWithPDFJSON, but takes whatever mime type the
+// uploaded file actually is (PDF or a photo/scan of a calendar — jpg/png).
+// Used by the Calendar tab's "पात्रो अपलोड गर्नुहोस्" event extraction.
+export const generateWithFileJSON = (prompt, base64, mimeType) =>
+  callGemini([{ inline_data: { mime_type: mimeType, data: base64 } }, { text: prompt }], { jsonMode: true });
+
 export const generateWithMaterialsJSON = (prompt, materialParts = [], textbookBase64 = null) => {
   const parts = [...materialParts];
   if (textbookBase64) parts.push({ inline_data: { mime_type: "application/pdf", data: textbookBase64 } });

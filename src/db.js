@@ -353,6 +353,17 @@ export const deleteCalendarEvent = async (id) => {
   return { error };
 };
 
+// NEW — inserts many events at once, used after a teacher uploads a school
+// calendar (PDF/photo) and confirms which AI-extracted events to keep.
+// Each row gets source:"imported" unless the caller already set one.
+export const bulkInsertCalendarEvents = async (events) => {
+  if (!events?.length) return { data: [], error: null };
+  const { data: { user } } = await supabase.auth.getUser();
+  const rows = events.map((e) => ({ source: "imported", ...e, teacher_id: user.id }));
+  const { data, error } = await supabase.from("calendar_events").insert(rows).select();
+  return { data, error };
+};
+
 // The one-time Supabase table setup for calendar_events lives in its own
 // file, calendar_events.sql — run that in Supabase's SQL Editor, not this
 // file. This file (db.js) only ever goes into your app/GitHub deployment.
