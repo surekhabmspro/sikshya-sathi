@@ -111,18 +111,10 @@
         }
       } catch (e) {}
     </script>
-    <script>
-      // NEW — the app had a manifest.json (installable) but no service
-      // worker at all, so nothing was ever cached and it simply failed
-      // with no network. This registers sw.js (put it in /public so it's
-      // served from the site root — required for its scope to cover the
-      // whole app).
-      if ("serviceWorker" in navigator) {
-        window.addEventListener("load", () => {
-          navigator.serviceWorker.register("/sw.js").catch(() => {});
-        });
-      }
-    </script>
+    <!-- FIX — the service worker used to be registered here AND separately
+         in main.jsx (which also handles reloading when a new version is
+         deployed). Registering twice wasn't harmful on its own, but
+         main.jsx is the one real place for this logic — duplicate removed. -->
   </head>
   <body>
     <div id="root"></div>
