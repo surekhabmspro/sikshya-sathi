@@ -105,6 +105,110 @@ export const clearTextbook = async (classLabel = null) => {
   } catch { /* nothing to clear locally */ }
 };
 
+// ─── Textbook → Gemini "part" cache (the actual speed/quota fix) ────────────
+// FIX — every AI call used to embed the ENTIRE textbook PDF as raw base64 in
+// the request body (see generateWithMaterials/generateWithPDF below, old
+// version). That meant a single question-bank click and a 30-chapter bulk
+// lesson-plan run BOTH re-uploaded and re-processed the whole book from
+// scratch, every single time — which is what made AI features feel slow and
+// burned through the free-tier token quota so fast.
+//
+// Fix: upload the PDF to Gemini's own Files API ONCE per class, and reuse
+// the small file reference (file_uri) it returns for every later call, for
+// up to 48 hours (Google's retention window for uploaded files — treated as
+// good for 47h here to be safe). Every AI action now sends a tiny reference
+// instead of the whole book.
+const textbookPartCache = new Map(); // classLabel -> Promise<part|null>, cleared on invalidateTextbookCache
+
+const fileRefStorageKey = (classLabel) => `ss-gemini-fileref::${classLabel || "default"}`;
+
+function readCachedFileRef(classLabel) {
+  try {
+    const raw = localStorage.getItem(fileRefStorageKey(classLabel));
+    if (!raw) return null;
+    const ref = JSON.parse(raw);
+    if (!ref.uri || !ref.expiresAt || Date.now() > ref.expiresAt) return null;
+    return ref.uri;
+  } catch { return null; }
+}
+function writeCachedFileRef(classLabel, uri) {
+  try {
+    localStorage.setItem(fileRefStorageKey(classLabel), JSON.stringify({ uri, expiresAt: Date.now() + 47 * 60 * 60 * 1000 }));
+  } catch { /* best-effort */ }
+}
+function clearCachedFileRef(classLabel) {
+  try { localStorage.removeItem(fileRefStorageKey(classLabel)); } catch { /* nothing to clear */ }
+}
+
+async function uploadPdfToGeminiFiles(base64, displayName) {
+  const byteChars = atob(base64);
+  const bytes = new Uint8Array(byteChars.length);
+  for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+  const blob = new Blob([bytes], { type: "application/pdf" });
+
+  const startRes = await fetch(`https://generativelanguage.googleapis.com/upload/v1beta/files?key=${GEMINI_API_KEY}`, {
+    method: "POST",
+    headers: {
+      "X-Goog-Upload-Protocol": "resumable",
+      "X-Goog-Upload-Command": "start",
+      "X-Goog-Upload-Header-Content-Length": String(blob.size),
+      "X-Goog-Upload-Header-Content-Type": "application/pdf",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ file: { display_name: displayName } }),
+  });
+  const uploadUrl = startRes.headers.get("X-Goog-Upload-URL");
+  if (!uploadUrl) throw new Error("upload-start-failed");
+
+  const finishRes = await fetch(uploadUrl, {
+    method: "POST",
+    headers: { "X-Goog-Upload-Command": "upload, finalize", "X-Goog-Upload-Offset": "0" },
+    body: blob,
+  });
+  const data = await finishRes.json();
+  if (!data.file?.uri) throw new Error("upload-finish-failed");
+  return data.file.uri;
+}
+
+// Resolves to a Gemini `part` for a class's textbook (or null if none is set
+// up). Cached in memory for the tab's lifetime and via localStorage + Gemini's
+// own 48h file retention across reloads, so the expensive upload happens once
+// per class — not once per AI button press. Safe to call from anywhere;
+// concurrent callers share the same in-flight promise instead of triggering
+// duplicate uploads.
+export function getTextbookPart(classLabel = null) {
+  const key = classLabel || "default";
+  if (textbookPartCache.has(key)) return textbookPartCache.get(key);
+
+  const promise = (async () => {
+    const cachedUri = readCachedFileRef(classLabel);
+    if (cachedUri) return { file_data: { mime_type: "application/pdf", file_uri: cachedUri } };
+
+    const base64 = await loadTextbook(classLabel);
+    if (!base64) return null;
+
+    try {
+      const uri = await uploadPdfToGeminiFiles(base64, `textbook-${key}`);
+      writeCachedFileRef(classLabel, uri);
+      return { file_data: { mime_type: "application/pdf", file_uri: uri } };
+    } catch {
+      // Files API upload failed (offline, quota, etc.) — fall back to the
+      // old inline method so the feature still works, just slower.
+      return { inline_data: { mime_type: "application/pdf", data: base64 } };
+    }
+  })();
+
+  textbookPartCache.set(key, promise);
+  return promise;
+}
+
+// Call after uploading a new textbook or clearing one, so the next AI call
+// picks up the change instead of reusing a stale cached reference.
+export function invalidateTextbookCache(classLabel = null) {
+  textbookPartCache.delete(classLabel || "default");
+  clearCachedFileRef(classLabel);
+}
+
 // ─── File utilities ───────────────────────────────────────────────────────────
 export const fileToBase64 = (file) =>
   new Promise((resolve, reject) => {
@@ -163,12 +267,22 @@ async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096 } = 
 // ─── Plain-text generation (chat, worksheets, flashcards — human prose) ─────
 export const generateText = (prompt) => callGemini([{ text: prompt }]);
 
-export const generateWithPDF = (prompt, pdfBase64) =>
-  callGemini([{ inline_data: { mime_type: "application/pdf", data: pdfBase64 } }, { text: prompt }]);
+// toTextbookPart accepts either a resolved part from getTextbookPart()
+// (preferred — a cheap file_uri reference) or, for backward compatibility,
+// a raw base64 string (wrapped as inline_data, the old slower path).
+const toTextbookPart = (textbook) =>
+  typeof textbook === "string" ? { inline_data: { mime_type: "application/pdf", data: textbook } } : textbook;
 
-export const generateWithMaterials = (prompt, materialParts = [], textbookBase64 = null) => {
+export const generateWithPDF = (prompt, pdfBase64OrPart) => {
+  const part = toTextbookPart(pdfBase64OrPart);
+  if (!part) return generateText(prompt);
+  return callGemini([part, { text: prompt }]);
+};
+
+export const generateWithMaterials = (prompt, materialParts = [], textbookBase64OrPart = null) => {
   const parts = [...materialParts];
-  if (textbookBase64) parts.push({ inline_data: { mime_type: "application/pdf", data: textbookBase64 } });
+  const part = toTextbookPart(textbookBase64OrPart);
+  if (part) parts.push(part);
   parts.push({ text: prompt });
   return callGemini(parts);
 };
@@ -179,8 +293,11 @@ export const generateWithMaterials = (prompt, materialParts = [], textbookBase64
 // JSON in prose or leave it malformed.
 export const generateTextJSON = (prompt) => callGemini([{ text: prompt }], { jsonMode: true });
 
-export const generateWithPDFJSON = (prompt, pdfBase64) =>
-  callGemini([{ inline_data: { mime_type: "application/pdf", data: pdfBase64 } }, { text: prompt }], { jsonMode: true });
+export const generateWithPDFJSON = (prompt, pdfBase64OrPart) => {
+  const part = toTextbookPart(pdfBase64OrPart);
+  if (!part) return generateTextJSON(prompt);
+  return callGemini([part, { text: prompt }], { jsonMode: true });
+};
 
 // NEW — same idea as generateWithPDFJSON, but takes whatever mime type the
 // uploaded file actually is (PDF or a photo/scan of a calendar — jpg/png).
@@ -188,9 +305,10 @@ export const generateWithPDFJSON = (prompt, pdfBase64) =>
 export const generateWithFileJSON = (prompt, base64, mimeType) =>
   callGemini([{ inline_data: { mime_type: mimeType, data: base64 } }, { text: prompt }], { jsonMode: true });
 
-export const generateWithMaterialsJSON = (prompt, materialParts = [], textbookBase64 = null) => {
+export const generateWithMaterialsJSON = (prompt, materialParts = [], textbookBase64OrPart = null) => {
   const parts = [...materialParts];
-  if (textbookBase64) parts.push({ inline_data: { mime_type: "application/pdf", data: textbookBase64 } });
+  const part = toTextbookPart(textbookBase64OrPart);
+  if (part) parts.push(part);
   parts.push({ text: prompt });
   return callGemini(parts, { jsonMode: true });
 };
