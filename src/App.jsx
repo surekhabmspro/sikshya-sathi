@@ -115,8 +115,13 @@ const MOOD_META = {
   hard: { icon: Frown, color: "#A23C2A", label: "गाह्रो थियो" },
 };
 
-const getTextbookPDF = () => window.__textbookPDF__ || null;
-const setTextbookPDF = (b64) => { window.__textbookPDF__ = b64; };
+// FIX — this used to hold the entire textbook as a raw base64 string in
+// window.__textbookPDF__, which every single AI call then embedded whole
+// into its request body (see gemini.js's old generateWithMaterials). Now it
+// just asks gemini.getTextbookPart() for a cached, cheap reference — the
+// actual PDF is uploaded to Gemini once per class and reused from there.
+// See gemini.js for the caching/upload logic.
+const getTextbookPDF = (classLabel) => gemini.getTextbookPart(classLabel);
 
 // NEW — the piece that actually connects Materials to every AI button.
 // Your lessons/questions/activities forms use a typed chapter name
@@ -126,13 +131,13 @@ const setTextbookPDF = (b64) => { window.__textbookPDF__ = b64; };
 // it, and turns them into Gemini parts alongside the global textbook.
 async function getMaterialContext(chapterTitle, classLabel = null) {
   if (!chapterTitle || !chapterTitle.trim()) {
-    return { pdfBase64: getTextbookPDF(), materialParts: [], matchedCount: 0 };
+    return { pdfBase64: await getTextbookPDF(classLabel), materialParts: [], matchedCount: 0 };
   }
   const chapterId = await db.getChapterIdByTitle(chapterTitle.trim(), classLabel);
-  if (!chapterId) return { pdfBase64: getTextbookPDF(), materialParts: [], matchedCount: 0 };
+  if (!chapterId) return { pdfBase64: await getTextbookPDF(classLabel), materialParts: [], matchedCount: 0 };
   const { data: materials } = await db.getMaterialsByChapter(chapterId);
   const materialParts = await gemini.buildMaterialParts(materials || [], db.downloadMaterialFile);
-  return { pdfBase64: getTextbookPDF(), materialParts, matchedCount: (materials || []).length };
+  return { pdfBase64: await getTextbookPDF(classLabel), materialParts, matchedCount: (materials || []).length };
 }
 
 // FIX — the root cause of the "wrong/broken tagging" problem: every screen
@@ -1162,7 +1167,8 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, on
   const [preparing,setPreparing]=useState(false);
   const [prepError,setPrepError]=useState("");
   const [prepResult,setPrepResult]=useState(null);
-  const textbookReady=!!getTextbookPDF();
+  const [textbookReady,setTextbookReady]=useState(false);
+  useEffect(()=>{ let cancelled=false; getTextbookPDF(classLabel).then((part)=>{if(!cancelled)setTextbookReady(!!part);}); return ()=>{cancelled=true;}; },[classLabel]);
 
   useEffect(()=>{ db.getMaterials(classLabel).then(({data})=>setMaterialsCount((data||[]).length)); },[classLabel]);
   useEffect(()=>{
@@ -2241,9 +2247,11 @@ function AIAssistant({ lessons, classContext, classLabel }) {
   const [input,setInput]=useState("");
   const [loading,setLoading]=useState(false);
   const [matchedCount,setMatchedCount]=useState(0);
+  const [textbookReady,setTextbookReady]=useState(false);
   const bottomRef=useRef(null);
   const QUICK=["आजको पाठ बुझाउनुहोस्","उद्देश्यहरू देखाउनुहोस्","मुख्य प्रश्नहरू दिनुहोस्","क्रियाकलाप सुझाव दिनुहोस्","गृहकार्य के दिने?","शब्दावली सूची देखाउनुहोस्","मूल्याङ्कन कसरी गर्ने?"];
   useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:"smooth"});},[messages]);
+  useEffect(()=>{ let cancelled=false; getTextbookPDF(classLabel).then((part)=>{if(!cancelled)setTextbookReady(!!part);}); return ()=>{cancelled=true;}; },[classLabel]);
   // NEW — switching lessons mid-conversation resets the chat with a fresh
   // greeting for the newly-picked lesson, so old answers about a different
   // chapter don't linger and get mistaken for being about the new one.
@@ -2280,7 +2288,7 @@ function AIAssistant({ lessons, classContext, classLabel }) {
           </select>
         )}
         <div style={{display:"flex",alignItems:"center",gap:5,fontSize:15,color:INK_SOFT,marginTop:6,flexWrap:"wrap"}}>
-          <Zap size={11} color={MARIGOLD}/>Google Gemini AI · {getTextbookPDF()?"पाठ्यपुस्तक लोड भएको ✓":"पाठ्यपुस्तक लोड भएको छैन (सेटिङमा अपलोड गर्नुहोस्)"}
+          <Zap size={11} color={MARIGOLD}/>Google Gemini AI · {textbookReady?"पाठ्यपुस्तक लोड भएको ✓":"पाठ्यपुस्तक लोड भएको छैन (सेटिङमा अपलोड गर्नुहोस्)"}
           {chapterTitle&&<span>· "{chapterTitle}" का {matchedCount} सामग्री</span>}
         </div>
       </div>
@@ -3311,7 +3319,7 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
   const [msg,setMsg]=useState("");
   const [sectionMsg,setSectionMsg]=useState("");
   const [uploading,setUploading]=useState(false);
-  const [pdfLoaded,setPdfLoaded]=useState(!!getTextbookPDF());
+  const [pdfLoaded,setPdfLoaded]=useState(false);
   const [repairBusy,setRepairBusy]=useState(null);
   const [repairMsg,setRepairMsg]=useState({});
 
@@ -3333,10 +3341,7 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
   };
 
   useEffect(()=>{
-    gemini.loadTextbook(classLabel).then((b64)=>{
-      window.__textbookPDF__=b64||null;
-      setPdfLoaded(!!b64);
-    });
+    gemini.getTextbookPart(classLabel).then((part)=>setPdfLoaded(!!part));
   },[classLabel]);
 
   const saveName=()=>{
@@ -3397,7 +3402,7 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
     try{
       const b64=await gemini.fileToBase64(file);
       await gemini.saveTextbook(b64,classLabel);
-      setTextbookPDF(b64);
+      gemini.invalidateTextbookCache(classLabel); // drop any stale cached reference so the new PDF gets (re-)uploaded next time it's needed
       setPdfLoaded(true);
       setMsg(`"${file.name}" सफलतापूर्वक लोड भयो! अब AI ले यसबाट उत्तर दिनेछ।`);
     }catch(e){setMsg("त्रुटि: "+e.message);}
@@ -3407,7 +3412,7 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
   const clearTextbookHandler=async()=>{
     if(!confirm("पाठ्यपुस्तक PDF हटाउने? यसपछि AI ले यो पाठ्यपुस्तकबाट सामग्री बनाउन सक्दैन (छुट्टै ट्याग गरिएका सामग्री फाइलमा भने असर पर्दैन)।"))return;
     await gemini.clearTextbook(classLabel);
-    window.__textbookPDF__=null;
+    gemini.invalidateTextbookCache(classLabel);
     setPdfLoaded(false);
     setMsg("पाठ्यपुस्तक हटाइयो।");setTimeout(()=>setMsg(""),2000);
   };
@@ -3701,9 +3706,13 @@ export default function App() {
   // NEW — reloads whenever classLabel changes (not just once on mount), so
   // switching from "कक्षा ५" to "कक्षा ६" in Settings swaps in that class's
   // own textbook right away instead of keeping last year's in memory.
-  useEffect(()=>{
-    gemini.loadTextbook(classLabel).then((b64)=>{ window.__textbookPDF__=b64||null; });
-  },[classLabel]);
+  // FIX — this used to download and base64-encode the WHOLE textbook PDF
+  // on every app load and every class switch, even if nothing was about to
+  // use it. Now it just kicks off the (cached, upload-once) resolution in
+  // the background so it's ready by the time an AI button is actually
+  // pressed — gemini.getTextbookPart() itself skips the work entirely if
+  // it already has a valid cached reference.
+  useEffect(()=>{ gemini.getTextbookPart(classLabel); },[classLabel]);
 
   useEffect(()=>{
     if(!session)return;
