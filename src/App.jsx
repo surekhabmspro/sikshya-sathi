@@ -3579,6 +3579,21 @@ export default function App() {
   const [session,setSession]=useState(null);
   const [authLoading,setAuthLoading]=useState(true);
   const [screen,setScreen]=useState("dashboard");
+  // FIX — screens used to be rendered as `{screen==="x"&&<X/>}`, which fully
+  // unmounts a screen the moment you navigate away from it. Coming back
+  // remounted it from scratch, re-running every one of its data-fetching
+  // useEffects — this is the other big contributor to "every page/section
+  // change feels slow", alongside the textbook fix. Now a screen is added to
+  // this set the first time it's visited and never removed, so later
+  // renders below just toggle CSS visibility instead of destroying and
+  // rebuilding the component (and its already-loaded data) each time. The
+  // very first app load still only mounts the Dashboard, same as before —
+  // other screens still only mount (and fetch) the first time you actually
+  // open them.
+  const [visitedScreens,setVisitedScreens]=useState(()=>new Set(["dashboard"]));
+  useEffect(()=>{
+    setVisitedScreens((prev)=>prev.has(screen)?prev:new Set(prev).add(screen));
+  },[screen]);
   const [activeLesson,setActiveLesson]=useState(null);
   const [activeLessonAutoPrint,setActiveLessonAutoPrint]=useState(false);
   // FIX — this used to close whatever the teacher was looking at and
@@ -3988,15 +4003,27 @@ export default function App() {
       </div>
 
       <div className="main-content">
-        {screen==="dashboard"&&<HomeScreen onOpenLesson={openLesson} onGoPlanner={goPlanner} onGoHomework={()=>goMore("homework")} onGoMaterials={()=>setScreen("materials")} onGoAITools={goAITools} onGoSettings={()=>setSettingsOpen(true)} section={currentSection} lessons={lessons} homework={homework} loading={lessonsLoading} chapters={chapters} teacherName={teacherName} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel}/>}
-        {screen==="planner"&&<Planner onOpenLesson={openLesson} section={currentSection} lessons={lessons} loading={lessonsLoading} onRefresh={loadLessons} chapters={chapters} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel} editLessonId={editLessonId} onEditConsumed={()=>setEditLessonId(null)} prefillChapter={prefillChapter} onPrefillConsumed={()=>setPrefillChapter(null)}/>}
-        {screen==="materials"&&<Materials chapters={chapters} onAddChapter={addChapter} onChaptersChanged={loadChapters} classLabel={classLabel}/>}
-        {screen==="ai"&&<AIAssistant lessons={lessons} classContext={classContext} classLabel={classLabel}/>}
-        {screen==="more"&&<MoreHub initialPanel={moreTab} onInitialPanelConsumed={()=>setMoreTab(null)}
-          section={currentSection} homework={homework} hwLoading={hwLoading} onRefreshHomework={loadHomework}
-          lessons={lessons} classLabel={classLabel}
-        />}
-        {screen==="aitools"&&<AITools lessons={lessons} chapters={chapters} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel} initialTab={aiToolsTab} onInitialTabConsumed={()=>setAiToolsTab(null)}/>}
+        {visitedScreens.has("dashboard")&&<div style={{display:screen==="dashboard"?undefined:"none"}}>
+          <HomeScreen onOpenLesson={openLesson} onGoPlanner={goPlanner} onGoHomework={()=>goMore("homework")} onGoMaterials={()=>setScreen("materials")} onGoAITools={goAITools} onGoSettings={()=>setSettingsOpen(true)} section={currentSection} lessons={lessons} homework={homework} loading={lessonsLoading} chapters={chapters} teacherName={teacherName} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel}/>
+        </div>}
+        {visitedScreens.has("planner")&&<div style={{display:screen==="planner"?undefined:"none"}}>
+          <Planner onOpenLesson={openLesson} section={currentSection} lessons={lessons} loading={lessonsLoading} onRefresh={loadLessons} chapters={chapters} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel} editLessonId={editLessonId} onEditConsumed={()=>setEditLessonId(null)} prefillChapter={prefillChapter} onPrefillConsumed={()=>setPrefillChapter(null)}/>
+        </div>}
+        {visitedScreens.has("materials")&&<div style={{display:screen==="materials"?undefined:"none"}}>
+          <Materials chapters={chapters} onAddChapter={addChapter} onChaptersChanged={loadChapters} classLabel={classLabel}/>
+        </div>}
+        {visitedScreens.has("ai")&&<div style={{display:screen==="ai"?undefined:"none"}}>
+          <AIAssistant lessons={lessons} classContext={classContext} classLabel={classLabel}/>
+        </div>}
+        {visitedScreens.has("more")&&<div style={{display:screen==="more"?undefined:"none"}}>
+          <MoreHub initialPanel={moreTab} onInitialPanelConsumed={()=>setMoreTab(null)}
+            section={currentSection} homework={homework} hwLoading={hwLoading} onRefreshHomework={loadHomework}
+            lessons={lessons} classLabel={classLabel}
+          />
+        </div>}
+        {visitedScreens.has("aitools")&&<div style={{display:screen==="aitools"?undefined:"none"}}>
+          <AITools lessons={lessons} chapters={chapters} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel} initialTab={aiToolsTab} onInitialTabConsumed={()=>setAiToolsTab(null)}/>
+        </div>}
       </div>
 
       {/* NEW — search used to navigate to a whole separate screen just to
