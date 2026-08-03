@@ -96,6 +96,55 @@ const CATEGORY_META = {
 };
 const CATEGORY_ORDER = ["lesson_plan","presentation","qa_solution","exercise","assessment","other"];
 
+// FIX — lesson dropdowns showed "<chapter title> — <lesson title>", which
+// read as a plain duplicate ("X — X") whenever a lesson's title was the
+// same as its chapter's (very common for single-lesson chapters — see
+// screenshot). Now the chapter prefix is only added when it actually adds
+// information.
+function lessonOptionLabel(l){
+  const chapterTitle=l.chapters?.title||l.chapter_title||"";
+  if(!chapterTitle||chapterTitle.trim()===String(l.title||"").trim())return l.title;
+  return `${chapterTitle} — ${l.title}`;
+}
+
+// NEW — auto-detect a material's category (and, where possible, its
+// chapter) from its filename, so a teacher uploading "Lesson plan-U1L1" or
+// "Prastuti U2L3" doesn't have to hand-pick both every single time.
+// - The category comes from keyword matching ("lesson plan"/"योजना" →
+//   lesson_plan, "prastuti"/"presentation" → presentation, etc).
+// - The chapter comes from a "U<unit>L<lesson>" (or "Unit 1 Lesson 2")
+//   pattern in the name, matched against EXISTING chapter titles that
+//   already contain the same U#L# tag. It deliberately does NOT guess a
+//   chapter by counting position in the list — there's no reliable
+//   "lessons per unit" number to compute that from, and a wrong silent
+//   guess is worse than no guess. If no existing chapter carries that
+//   tag, the unit/lesson is still shown to the teacher as a hint so
+//   picking the right chapter by hand takes one glance, not a search.
+const CATEGORY_KEYWORDS=[
+  {category:"lesson_plan",words:["lesson plan","lessonplan","पाठ योजना","पाठयोजना","योजना","lp-","lp_"," lp "]},
+  {category:"presentation",words:["prastuti","प्रस्तुति","presentation","slide","ppt"]},
+  {category:"qa_solution",words:["qa","q&a","प्रश्नोत्तर","उत्तर","answer key","answerkey","solution"]},
+  {category:"exercise",words:["exercise","worksheet","अभ्यास","practice"]},
+  {category:"assessment",words:["assessment","मूल्याङ्कन","परीक्षा","test","quiz","exam"]},
+];
+function detectCategoryFromName(name){
+  const clean=" "+name.toLowerCase().replace(/[._-]/g," ")+" ";
+  for(const{category,words}of CATEGORY_KEYWORDS){
+    if(words.some((w)=>clean.includes(w.toLowerCase())))return category;
+  }
+  return null;
+}
+function detectUnitLessonFromName(name){
+  const m=name.match(/U(?:nit)?\s*-?\s*(\d+)\s*[-_. ]?\s*L(?:esson)?\s*-?\s*(\d+)/i);
+  return m?{unit:Number(m[1]),lesson:Number(m[2])}:null;
+}
+function guessChapterFromUnitLesson(unitLesson,chapters){
+  if(!unitLesson||!chapters?.length)return null;
+  const tag=`U${unitLesson.unit}L${unitLesson.lesson}`;
+  const norm=(s)=>(s||"").toUpperCase().replace(/[\s._-]/g,"");
+  return chapters.find((c)=>norm(c.title).includes(tag))||null;
+}
+
 // NEW — Phase 3: calendar event categories. Same pattern as CATEGORY_META
 // above (Materials), so the calendar gets the same color-coding language
 // the rest of the app already uses.
@@ -763,11 +812,17 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, teacherNam
       const prompt=`तपाईं नेपाली शिक्षक हुनुहुन्छ। "${chapterTitle}" पाठको सन्दर्भमा तलको कक्षा-छलफल प्रश्नको छोटो, स्पष्ट सुझाव-उत्तर (३-४ वाक्यमा, कक्षामा भन्न मिल्ने सरल भाषामा) दिनुहोस्। प्रश्न नदोहोर्‍याई सिधै उत्तर मात्र दिनुहोस्।\n\nप्रश्न: ${qState[i].q}`;
       const answer=(await gemini.generateText(prompt)).trim();
       if(!answer)throw new Error("empty");
-      setQState((prev)=>{
-        const next=prev.map((it,idx)=>idx===i?{...it,a:answer}:it);
-        db.upsertLesson({id:lesson.id,key_questions:next.map((it)=>it.a?`${it.q}||${it.a}`:it.q)});
-        return next;
-      });
+      const next=qState.map((it,idx)=>idx===i?{...it,a:answer}:it);
+      // FIX — this used to fire the db save without awaiting it or
+      // checking the result, so a failed save (network hiccup, expired
+      // session, etc.) looked identical to a successful one on screen —
+      // the answer showed up, but never actually reached the database,
+      // so it was gone again on the next reload. Now it's awaited and a
+      // failure is shown immediately instead of only being discovered
+      // later.
+      const{error}=await db.upsertLesson({id:lesson.id,key_questions:next.map((it)=>it.a?`${it.q}||${it.a}`:it.q)});
+      if(error){setQErrors((prev)=>({...prev,[i]:"उत्तर देखियो तर सुरक्षित हुन सकेन — फेरि प्रयास गर्नुहोस्।"}));return;}
+      setQState(next);
     }catch{
       setQErrors((prev)=>({...prev,[i]:"उत्तर तयार गर्न सकिएन।"}));
     }finally{
@@ -785,9 +840,10 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, teacherNam
   // other content in this app should work once it exists.
   const [qEditingIdx,setQEditingIdx]=useState(null);
   const [qEditText,setQEditText]=useState("");
-  const persistQuestions=(next)=>{
+  const persistQuestions=async(next)=>{
     setQState(next);
-    db.upsertLesson({id:lesson.id,key_questions:next.map((it)=>it.a?`${it.q}||${it.a}`:it.q)});
+    const{error}=await db.upsertLesson({id:lesson.id,key_questions:next.map((it)=>it.a?`${it.q}||${it.a}`:it.q)});
+    if(error)alert("सुरक्षित हुन सकेन: "+(error.message||"कृपया फेरि प्रयास गर्नुहोस्।"));
   };
   const startEditAnswer=(i,e)=>{e.stopPropagation();setQEditingIdx(i);setQEditText(qState[i].a||"");};
   const saveEditedAnswer=(i,e)=>{
@@ -1684,6 +1740,13 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
   const [syncing,setSyncing]=useState(false);
   const [uploadChapter,setUploadChapter]=useState("");
   const [uploadCategory,setUploadCategory]=useState("lesson_plan");
+  // NEW — filename auto-tagging: files chosen now go into a review list
+  // (one row per file, category + chapter pre-filled from the filename
+  // when detected) instead of uploading immediately with one category/
+  // chapter applied to the whole batch. Nothing is uploaded until the
+  // teacher confirms the review.
+  const [pendingFiles,setPendingFiles]=useState(null);
+  const [pendingError,setPendingError]=useState("");
   const [tagging,setTagging]=useState(null);
   const [tagValue,setTagValue]=useState("");
   const [tagCategory,setTagCategory]=useState("other");
@@ -1762,27 +1825,52 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
     load();
   };
 
-  // NEW — accepts multiple files in one selection now (see the `multiple`
-  // attribute on the file input below) and uploads them one after another,
-  // reporting progress, instead of only ever taking files[0] and silently
-  // ignoring the rest.
-  const upload=async(e)=>{
+  // NEW — file selection no longer uploads immediately. It builds one
+  // review row per file with category + chapter pre-filled by
+  // detectCategoryFromName/guessChapterFromUnitLesson, falling back to
+  // whatever was picked in the "यो फाइल कस्तो प्रकारको हो?" section above
+  // when a file's name doesn't clearly say. The teacher reviews (and can
+  // change) each row before anything actually uploads.
+  const selectFiles=(e)=>{
     const files=Array.from(e.target.files||[]);
+    e.target.value="";
     if(!files.length)return;
-    if(!uploadChapter.trim()){
-      setError("पहिले माथि यो फाइल कुन अध्यायको हो भनी छान्नुहोस्, त्यसपछि फाइल छान्नुहोस्।");
-      e.target.value="";
+    const rows=files.map((file,i)=>{
+      const detectedCategory=detectCategoryFromName(file.name);
+      const unitLesson=detectUnitLessonFromName(file.name);
+      const guessedChapter=guessChapterFromUnitLesson(unitLesson,chapters||[]);
+      return{
+        _key:`f${i}-${file.name}`,
+        file,
+        name:file.name,
+        category:detectedCategory||uploadCategory,
+        categoryAuto:!!detectedCategory,
+        chapterTitle:guessedChapter?.title||uploadChapter||"",
+        chapterAuto:!!guessedChapter,
+        unitLessonHint:unitLesson?`U${unitLesson.unit}L${unitLesson.lesson}`:null,
+      };
+    });
+    setPendingError("");
+    setPendingFiles(rows);
+  };
+
+  const updatePendingRow=(key,patch)=>setPendingFiles((prev)=>prev.map((r)=>r._key===key?{...r,...patch}:r));
+
+  const confirmPendingUpload=async()=>{
+    if(!pendingFiles?.length)return;
+    if(pendingFiles.some((r)=>!r.chapterTitle.trim())){
+      setPendingError("हरेक फाइलको लागि अध्याय छान्नुहोस् — केही फाइलमा अझै छानिएको छैन।");
       return;
     }
-    setUploading(true);setError("");
+    setUploading(true);setError("");setPendingError("");
     const{data:{user}}=await supabase.auth.getUser();
-    // Resolve the chapter once for the whole batch instead of once per file.
-    const chapterId=await db.getOrCreateChapterId(uploadChapter.trim(),classLabel);
     const typeMap={pdf:"pdf",pptx:"pptx",ppt:"pptx",doc:"doc",docx:"doc",xlsx:"sheet",xls:"sheet",csv:"sheet",jpg:"image",jpeg:"image",png:"image",mp4:"video",mp3:"audio"};
     let failedNames=[];
-    for(let i=0;i<files.length;i++){
-      const file=files[i];
-      setUploadProgress(files.length>1?{current:i+1,total:files.length,name:file.name}:null);
+    const chapterIdCache={};
+    for(let i=0;i<pendingFiles.length;i++){
+      const row=pendingFiles[i];
+      const file=row.file;
+      setUploadProgress(pendingFiles.length>1?{current:i+1,total:pendingFiles.length,name:file.name}:null);
       const ext=file.name.split(".").pop().toLowerCase();
       const fileType=typeMap[ext]||"doc";
       let extracted_text="", extraction_status="not_needed";
@@ -1796,10 +1884,12 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
       }
       const{path,error:upErr}=await db.uploadMaterialFile(file,user.id);
       if(upErr){failedNames.push(`${file.name} (${upErr.message})`);continue;}
-      await db.insertMaterial({name:file.name,storage_path:path,file_type:fileType,size_bytes:file.size,tags:[],chapter_id:chapterId,category:uploadCategory,extracted_text,extraction_status,class_label:classLabel});
+      const chapterTitle=row.chapterTitle.trim();
+      if(!(chapterTitle in chapterIdCache)) chapterIdCache[chapterTitle]=await db.getOrCreateChapterId(chapterTitle,classLabel);
+      await db.insertMaterial({name:file.name,storage_path:path,file_type:fileType,size_bytes:file.size,tags:[],chapter_id:chapterIdCache[chapterTitle],category:row.category,extracted_text,extraction_status,class_label:classLabel});
     }
     if(failedNames.length)setError(failedNames.join(" · "));
-    setUploading(false);setUploadProgress(null);load();e.target.value="";
+    setUploading(false);setUploadProgress(null);setPendingFiles(null);load();onChaptersChanged?.();
   };
 
   const deleteMat=async(mat)=>{
@@ -1920,14 +2010,50 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
             <div style={{fontSize:14.5,fontWeight:700,color:INK_SOFT,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.03em"}}>यो फाइल कस्तो प्रकारको हो?</div>
             <CategoryPicker value={uploadCategory} onChange={setUploadCategory}/>
           </div>
-          <ChapterPicker value={uploadChapter} onChange={setUploadChapter} chapters={chapters||[]} onAddChapter={addChapterAndRefresh} placeholder="यो फाइल कुन अध्यायको हो? *"/>
-          <label className="ss-btn" style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:uploadChapter.trim()?`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`:SURFACE_2,color:uploadChapter.trim()?"#fff":INK_SOFT,border:uploadChapter.trim()?"none":`1.5px solid ${BORDER}`,borderRadius:12,padding:"13px",fontSize:16.5,fontWeight:700,cursor:uploadChapter.trim()?"pointer":"not-allowed",boxShadow:uploadChapter.trim()?SHADOW.accent:"none"}}>
-            <Plus size={16}/>{uploading?(uploadProgress?`अपलोड हुँदै... (${uploadProgress.current}/${uploadProgress.total})`:"अपलोड र प्रशोधन गर्दै..."):"फाइल(हरू) छान्नुहोस्"}
-            <input type="file" multiple onChange={upload} disabled={!uploadChapter.trim()||uploading} style={{display:"none"}} accept=".pdf,.pptx,.ppt,.doc,.docx,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.mp4,.mp3"/>
+          <ChapterPicker value={uploadChapter} onChange={setUploadChapter} chapters={chapters||[]} onAddChapter={addChapterAndRefresh} placeholder="डिफल्ट अध्याय (फाइलनामबाट पत्ता नलागे प्रयोग हुन्छ)"/>
+          <label className="ss-btn" style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:12,padding:"13px",fontSize:16.5,fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}>
+            <Plus size={16}/>फाइल(हरू) छान्नुहोस्
+            <input type="file" multiple onChange={selectFiles} style={{display:"none"}} accept=".pdf,.pptx,.ppt,.doc,.docx,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.mp4,.mp3"/>
           </label>
-          <div style={{fontSize:15,color:INK_SOFT}}>एकैचोटि धेरै फाइल छान्न मिल्छ — सबै यही अध्याय र प्रकारमा थपिनेछन्। PDF/तस्बिर सिधै AI लाई देखाइन्छ। Word/PowerPoint/Excel बाट टेक्स्ट स्वतः निकालिन्छ।</div>
+          <div style={{fontSize:15,color:INK_SOFT}}>फाइल छान्नुभएपछि हरेकको प्रकार र अध्याय समीक्षा गर्न पाइन्छ — फाइलनाम हेरेर (जस्तै "Lesson plan-U1L1") AI ले अनुमान लगाइदिन्छ, तपाईंले चाहेमा बदल्न सक्नुहुन्छ।</div>
         </div>
       </Card>
+
+      {pendingFiles&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.55)",backdropFilter:"blur(3px)",WebkitBackdropFilter:"blur(3px)",zIndex:70,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={()=>!uploading&&setPendingFiles(null)}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:"20px 20px 0 0",padding:20,maxWidth:640,width:"100%",maxHeight:"85vh",overflowY:"auto",boxShadow:SHADOW.lg}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+              <div style={{fontSize:19,fontWeight:800,color:INK}}>{pendingFiles.length} फाइल — समीक्षा गर्नुहोस्</div>
+              <button className="ss-icon-btn" onClick={()=>!uploading&&setPendingFiles(null)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><X size={20}/></button>
+            </div>
+            <div style={{fontSize:14.5,color:INK_SOFT,marginBottom:14}}>फाइलनामबाट पत्ता लागेका प्रकार/अध्याय <Sparkles size={11} style={{display:"inline",verticalAlign:"-1px"}}/> चिन्हसहित देखिन्छन्। पत्ता नलागेकालाई आफैं छान्नुहोस्।</div>
+            <div style={{display:"flex",flexDirection:"column",gap:14}}>
+              {pendingFiles.map((row)=>(
+                <div key={row._key} style={{border:`1.5px solid ${BORDER}`,borderRadius:12,padding:12}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:9,fontSize:15,fontWeight:700,color:INK,overflow:"hidden"}}>
+                    <FileText size={14} color={INK_SOFT} style={{flexShrink:0}}/>
+                    <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.name}</span>
+                    {row.unitLessonHint&&<span style={{flexShrink:0,fontSize:12.5,fontWeight:700,color:ACCENT,background:ACCENT_LIGHT,borderRadius:999,padding:"2px 8px"}}>{row.unitLessonHint}</span>}
+                  </div>
+                  <div style={{marginBottom:8}}>
+                    <div style={{fontSize:12.5,fontWeight:700,color:INK_SOFT,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.03em",display:"flex",alignItems:"center",gap:4}}>प्रकार{row.categoryAuto&&<Sparkles size={11} color={ACCENT}/>}</div>
+                    <CategoryPicker value={row.category} onChange={(v)=>updatePendingRow(row._key,{category:v,categoryAuto:false})}/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:12.5,fontWeight:700,color:INK_SOFT,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.03em",display:"flex",alignItems:"center",gap:4}}>अध्याय{row.chapterAuto&&<Sparkles size={11} color={ACCENT}/>}</div>
+                    <ChapterPicker value={row.chapterTitle} onChange={(v)=>updatePendingRow(row._key,{chapterTitle:v,chapterAuto:false})} chapters={chapters||[]} onAddChapter={addChapterAndRefresh} placeholder="अध्याय छान्नुहोस् *"/>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {pendingError&&<div style={{background:DANGER_BG,color:DANGER,borderRadius:10,padding:"9px 12px",fontSize:14.5,fontWeight:600,marginTop:12}}>{pendingError}</div>}
+            <div style={{display:"flex",gap:8,marginTop:16}}>
+              <button className="ss-btn" onClick={()=>setPendingFiles(null)} disabled={uploading} style={{padding:"12px 16px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:700,cursor:uploading?"default":"pointer"}}>रद्द</button>
+              <button className="ss-btn" onClick={confirmPendingUpload} disabled={uploading} style={{flex:1,padding:"12px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,cursor:uploading?"default":"pointer",boxShadow:SHADOW.accent}}>{uploading?(uploadProgress?`अपलोड हुँदै... (${uploadProgress.current}/${uploadProgress.total})`:"अपलोड हुँदै..."):"अपलोड गर्नुहोस्"}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Card style={{marginBottom:16}}>
         <div onClick={()=>setShowChapterManage((v)=>!v)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer"}}>
@@ -2194,7 +2320,7 @@ function TeachingJournal({ lessons }) {
               ):(
                 <select value={form.lesson_id} onChange={(e)=>setForm({...form,lesson_id:e.target.value})} style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}>
                   <option value="">— कुनै पाठसँग नजोडी —</option>
-                  {lessons.map((l)=><option key={l.id} value={l.id}>{l.chapters?.title||l.chapter_title?`${l.chapters?.title||l.chapter_title} — `:""}{l.title}</option>)}
+                  {lessons.map((l)=><option key={l.id} value={l.id}>{lessonOptionLabel(l)}</option>)}
                 </select>
               )}
             </div>
@@ -2278,19 +2404,56 @@ function AIAssistant({ lessons, classContext, classLabel }) {
     }catch(e){setMessages((prev)=>[...prev,{role:"ai",text:"AI सँग जोडिन सकिएन: "+e.message}]);}
     setLoading(false);
   };
+  // NEW — "स्पष्ट पार्नुहोस्": expands one specific AI reply in place with
+  // more depth (examples, simpler wording, step-by-step breakdown) instead
+  // of the teacher having to retype "explain more" and lose the original
+  // context. Sends the exact reply text back to the AI as what to expand,
+  // grounded in the same lesson/materials/textbook context as everything
+  // else in this chat, and appends the fuller version right below it.
+  const [elaboratingIdx,setElaboratingIdx]=useState(null);
+  const elaborate=async(i)=>{
+    if(loading||elaboratingIdx!==null)return;
+    const target=messages[i];
+    if(!target||target.role!=="ai")return;
+    setElaboratingIdx(i);
+    try{
+      const context=lesson?`पाठ: ${lesson.title}\nअध्याय: ${lesson.chapters?.title||lesson.chapter_title||""}\nउद्देश्य: ${(lesson.objectives||[]).join(", ")}\nशब्दावली: ${(lesson.vocabulary||[]).join(", ")}\nक्रियाकलाप: ${(lesson.activities||[]).join(", ")}\nगृहकार्य: ${lesson.homework||""}`: "कुनै पाठ छैन।";
+      const ctx=await getMaterialContext(chapterTitle,classLabel);
+      const prompt=`तलको आफ्नै जवाफलाई थप स्पष्ट र विस्तृत बनाउनुहोस् — थप उदाहरण, कक्षामा प्रयोग गर्न मिल्ने सरल भाषा, र आवश्यक भए चरणबद्ध विवरण थपेर। नयाँ विषय नथप्नुहोस्, यही जवाफलाई मात्र गहिरो बनाउनुहोस्:\n\n"${target.text}"`;
+      const reply=await gemini.chatWithAI(prompt,context,ctx,classContext);
+      setMessages((prev)=>{
+        const next=[...prev];
+        next.splice(i+1,0,{role:"ai",text:reply,expansionOf:i});
+        return next;
+      });
+    }catch(e){
+      setMessages((prev)=>[...prev,{role:"ai",text:"स्पष्ट पार्न सकिएन: "+e.message}]);
+    }finally{
+      setElaboratingIdx(null);
+    }
+  };
   return(
     <div className="ss-page-read" style={{display:"flex",flexDirection:"column",height:"calc(100vh - 170px)",maxWidth:720,margin:"0 auto",width:"100%"}}>
       <div style={{padding:"14px 16px 8px"}}>
         <div style={{fontSize:19,fontWeight:700,color:INK,display:"flex",alignItems:"center",gap:8}}><Bot size={20} color={ACCENT}/>AI शिक्षण सहायक</div>
         {lessons.length>0&&(
-          <select value={lessonId} onChange={(e)=>setLessonId(e.target.value)} style={{marginTop:6,width:"100%",borderRadius:10,padding:"8px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontWeight:600,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}>
-            {lessons.map((l)=><option key={l.id} value={l.id}>{l.chapters?.title||l.chapter_title?`${l.chapters?.title||l.chapter_title} — `:""}{l.title}</option>)}
+          <select value={lessonId} onChange={(e)=>setLessonId(e.target.value)} style={{marginTop:8,width:"100%",borderRadius:10,padding:"8px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontWeight:600,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}>
+            {lessons.map((l)=><option key={l.id} value={l.id}>{lessonOptionLabel(l)}</option>)}
           </select>
         )}
-        <div style={{display:"flex",alignItems:"center",gap:5,fontSize:15,color:INK_SOFT,marginTop:6,flexWrap:"wrap"}}>
-          <Zap size={11} color={MARIGOLD}/>Google Gemini AI · {textbookReady?"पाठ्यपुस्तक लोड भएको ✓":"पाठ्यपुस्तक लोड भएको छैन (सेटिङमा अपलोड गर्नुहोस्)"}
-          {chapterTitle&&<span>· "{chapterTitle}" का {matchedCount} सामग्री</span>}
+        {/* FIX — this used to be one dense, wrapping sentence ("Google
+            Gemini AI · पाठ्यपुस्तक लोड भएको छैन (...) · "X" का ३ सामग्री")
+            all in one small muted color — hard to scan at a glance, and on
+            a narrow phone it wrapped mid-thought. Split into separate
+            small status badges so each fact (AI engine, textbook status,
+            materials count) is its own scannable chip instead of one run-
+            on line. */}
+        <div style={{display:"flex",alignItems:"center",gap:6,marginTop:9,flexWrap:"wrap"}}>
+          <span style={{display:"flex",alignItems:"center",gap:4,fontSize:13.5,fontWeight:700,color:MARIGOLD_DARK,background:WARN_BG,padding:"4px 9px",borderRadius:999}}><Zap size={11}/>Gemini AI</span>
+          <span style={{display:"flex",alignItems:"center",gap:4,fontSize:13.5,fontWeight:700,color:textbookReady?TEAL:INK_SOFT,background:textbookReady?TEAL_LIGHT:SURFACE_2,padding:"4px 9px",borderRadius:999,border:textbookReady?"none":`1px solid ${BORDER}`}}>{textbookReady?"📘 पाठ्यपुस्तक लोड भयो":"📘 पाठ्यपुस्तक लोड छैन"}</span>
+          {chapterTitle&&<span style={{display:"flex",alignItems:"center",gap:4,fontSize:13.5,fontWeight:700,color:ACCENT,background:ACCENT_LIGHT,padding:"4px 9px",borderRadius:999}}><Tag size={11}/>{matchedCount} सामग्री ट्याग गरिएको</span>}
         </div>
+        {!textbookReady&&<div style={{fontSize:13.5,color:INK_SOFT,marginTop:5}}>सेटिङमा गएर पाठ्यपुस्तक अपलोड गर्न सकिन्छ।</div>}
       </div>
       <div style={{flex:1,overflowY:"auto",padding:"6px 16px",display:"flex",flexDirection:"column"}}>
         {messages.length<=1?(
@@ -2314,8 +2477,13 @@ function AIAssistant({ lessons, classContext, classLabel }) {
         ):(
           <>
             {messages.map((m,i)=>(
-              <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",marginBottom:10}}>
+              <div key={i} style={{display:"flex",flexDirection:"column",alignItems:m.role==="user"?"flex-end":"flex-start",marginBottom:10}}>
                 <div style={{maxWidth:"88%",background:m.role==="user"?`linear-gradient(135deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`:SURFACE,color:m.role==="user"?"#fff":INK,border:m.role==="ai"?`1px solid ${BORDER}`:"none",borderRadius:14,padding:"11px 14px",fontSize:16.5,lineHeight:1.6,whiteSpace:"pre-wrap",boxShadow:m.role==="ai"?SHADOW.sm:SHADOW.accent}}>{m.text}</div>
+                {m.role==="ai"&&(
+                  <button className="ss-btn" onClick={()=>elaborate(i)} disabled={loading||elaboratingIdx!==null} style={{display:"flex",alignItems:"center",gap:4,marginTop:4,background:"none",border:"none",color:ACCENT,fontWeight:700,fontSize:13.5,cursor:elaboratingIdx!==null?"default":"pointer",padding:"2px 2px",opacity:elaboratingIdx!==null&&elaboratingIdx!==i?0.5:1}}>
+                    <Sparkles size={12}/>{elaboratingIdx===i?"स्पष्ट पार्दै...":"स्पष्ट पार्नुहोस्"}
+                  </button>
+                )}
               </div>
             ))}
             {loading&&<div style={{display:"flex",marginBottom:10}}><div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:14,padding:"11px 14px",color:INK_SOFT,fontSize:16.5}}>सोच्दै छु...</div></div>}
@@ -2772,6 +2940,7 @@ function MoreHub({
 
   return(
     <div className="ss-page" style={{padding:"20px 20px 130px",margin:"0 auto",width:"100%"}}>
+      <div style={{fontSize:20,fontWeight:700,color:INK,display:"flex",alignItems:"center",gap:8,marginBottom:14}}><Layers size={20} color={ACCENT}/>थप</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:12,marginBottom:18}}>
         <SummaryPanel icon={ListChecks} color={BLUE} title="गृहकार्य" onOpen={()=>setOpenPanel("homework")}
           subtitle={hwLoading?"लोड हुँदै...":homework.length===0?"कुनै गृहकार्य छैन":`${homework.length} जम्मा · ${pendingHomework} जाँच बाँकी`}/>
@@ -2803,11 +2972,27 @@ function AITools({ lessons, chapters, onAddChapter, classContext, classLabel, in
   ];
   return(
     <div>
-      <div className="no-print" style={{display:"flex",overflowX:"auto",background:SURFACE,borderBottom:`1px solid ${BORDER}`,position:"sticky",top:0,zIndex:8}}>
-        {TABS.map((t)=>{const Icon=t.icon;const active=tab===t.id;return(
-          <button key={t.id} onClick={()=>setTab(t.id)} style={{display:"flex",alignItems:"center",gap:7,padding:"13px 18px",border:"none",background:active?t.bg:"none",borderBottom:active?`3px solid ${t.color}`:"3px solid transparent",color:active?t.color:INK_SOFT,fontWeight:700,fontSize:16,cursor:"pointer",whiteSpace:"nowrap",transition:"background .15s"}}><Icon size={16}/>{t.label}</button>
-        );})}
+      {/* FIX — this was 5 wide underline-style tabs (padding 13px 18px,
+          font 16) in a plain overflow-x:auto row with no visual hint that
+          there was more to scroll to. On a ~360-390px phone that's easily
+          700px+ of tabs, so it looked like the row was cut off / broken
+          rather than scrollable. Switched to the same compact pill-chip
+          language already used everywhere else in the app (calendar
+          filters, materials categories), which is narrower per-tab, wraps
+          its own background so nothing bleeds past the card edge, and
+          reads clearly as "more chips this way" instead of a cut-off bar.
+          A soft edge fade hints at the scroll on narrow screens. */}
+      <div className="no-print ai-tools-tabs" style={{position:"sticky",top:0,zIndex:8,background:SURFACE,borderBottom:`1px solid ${BORDER}`,padding:"10px 14px"}}>
+        <div style={{display:"flex",gap:7,overflowX:"auto",paddingBottom:2}}>
+          {TABS.map((t)=>{const Icon=t.icon;const active=tab===t.id;return(
+            <button key={t.id} onClick={()=>setTab(t.id)} className="ss-chip ai-tools-tab" style={{display:"flex",alignItems:"center",gap:6,padding:"8px 13px",borderRadius:999,border:`1.5px solid ${active?t.color:BORDER}`,background:active?t.color:SURFACE,color:active?"#fff":INK_SOFT,fontWeight:700,fontSize:14.5,whiteSpace:"nowrap",cursor:"pointer",boxShadow:active?SHADOW.sm:"none",flexShrink:0}}><Icon size={14}/>{t.label}</button>
+          );})}
+        </div>
       </div>
+      <style>{`
+        @media(max-width:420px){.ai-tools-tab{padding:7px 11px !important;font-size:13.5px !important;}}
+        .ai-tools-tabs{-webkit-mask-image:linear-gradient(to right, transparent 0, black 14px, black calc(100% - 14px), transparent 100%);mask-image:linear-gradient(to right, transparent 0, black 14px, black calc(100% - 14px), transparent 100%);}
+      `}</style>
       {tab==="questions"&&<QuestionBank chapters={chapters} onAddChapter={onAddChapter} classContext={classContext} classLabel={classLabel}/>}
       {tab==="activities"&&<ActivitiesLibrary chapters={chapters} onAddChapter={onAddChapter} classContext={classContext} classLabel={classLabel}/>}
       {tab==="assessment"&&<AssessmentBuilder chapters={chapters} onAddChapter={onAddChapter} classContext={classContext} classLabel={classLabel}/>}
@@ -2997,6 +3182,12 @@ function CalendarView({ classLabel }) {
   const [uploadError,setUploadError]=useState("");
   const [reviewEvents,setReviewEvents]=useState(null); // null = no review open; array = extracted, pending confirm
   const [savingReview,setSavingReview]=useState(false);
+  // FIX — saveEvent used to silently do nothing on failure (e.g. the
+  // calendar_events table/policies missing from the database): the modal
+  // just sat there with no feedback, which is exactly what "कार्यक्रम
+  // थप्नुहोस्" not working looked like from the outside. Now any db error
+  // is shown right in the form instead of being swallowed.
+  const [formError,setFormError]=useState("");
 
   const load=useCallback(async()=>{
     setLoading(true);
@@ -3033,12 +3224,12 @@ function CalendarView({ classLabel }) {
 
   const selectedItems=(itemsByDate[selected]||[]).sort((a,b)=>(a.time||"99:99").localeCompare(b.time||"99:99"));
 
-  const openNew=()=>{setEditing(null);setForm({title:"",category:"event",start_date:selected,end_date:"",multiDay:false,time:"",notes:"",allClasses:false});setShowForm(true);};
-  const openEdit=(it)=>{if(!it.editable)return;const raw=it.raw;setEditing(raw);setForm({title:raw.title,category:raw.category,start_date:raw.start_date,end_date:raw.end_date||"",multiDay:!!raw.end_date,time:raw.time||"",notes:raw.notes||"",allClasses:!raw.class_label});setShowForm(true);};
+  const openNew=()=>{setEditing(null);setFormError("");setForm({title:"",category:"event",start_date:selected,end_date:"",multiDay:false,time:"",notes:"",allClasses:false});setShowForm(true);};
+  const openEdit=(it)=>{if(!it.editable)return;const raw=it.raw;setEditing(raw);setFormError("");setForm({title:raw.title,category:raw.category,start_date:raw.start_date,end_date:raw.end_date||"",multiDay:!!raw.end_date,time:raw.time||"",notes:raw.notes||"",allClasses:!raw.class_label});setShowForm(true);};
 
   const saveEvent=async()=>{
     if(!form.title.trim()||!form.start_date)return;
-    setSaving(true);
+    setSaving(true);setFormError("");
     const payload={
       ...(editing?{id:editing.id}:{}),
       title:form.title.trim(),
@@ -3052,6 +3243,7 @@ function CalendarView({ classLabel }) {
     const{error}=await db.upsertCalendarEvent(payload);
     setSaving(false);
     if(!error){setShowForm(false);setEditing(null);load();}
+    else setFormError("सुरक्षित गर्न सकिएन: "+(error.message||"अज्ञात त्रुटि। कृपया पछि फेरि प्रयास गर्नुहोस्।"));
   };
 
   const deleteEvent=async(raw)=>{
@@ -3256,6 +3448,7 @@ function CalendarView({ classLabel }) {
               <input type="checkbox" checked={form.allClasses} onChange={(e)=>setForm({...form,allClasses:e.target.checked})}/> सबै कक्षाका लागि (विद्यालयब्यापी)
             </label>
             <textarea value={form.notes} onChange={(e)=>setForm({...form,notes:e.target.value})} placeholder="टिप्पणी (वैकल्पिक)" rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical",marginBottom:14}}/>
+            {formError&&<div style={{background:DANGER_BG,color:DANGER,borderRadius:10,padding:"9px 12px",fontSize:14.5,fontWeight:600,marginBottom:12}}>{formError}</div>}
             <div style={{display:"flex",gap:8}}>
               {editing&&<button className="ss-btn" onClick={()=>{deleteEvent(editing);setShowForm(false);}} style={{padding:"11px 16px",borderRadius:10,border:`1px solid ${DANGER_BG}`,background:DANGER_BG,color:DANGER,fontWeight:700,cursor:"pointer"}}><Trash2 size={16}/></button>}
               <button className="ss-btn" onClick={saveEvent} disabled={saving||!form.title.trim()} style={{flex:1,padding:"11px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}>{saving?"सुरक्षित हुँदैछ...":"सुरक्षित गर्नुहोस्"}</button>
@@ -3766,7 +3959,7 @@ export default function App() {
 
   const nav=[
     {id:"dashboard",label:"आज",icon:Home,color:ACCENT},
-    {id:"ai",label:"AI",icon:Bot,color:VIOLET},
+    {id:"ai",label:"AI च्याट",icon:Bot,color:VIOLET},
     {id:"planner",label:"योजना",icon:CalendarDays,color:TEAL},
     {id:"materials",label:"सामग्री",icon:BookOpen,color:MARIGOLD_DARK},
   ];
@@ -3964,7 +4157,7 @@ export default function App() {
             <RefreshCw size={13} style={{animation:lessonsLoading?"spin 1s linear infinite":"none",flexShrink:0}}/>
             <span className="ss-sync-label">{lessonsLoading?"सिंक...":synced?"सिंक भयो ✓":"सिंक भएको"}</span>
           </div>
-          <button onClick={()=>setSearchOpen(true)} title="खोज" className="ss-btn ss-topbar-icon" style={{background:searchOpen?`linear-gradient(160deg, ${TEAL} 0%, color-mix(in srgb, ${TEAL} 70%, black) 100%)`:SURFACE_2,border:searchOpen?"none":`1px solid ${BORDER}`,color:searchOpen?"#fff":INK_SOFT}}><Search size={18}/></button>
+          <button onClick={()=>setSearchOpen(true)} title="खोज" className="ss-btn ss-topbar-icon" style={{background:searchOpen?`linear-gradient(160deg, ${TEAL} 0%, color-mix(in srgb, ${TEAL} 70%, black) 100%)`:`linear-gradient(160deg, color-mix(in srgb, ${TEAL} 16%, ${SURFACE}) 0%, color-mix(in srgb, ${TEAL} 8%, ${SURFACE}) 100%)`,border:searchOpen?"none":`1px solid ${BORDER}`,color:searchOpen?"#fff":TEAL,boxShadow:searchOpen?`0 3px 10px color-mix(in srgb, ${TEAL} 40%, transparent)`:"none"}}><Search size={18}/></button>
           <button onClick={toggleTheme} title={theme==="light"?"गाढा मोडमा जानुहोस्":"उज्यालो मोडमा जानुहोस्"} className="ss-btn ss-topbar-icon" style={{background:`linear-gradient(160deg, ${MARIGOLD} 0%, ${MARIGOLD_DARK} 100%)`,border:"none",color:"#fff",boxShadow:`0 3px 10px color-mix(in srgb, ${MARIGOLD} 40%, transparent)`}}>
             {theme==="light"?<Moon size={17}/>:<Sun size={17}/>}
           </button>
@@ -3972,7 +4165,7 @@ export default function App() {
               your place wherever you were) just to change one setting. Now
               it pops open on top of whatever you're doing and closes back
               to exactly where you were. */}
-          <button onClick={()=>setSettingsOpen(true)} title="सेटिङ" className="ss-btn ss-topbar-icon" style={{background:settingsOpen?`linear-gradient(160deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`:SURFACE_2,border:settingsOpen?"none":`1px solid ${BORDER}`,color:settingsOpen?"#fff":INK_SOFT,boxShadow:settingsOpen?SHADOW.accent:"none"}}><SettingsIcon size={19}/></button>
+          <button onClick={()=>setSettingsOpen(true)} title="सेटिङ" className="ss-btn ss-topbar-icon" style={{background:settingsOpen?`linear-gradient(160deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`:`linear-gradient(160deg, color-mix(in srgb, ${ACCENT} 16%, ${SURFACE}) 0%, color-mix(in srgb, ${ACCENT} 8%, ${SURFACE}) 100%)`,border:settingsOpen?"none":`1px solid ${BORDER}`,color:settingsOpen?"#fff":ACCENT,boxShadow:settingsOpen?SHADOW.accent:"none"}}><SettingsIcon size={19}/></button>
         </div>
       </div>
 

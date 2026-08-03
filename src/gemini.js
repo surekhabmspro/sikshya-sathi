@@ -358,6 +358,17 @@ export const parseJSON = (text) => {
   return null;
 };
 
+// FIX (revised) — the previous version dropped the textbook entirely the
+// moment any material was tagged to a chapter. That over-corrected: a
+// teacher's uploaded lesson plan/prastuti rarely covers 100% of what the
+// textbook chapter covers, so anything the material left out was silently
+// missing instead of falling back to the book. Both are sent together
+// again, but with an explicit instruction telling Gemini which one leads —
+// tagged materials are the primary, authoritative source (their structure,
+// order, and emphasis should be followed), and the textbook is there only
+// to fill gaps the materials don't cover, never to override them.
+const MATERIALS_PRIORITY_NOTE = `\n\n[स्रोत प्राथमिकता — महत्त्वपूर्ण]: माथि शिक्षकले आफैं यो अध्यायमा ट्याग गर्नुभएको सामग्री (लेसन प्लान/प्रस्तुति/प्रश्नोत्तर/आदि) र पाठ्यपुस्तक दुवै संलग्न छन्। शिक्षकको ट्याग गरिएको सामग्रीलाई नै मुख्य र भरपर्दो स्रोत मानी त्यसैको संरचना, क्रम र जोड पछ्याउनुहोस्। पाठ्यपुस्तक केवल त्यो सामग्रीले नसमेटेको तर अध्यायको लागि आवश्यक विषयवस्तु (जस्तै छुटेको उपशीर्षक वा तथ्य) थप्नकै लागि प्रयोग गर्नुहोस् — सामग्रीमा भएको कुरासँग नबाझी, नबदली।`;
+
 // ─── Internal routers — pick the right call based on what's passed ──────────
 // `ctx` can be: null/undefined (plain prompt), a string (legacy — treated as
 // pdfBase64), or { pdfBase64, materialParts } (chapter-tagged materials).
@@ -365,7 +376,10 @@ async function runPrompt(prompt, ctx) {
   if (!ctx) return generateText(prompt);
   if (typeof ctx === "string") return generateWithPDF(prompt, ctx);
   const { pdfBase64 = null, materialParts = [] } = ctx;
-  if (materialParts.length) return generateWithMaterials(prompt, materialParts, pdfBase64);
+  if (materialParts.length){
+    const p = pdfBase64 ? prompt + MATERIALS_PRIORITY_NOTE : prompt;
+    return generateWithMaterials(p, materialParts, pdfBase64);
+  }
   if (pdfBase64) return generateWithPDF(prompt, pdfBase64);
   return generateText(prompt);
 }
@@ -374,7 +388,10 @@ async function runPromptJSON(prompt, ctx) {
   if (!ctx) return generateTextJSON(prompt);
   if (typeof ctx === "string") return generateWithPDFJSON(prompt, ctx);
   const { pdfBase64 = null, materialParts = [] } = ctx;
-  if (materialParts.length) return generateWithMaterialsJSON(prompt, materialParts, pdfBase64);
+  if (materialParts.length){
+    const p = pdfBase64 ? prompt + MATERIALS_PRIORITY_NOTE : prompt;
+    return generateWithMaterialsJSON(p, materialParts, pdfBase64);
+  }
   if (pdfBase64) return generateWithPDFJSON(prompt, pdfBase64);
   return generateTextJSON(prompt);
 }
