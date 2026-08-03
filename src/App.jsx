@@ -598,6 +598,116 @@ function PrintableSheet({ title, subtitle, chip, chipColor, onClose, children })
 // hides everything tagged `.no-print`, including the tabs). One click on
 // the printer icon now always produces the full plan, regardless of which
 // tab was open.
+// NEW — FIX: the edit button used to force-navigate to the Planner screen
+// no matter where you actually were (open a lesson from the Dashboard,
+// tap edit, get yanked to a completely different screen). This is the
+// same edit form, but mountable as a popup from anywhere — closes right
+// back to wherever you opened it from, the way LessonMode itself already
+// works as an always-available overlay instead of a screen route.
+function LessonEditModal({ lesson, chapters, onAddChapter, classContext, classLabel, onClose, onSaved }) {
+  const [form,setForm]=useState(()=>lessonToForm(lesson));
+  const [saving,setSaving]=useState(false);
+  const [deleting,setDeleting]=useState(false);
+  const [generating,setGenerating]=useState(false);
+  const [error,setError]=useState("");
+  const [showDetails,setShowDetails]=useState(true);
+
+  const autoGenerate=async()=>{
+    const chapter=form.chapter_title||form.title;
+    if(!chapter.trim()){setError("पहिले अध्याय वा पाठको नाम लेख्नुहोस्।");return;}
+    setGenerating(true);setError("");
+    try{
+      const ctx=await getMaterialContext(chapter,classLabel);
+      const result=await gemini.generateLessonPlan(chapter,ctx,classContext);
+      if(result){
+        setForm((prev)=>({...prev,
+          objectives:(result.objectives||[]).join("\n"),
+          vocabulary:(result.vocabulary||[]).join("; "),
+          sequence:(result.sequence||[]).join("\n"),
+          key_questions:(result.key_questions||[]).join("\n"),
+          activities:(result.activities||[]).join("\n"),
+          homework:result.homework||prev.homework,
+          notes:result.notes||prev.notes,
+        }));
+      }else setError("AI ले डाटा बनाउन सकेन।");
+    }catch(e){setError("AI त्रुटि: "+e.message);}
+    setGenerating(false);
+  };
+
+  const save=async()=>{
+    if(!form.title.trim()){setError("पाठको नाम आवश्यक छ।");return;}
+    setSaving(true);setError("");
+    const chapter_id=await resolveChapterId(form.chapter_title,classLabel);
+    const payload={...form,chapter_id,class_label:classLabel,
+      objectives:form.objectives.split("\n").filter(Boolean),
+      vocabulary:form.vocabulary.split(";").map((v)=>v.trim()).filter(Boolean),
+      sequence:form.sequence.split("\n").filter(Boolean),
+      key_questions:form.key_questions.split("\n").filter(Boolean),
+      activities:form.activities.split("\n").filter(Boolean),
+    };
+    const{data,error:err}=await db.upsertLesson(payload);
+    setSaving(false);
+    if(err){setError(err.message);return;}
+    onSaved(data);
+    onClose();
+  };
+
+  const delLesson=async()=>{
+    if(!confirm("यो पाठ मेटाउने?"))return;
+    setDeleting(true);
+    await db.deleteLesson(form.id);
+    setDeleting(false);
+    onSaved(null,true); // true = deleted
+    onClose();
+  };
+
+  return(
+    <div className="no-print" onClick={onClose} style={{position:"fixed",inset:0,zIndex:88,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",padding:16}}>
+      <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,padding:20,maxWidth:560,width:"100%",maxHeight:"88vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div style={{fontWeight:800,fontSize:18,color:INK}}>पाठ सम्पादन गर्नुहोस्</div>
+          <button className="ss-icon-btn" onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><X size={20}/></button>
+        </div>
+        {error&&<ErrorMsg msg={error}/>}
+        <div style={{display:"flex",flexDirection:"column",gap:9}}>
+          <div>
+            <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:700,marginBottom:4}}>पाठको नाम</div>
+            <input placeholder="पाठको नाम *" value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+          </div>
+          <div>
+            <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:700,marginBottom:4}}>अध्याय</div>
+            <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} chapters={chapters||[]} onAddChapter={onAddChapter} placeholder="— अध्याय छान्नुहोस् —"/>
+          </div>
+          <div>
+            <AIButton label={generating?"बनाउँदै...":"AI बाट पुनः बनाउनुहोस्"} onClick={autoGenerate} loading={generating} style={{width:"100%",justifyContent:"center"}}/>
+          </div>
+          <button className="ss-icon-btn" type="button" onClick={()=>setShowDetails((v)=>!v)} style={{display:"flex",alignItems:"center",gap:5,background:"none",border:"none",color:ACCENT,fontWeight:700,fontSize:15,cursor:"pointer",padding:"6px 0",alignSelf:"flex-start"}}>
+            {showDetails?<ChevronDown size={15}/>:<ChevronRight size={15}/>}विवरण {showDetails?"लुकाउनुहोस्":"देखाउनुहोस्"}
+          </button>
+          {showDetails&&(<>
+            {[["homework","गृहकार्य"],["notes","नोट"]].map(([f,p])=>(
+              <input key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+            ))}
+            {[["objectives","उद्देश्यहरू (प्रत्येक नयाँ लाइनमा)"],["vocabulary","शब्दावली — शब्द: अर्थ; अर्को शब्द: अर्थ"],["sequence","पढाउने क्रम (प्रत्येक नयाँ लाइनमा)"],["key_questions","मुख्य प्रश्नहरू (प्रत्येक नयाँ लाइनमा)"],["activities","क्रियाकलापहरू (प्रत्येक नयाँ लाइनमा)"]].map(([f,p])=>(
+              <textarea key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} rows={3} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
+            ))}
+          </>)}
+          <div style={{display:"flex",gap:8}}>
+            {["missing","prep","ready"].map((s)=>{const meta=STATUS_META[s];const active=form.status===s;return(
+              <button key={s} onClick={()=>setForm({...form,status:s})} style={{flex:1,padding:"8px",borderRadius:10,border:`1.5px solid ${active?meta.color:`color-mix(in srgb, ${meta.color} 25%, ${BORDER})`}`,background:active?`color-mix(in srgb, ${meta.color} 14%, ${SURFACE})`:SURFACE,cursor:"pointer",boxShadow:active?`0 4px 10px color-mix(in srgb, ${meta.color} 25%, transparent)`:"none"}}><StatusPill status={s}/></button>
+            );})}
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <button className="ss-btn" onClick={delLesson} disabled={deleting} style={{padding:"11px 14px",borderRadius:10,border:`1px solid ${DANGER_BG}`,background:DANGER_BG,color:DANGER,fontWeight:700,cursor:"pointer"}}><Trash2 size={16}/></button>
+            <button onClick={onClose} className="ss-btn" style={{flex:1,padding:"11px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer",boxShadow:SHADOW.sm}}>रद्द</button>
+            <button className="ss-btn" onClick={save} disabled={saving} style={{flex:2,padding:"11px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}>{saving?"...":"परिवर्तन सुरक्षित गर्नुहोस्"}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, teacherName }) {
   const [tab,setTab]=useState("sequence");
   // NEW — vocabulary entries are stored as "शब्द: अर्थ" (word: meaning). This
@@ -662,6 +772,28 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, teacherNam
   const toggleQuestion=(i)=>{
     if(qOpen.has(i)){setQOpen((prev)=>{const n=new Set(prev);n.delete(i);return n;});return;}
     fetchAnswer(i);
+  };
+
+  // NEW — an AI-generated answer used to be view-only. Now it can be
+  // edited (in case the AI got something slightly wrong) or cleared
+  // entirely (to regenerate fresh, or just leave it blank) — same as any
+  // other content in this app should work once it exists.
+  const [qEditingIdx,setQEditingIdx]=useState(null);
+  const [qEditText,setQEditText]=useState("");
+  const persistQuestions=(next)=>{
+    setQState(next);
+    db.upsertLesson({id:lesson.id,key_questions:next.map((it)=>it.a?`${it.q}||${it.a}`:it.q)});
+  };
+  const startEditAnswer=(i,e)=>{e.stopPropagation();setQEditingIdx(i);setQEditText(qState[i].a||"");};
+  const saveEditedAnswer=(i,e)=>{
+    e.stopPropagation();
+    persistQuestions(qState.map((it,idx)=>idx===i?{...it,a:qEditText.trim()||null}:it));
+    setQEditingIdx(null);
+  };
+  const deleteAnswer=(i,e)=>{
+    e.stopPropagation();
+    persistQuestions(qState.map((it,idx)=>idx===i?{...it,a:null}:it));
+    setQEditingIdx(null);
   };
 
   const activities=lesson.activities||[];
@@ -761,7 +893,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, teacherNam
         <div className="lesson-content">
         {tab==="sequence"&&(<div><SectionLabel icon={ClipboardList}>पढाउने क्रम</SectionLabel>{sequence.length===0?<div style={{color:INK_SOFT}}>पढाउने क्रम थपिएको छैन।</div>:(<ol style={{margin:0,paddingLeft:0,listStyle:"none",display:"flex",flexDirection:"column",gap:8}}>{sequence.map((s,i)=>(<li key={i} style={{display:"flex",gap:12,padding:"12px 13px",background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12}}><div style={{width:26,height:26,borderRadius:"50%",background:`linear-gradient(160deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:SHADOW.accent}}>{i+1}</div><div style={{fontSize:17,color:INK,lineHeight:1.5,paddingTop:2}}>{s}</div></li>))}</ol>)}{lesson.notes&&<div style={{marginTop:14,background:WARN_BG,borderRadius:10,padding:12}}><div style={{fontSize:15,fontWeight:700,color:WARN,marginBottom:3}}>नोट</div><div style={{fontSize:16.5,color:INK}}>{lesson.notes}</div></div>}</div>)}
         {tab==="questions"&&<div><SectionLabel icon={MessageSquare} color={VIOLET}>कक्षामा सोध्नुहोस्</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:8}}>{qState.length===0?<div style={{color:INK_SOFT}}>प्रश्नहरू थपिएका छैनन्।</div>:qState.map((item,i)=>{
-          const isOpen=qOpen.has(i);const isLoading=qLoading.has(i);const color=PALETTE[i%PALETTE.length];
+          const isOpen=qOpen.has(i);const isLoading=qLoading.has(i);const isEditingAnswer=qEditingIdx===i;const color=PALETTE[i%PALETTE.length];
           return(
             <Card key={i} accentColor={color} onClick={()=>toggleQuestion(i)} style={{cursor:"pointer"}}>
               <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
@@ -774,7 +906,25 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, teacherNam
                     <span style={{display:"flex",alignItems:"center",gap:7}}><Loader size={14} style={{animation:"spin 1s linear infinite"}}/>उत्तर तयार गर्दै...</span>
                   ):qErrors[i]?(
                     <span style={{color:DANGER}}>{qErrors[i]} <button className="ss-btn" onClick={(e)=>{e.stopPropagation();fetchAnswer(i,true);}} style={{color:ACCENT,fontWeight:700,background:"none",border:"none",cursor:"pointer",padding:0}}>फेरि प्रयास गर्नुहोस्</button></span>
-                  ):item.a}
+                  ):isEditingAnswer?(
+                    <div onClick={(e)=>e.stopPropagation()}>
+                      <textarea autoFocus value={qEditText} onChange={(e)=>setQEditText(e.target.value)} rows={3} className="ss-field" style={{width:"100%",borderRadius:10,padding:"9px 11px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,resize:"vertical",marginBottom:8}}/>
+                      <div style={{display:"flex",gap:7}}>
+                        <button className="ss-btn" onClick={()=>setQEditingIdx(null)} style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,fontSize:14,cursor:"pointer"}}>रद्द</button>
+                        <button className="ss-btn" onClick={(e)=>saveEditedAnswer(i,e)} style={{padding:"6px 12px",borderRadius:8,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer"}}>सुरक्षित गर्नुहोस्</button>
+                      </div>
+                    </div>
+                  ):item.a?(
+                    <div>
+                      <div style={{marginBottom:8}}>{item.a}</div>
+                      <div style={{display:"flex",gap:12}}>
+                        <button className="ss-btn" onClick={(e)=>startEditAnswer(i,e)} style={{display:"flex",alignItems:"center",gap:4,color:ACCENT,fontWeight:700,fontSize:14,background:"none",border:"none",cursor:"pointer",padding:0}}><PenSquare size={13}/>सम्पादन</button>
+                        <button className="ss-btn" onClick={(e)=>deleteAnswer(i,e)} style={{display:"flex",alignItems:"center",gap:4,color:DANGER,fontWeight:700,fontSize:14,background:"none",border:"none",cursor:"pointer",padding:0}}><Trash2 size={13}/>हटाउनुहोस्</button>
+                      </div>
+                    </div>
+                  ):(
+                    <button className="ss-btn" onClick={(e)=>{e.stopPropagation();fetchAnswer(i,true);}} style={{display:"flex",alignItems:"center",gap:5,color:ACCENT,fontWeight:700,fontSize:14.5,background:"none",border:"none",cursor:"pointer",padding:0}}><Sparkles size={13}/>उत्तर तयार गर्नुहोस्</button>
+                  )}
                 </div>
               )}
             </Card>
@@ -2559,38 +2709,70 @@ const resourceTemplateMeta=(id)=>RESOURCE_TEMPLATES.find((t)=>t.id===id)||{title
 // window empty. Same fix as AI Tools already uses below: one screen, an
 // internal tab bar, real content filling the space either way instead of
 // five mostly-empty pages.
-function MoreHub({
-  initialTab,onInitialTabConsumed,
-  section,homework,hwLoading,onRefreshHomework,
-  lessons,classLabel,onOpenLesson,onGoMaterials,onGoAITools,
-}) {
-  const [tab,setTab]=useState("homework");
-  useEffect(()=>{
-    if(!initialTab)return;
-    setTab(initialTab);
-    onInitialTabConsumed?.();
-  },[initialTab,onInitialTabConsumed]);
-  // NEW — Settings used to be a tab here too, but a teacher reaching for
-  // Settings almost always wants to pop in, change one thing, and pop back
-  // out — not lose their place in whatever screen they were on. It's now a
-  // popup from the header gear icon instead (see Settings modal in App()).
-  const TABS=[
-    {id:"homework",label:"गृहकार्य",icon:ListChecks,color:BLUE,bg:BLUE_LIGHT},
-    {id:"journal",label:"डायरी",icon:Heart,color:ROSE,bg:ROSE_LIGHT},
-    {id:"search",label:"खोज",icon:Search,color:TEAL,bg:TEAL_LIGHT},
-    {id:"calendar",label:"पात्रो",icon:CalendarDays,color:MARIGOLD_DARK,bg:WARN_BG},
-  ];
+// NEW — compact preview for a screen that's genuinely too small to need a
+// whole page (Homework, Diary). Shows a one-line status and a single
+// button that opens the real thing as a popup — used instead of forcing
+// every feature into its own full route regardless of how much content
+// it actually has.
+function SummaryPanel({ icon:Icon, color, title, subtitle, onOpen }) {
   return(
-    <div>
-      <div className="no-print" style={{display:"flex",overflowX:"auto",background:SURFACE,borderBottom:`1px solid ${BORDER}`,position:"sticky",top:0,zIndex:8}}>
-        {TABS.map((t)=>{const Icon=t.icon;const active=tab===t.id;return(
-          <button key={t.id} onClick={()=>setTab(t.id)} style={{display:"flex",alignItems:"center",gap:7,padding:"13px 18px",border:"none",background:active?t.bg:"none",borderBottom:active?`3px solid ${t.color}`:"3px solid transparent",color:active?t.color:INK_SOFT,fontWeight:700,fontSize:16,cursor:"pointer",whiteSpace:"nowrap",transition:"background .15s"}}><Icon size={16}/>{t.label}</button>
-        );})}
+    <Card onClick={onOpen} accentColor={color} style={{cursor:"pointer",display:"flex",alignItems:"center",gap:12,paddingTop:22,position:"relative",overflow:"visible"}}>
+      <PinBadge color={color}/>
+      <div style={{width:42,height:42,borderRadius:12,background:`linear-gradient(160deg, ${color} 0%, color-mix(in srgb, ${color} 70%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 10px color-mix(in srgb, ${color} 40%, transparent)`}}><Icon size={20} color="#fff"/></div>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:17,fontWeight:700,color:INK}}>{title}</div>
+        <div style={{fontSize:14.5,color:INK_SOFT,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{subtitle}</div>
       </div>
-      {tab==="homework"&&<HomeworkManager section={section} loading={hwLoading} homework={homework} onRefresh={onRefreshHomework}/>}
-      {tab==="journal"&&<TeachingJournal lessons={lessons}/>}
-      {tab==="search"&&<DocumentSearch lessons={lessons} homework={homework} classLabel={classLabel} onOpenLesson={onOpenLesson} onGoMaterials={onGoMaterials} onGoAITools={onGoAITools} onGoHomework={()=>setTab("homework")}/>}
-      {tab==="calendar"&&<CalendarView classLabel={classLabel}/>}
+      <ChevronRight size={18} color={INK_SOFT} style={{flexShrink:0}}/>
+    </Card>
+  );
+}
+
+// NEW — generic popup wrapper so any full manager (Homework, Diary) can
+// open on top of wherever the teacher already is, same pattern as the
+// Settings popup, instead of being its own dedicated screen.
+function ManagerPopup({ title, onClose, children }) {
+  return(
+    <div className="no-print" onClick={onClose} style={{position:"fixed",inset:0,zIndex:88,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",padding:16}}>
+      <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:18,width:"100%",maxWidth:820,maxHeight:"88vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative"}}>
+        <div style={{position:"sticky",top:0,zIndex:2,display:"flex",justifyContent:"flex-end",padding:"14px 14px 0",background:PAPER}}>
+          <button className="ss-icon-btn" onClick={onClose} style={{background:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,cursor:"pointer",color:INK_SOFT}}><X size={19}/></button>
+        </div>
+        <div style={{padding:"0 4px 10px"}}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function MoreHub({
+  initialPanel,onInitialPanelConsumed,
+  section,homework,hwLoading,onRefreshHomework,
+  lessons,classLabel,
+}) {
+  const [openPanel,setOpenPanel]=useState(null); // null | "homework" | "journal"
+  useEffect(()=>{
+    if(!initialPanel)return;
+    setOpenPanel(initialPanel);
+    onInitialPanelConsumed?.();
+  },[initialPanel,onInitialPanelConsumed]);
+  // NEW — a lightweight count so the Diary panel can show something useful
+  // (like Homework already can via the props App() already passes down)
+  // without opening the full journal just to see if there's anything in it.
+  const [journalCount,setJournalCount]=useState(null);
+  useEffect(()=>{db.getJournalEntries().then(({data})=>setJournalCount((data||[]).length));},[openPanel]);
+  const pendingHomework=homework.filter((h)=>h.checked_count<h.total_students).length;
+
+  return(
+    <div className="ss-page" style={{padding:"20px 20px 130px",margin:"0 auto",width:"100%"}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:12,marginBottom:18}}>
+        <SummaryPanel icon={ListChecks} color={BLUE} title="गृहकार्य" onOpen={()=>setOpenPanel("homework")}
+          subtitle={hwLoading?"लोड हुँदै...":homework.length===0?"कुनै गृहकार्य छैन":`${homework.length} जम्मा · ${pendingHomework} जाँच बाँकी`}/>
+        <SummaryPanel icon={Heart} color={ROSE} title="डायरी" onOpen={()=>setOpenPanel("journal")}
+          subtitle={journalCount===null?"लोड हुँदै...":journalCount===0?"कुनै प्रविष्टि छैन":`${journalCount} प्रविष्टि`}/>
+      </div>
+      <CalendarView classLabel={classLabel}/>
+      {openPanel==="homework"&&<ManagerPopup title="गृहकार्य" onClose={()=>setOpenPanel(null)}><HomeworkManager section={section} loading={hwLoading} homework={homework} onRefresh={onRefreshHomework}/></ManagerPopup>}
+      {openPanel==="journal"&&<ManagerPopup title="डायरी" onClose={()=>setOpenPanel(null)}><TeachingJournal lessons={lessons}/></ManagerPopup>}
     </div>
   );
 }
@@ -2992,7 +3174,7 @@ function CalendarView({ classLabel }) {
             const dayItems=itemsByDate[dateStr]||[];
             const dots=[...new Set(dayItems.map((i)=>i.category))].slice(0,3);
             return(
-              <button key={day} className="ss-btn" onClick={()=>setSelected(dateStr)} style={{aspectRatio:1,borderRadius:8,border:"none",background:isToday?ACCENT:isSel?ACCENT_LIGHT:"transparent",color:isToday?"#fff":isSel?ACCENT:INK,fontWeight:isToday||isSel?700:400,fontSize:16.5,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,padding:0}}>
+              <button key={day} className="ss-btn" onClick={()=>setSelected(dateStr)} style={{aspectRatio:1,borderRadius:8,border:isToday||isSel?"none":`1px solid color-mix(in srgb, ${BORDER} 60%, transparent)`,background:isToday?ACCENT:isSel?ACCENT_LIGHT:"transparent",color:isToday?"#fff":isSel?ACCENT:INK,fontWeight:isToday||isSel?700:600,fontSize:16.5,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,padding:0}}>
                 <span>{day}</span>
                 {dots.length>0&&(
                   <span style={{display:"flex",gap:2,height:5}}>
@@ -3394,6 +3576,12 @@ export default function App() {
   const [screen,setScreen]=useState("dashboard");
   const [activeLesson,setActiveLesson]=useState(null);
   const [activeLessonAutoPrint,setActiveLessonAutoPrint]=useState(false);
+  // FIX — this used to close whatever the teacher was looking at and
+  // force-navigate to the Planner screen just to edit one lesson. Now it
+  // opens the edit form as a popup on top of wherever they already were
+  // (see LessonEditModal) and closes right back to it.
+  const [editingLessonPopup,setEditingLessonPopup]=useState(null);
+  const editLessonFromViewer=useCallback((l)=>{setEditingLessonPopup(l);},[]);
   // NEW — lets a lesson be opened for editing from OUTSIDE the Planner
   // screen (e.g. the "सम्पादन गर्नुहोस्" button inside the full-screen lesson
   // viewer): we switch to the Planner tab and hand it this id, and Planner
@@ -3415,10 +3603,10 @@ export default function App() {
   const [moreTab,setMoreTab]=useState(null);
   const goMore=useCallback((tab)=>{setMoreTab(typeof tab==="string"?tab:null);setScreen("more");},[]);
   const [settingsOpen,setSettingsOpen]=useState(false);
+  const [searchOpen,setSearchOpen]=useState(false);
   // NEW — one-click print from the Planner list: open the lesson AND print
   // it immediately, no second tap required.
   const openLesson=useCallback((l,opts)=>{setActiveLesson(l);setActiveLessonAutoPrint(!!opts?.autoPrint);},[]);
-  const editLessonFromViewer=useCallback((l)=>{setActiveLesson(null);setEditLessonId(l.id);setScreen("planner");},[]);
   const [showMore,setShowMore]=useState(false);
   const [sections,setSections]=useState([]);
   const [currentSection,setCurrentSection]=useState(null);
@@ -3497,7 +3685,7 @@ export default function App() {
     style.id="ss-theme-vars";
     style.textContent=`
       [data-theme="light"]{--bg:#F7F4EB;--bg-grad:#ECE4CD;--surface:#FFFFFF;--surface-2:#FBF8EF;--ink:#141B2E;--ink-soft:#5B6478;--border:#E1DCC8;--accent:#20388F;--accent-dark:#152867;--accent-light:#E4E9F8;--marigold:#C98A1E;--marigold-dark:#9C6B12;--teal:#1B8C82;--teal-light:#E1F2F0;--violet:#7259B5;--violet-light:#EFE9FA;--blue:#3167B0;--blue-light:#E7EEFA;--rose:#B85C78;--rose-light:#F7E7ED;--danger:#B3261E;--danger-bg:#FBEAE6;--warn:#9C6B12;--warn-bg:#FBF0DA;--shadow-rgb:15,19,36;--card-sheen:rgba(255,255,255,0.8);}
-      [data-theme="dark"]{--bg:#0B0F1A;--bg-grad:#121A2E;--surface:#161F33;--surface-2:#1E2A44;--ink:#EEF1F8;--ink-soft:#9AA3BD;--border:#2A3552;--accent:#4C6FE0;--accent-dark:#3050C4;--accent-light:#1B2647;--marigold:#F5A93F;--marigold-dark:#D68A1E;--teal:#3FB8C9;--teal-light:#122D36;--violet:#A98CE8;--violet-light:#241B3E;--blue:#5C93EA;--blue-light:#152540;--rose:#E88CA0;--rose-light:#3A1F2A;--danger:#F0685A;--danger-bg:#3A1E1A;--warn:#E8A23A;--warn-bg:#3A2A12;--shadow-rgb:2,4,12;--card-sheen:rgba(255,255,255,0.07);}
+      [data-theme="dark"]{--bg:#151C2F;--bg-grad:#1B2440;--surface:#1D2740;--surface-2:#26314F;--ink:#D9DEEC;--ink-soft:#A6AECB;--border:#37456B;--accent:#4C6FE0;--accent-dark:#3050C4;--accent-light:#1B2647;--marigold:#F5A93F;--marigold-dark:#D68A1E;--teal:#3FB8C9;--teal-light:#122D36;--violet:#A98CE8;--violet-light:#241B3E;--blue:#5C93EA;--blue-light:#152540;--rose:#E88CA0;--rose-light:#3A1F2A;--danger:#F0685A;--danger-bg:#3A1E1A;--warn:#E8A23A;--warn-bg:#3A2A12;--shadow-rgb:2,4,12;--card-sheen:rgba(255,255,255,0.07);}
       html,body{background:radial-gradient(1100px 620px at 12% -8%, var(--bg-grad), var(--bg) 55%);}
     `;
     document.head.appendChild(style);
@@ -3590,8 +3778,8 @@ export default function App() {
           --card-sheen:rgba(255,255,255,0.8);
         }
         [data-theme="dark"]{
-          --bg:#0B0F1A; --bg-grad:#121A2E; --surface:#161F33; --surface-2:#1E2A44;
-          --ink:#EEF1F8; --ink-soft:#9AA3BD; --border:#2A3552;
+          --bg:#151C2F; --bg-grad:#1B2440; --surface:#1D2740; --surface-2:#26314F;
+          --ink:#D9DEEC; --ink-soft:#A6AECB; --border:#37456B;
           --accent:#4C6FE0; --accent-dark:#3050C4; --accent-light:#1B2647;
           --marigold:#F5A93F; --marigold-dark:#D68A1E;
           --teal:#3FB8C9; --teal-light:#122D36;
@@ -3727,14 +3915,24 @@ export default function App() {
         .desktop-sidebar{display:none;}
         .mobile-bottom-nav{display:flex;}
         .main-content{margin-left:0;padding-bottom:76px;}
+        .ss-topbar{padding:13px 18px;}
         @media(min-width:860px){
           .desktop-sidebar{display:flex;}
           .mobile-bottom-nav{display:none !important;}
           .main-content{margin-left:232px;padding-bottom:24px;}
+          /* FIX — this bar was rendering full-width in normal document
+             flow while the sidebar sits fixed on top of its left 232px,
+             so on desktop its content started underneath the sidebar —
+             that's the "empty patch" under the topbar. Offsetting it to
+             match .main-content fixes both the overlap and the dead space. */
+          .ss-section-bar{margin-left:232px;}
+          /* FIX — same vertical padding was used at every width; on a
+             wide desktop window that reads as needless extra height. */
+          .ss-topbar{padding:9px 22px;}
         }
       `}</style>
 
-      <div className="no-print" style={{background:`linear-gradient(120deg, color-mix(in srgb, color-mix(in srgb, ${ACCENT} 8%, ${SURFACE}) 88%, transparent) 0%, color-mix(in srgb, color-mix(in srgb, ${TEAL} 7%, ${SURFACE}) 88%, transparent) 100%)`,backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",borderBottom:`1px solid ${BORDER}`,padding:"13px 18px",display:"flex",alignItems:"center",gap:12,position:"sticky",top:0,zIndex:10,boxShadow:"0 4px 16px rgba(var(--shadow-rgb),0.09)"}}>
+      <div className="no-print ss-topbar" style={{background:`linear-gradient(120deg, color-mix(in srgb, color-mix(in srgb, ${ACCENT} 8%, ${SURFACE}) 88%, transparent) 0%, color-mix(in srgb, color-mix(in srgb, ${TEAL} 7%, ${SURFACE}) 88%, transparent) 100%)`,backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",borderBottom:`1px solid ${BORDER}`,display:"flex",alignItems:"center",gap:12,position:"sticky",top:0,zIndex:10,boxShadow:"0 4px 16px rgba(var(--shadow-rgb),0.09)"}}>
         <img src="/icons/icon-64.png" alt="शिक्षा साथी" width={40} height={40} style={{borderRadius:12,boxShadow:SHADOW.accent,flexShrink:0}}/>
         <div style={{minWidth:0,overflow:"hidden"}}><div style={{fontWeight:800,fontSize:18.5,letterSpacing:"-0.015em",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",background:`linear-gradient(100deg, ${ACCENT} 0%, ${TEAL} 100%)`,WebkitBackgroundClip:"text",backgroundClip:"text",color:"transparent"}}>शिक्षा साथी</div><div style={{fontSize:14.5,color:`color-mix(in srgb, ${ACCENT} 35%, ${INK_SOFT})`,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{classLabel} · {subjectLabel}</div></div>
         <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
@@ -3742,34 +3940,40 @@ export default function App() {
             <RefreshCw size={13} style={{animation:lessonsLoading?"spin 1s linear infinite":"none",flexShrink:0}}/>
             <span className="ss-sync-label">{lessonsLoading?"सिंक...":synced?"सिंक भयो ✓":"सिंक भएको"}</span>
           </div>
-          <button onClick={()=>goMore("search")} title="खोज" className="ss-btn" style={{background:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:INK_SOFT,flexShrink:0}}><Search size={16}/></button>
-          <button onClick={toggleTheme} title={theme==="light"?"गाढा मोडमा जानुहोस्":"उज्यालो मोडमा जानुहोस्"} className="ss-btn" style={{background:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:INK,flexShrink:0}}>
-            {theme==="light"?<Moon size={16}/>:<Sun size={16}/>}
+          <button onClick={()=>setSearchOpen(true)} title="खोज" className="ss-btn ss-topbar-icon" style={{background:searchOpen?`linear-gradient(160deg, ${TEAL} 0%, color-mix(in srgb, ${TEAL} 70%, black) 100%)`:SURFACE_2,border:searchOpen?"none":`1px solid ${BORDER}`,color:searchOpen?"#fff":INK_SOFT}}><Search size={18}/></button>
+          <button onClick={toggleTheme} title={theme==="light"?"गाढा मोडमा जानुहोस्":"उज्यालो मोडमा जानुहोस्"} className="ss-btn ss-topbar-icon" style={{background:`linear-gradient(160deg, ${MARIGOLD} 0%, ${MARIGOLD_DARK} 100%)`,border:"none",color:"#fff",boxShadow:`0 3px 10px color-mix(in srgb, ${MARIGOLD} 40%, transparent)`}}>
+            {theme==="light"?<Moon size={17}/>:<Sun size={17}/>}
           </button>
           {/* FIX — this used to navigate to a whole separate screen (losing
               your place wherever you were) just to change one setting. Now
               it pops open on top of whatever you're doing and closes back
               to exactly where you were. */}
-          <button onClick={()=>setSettingsOpen(true)} title="सेटिङ" className="ss-btn" style={{background:settingsOpen?ACCENT_LIGHT:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:settingsOpen?ACCENT:INK_SOFT,flexShrink:0}}><SettingsIcon size={17}/></button>
+          <button onClick={()=>setSettingsOpen(true)} title="सेटिङ" className="ss-btn ss-topbar-icon" style={{background:settingsOpen?`linear-gradient(160deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`:SURFACE_2,border:settingsOpen?"none":`1px solid ${BORDER}`,color:settingsOpen?"#fff":INK_SOFT,boxShadow:settingsOpen?SHADOW.accent:"none"}}><SettingsIcon size={19}/></button>
         </div>
       </div>
 
+      <style>{`.ss-topbar-icon{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:transform .15s ease, box-shadow .15s ease;}
+      .ss-topbar-icon:hover{transform:translateY(-1px);}
+      @media(min-width:860px){.ss-topbar-icon{width:42px;height:42px;border-radius:12px;}}`}</style>
+
       <style>{`@media (max-width:420px){.ss-sync-label{display:none;}}`}</style>
 
-      <div className="no-print"><SectionSelector sections={sections} current={currentSection} onChange={setCurrentSection} onAdd={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}}/></div>
+      <div className="no-print ss-section-bar"><SectionSelector sections={sections} current={currentSection} onChange={setCurrentSection} onAdd={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}}/></div>
 
       <div className="desktop-sidebar no-print" style={{position:"fixed",top:0,left:0,bottom:0,width:232,background:`linear-gradient(170deg, color-mix(in srgb, color-mix(in srgb, ${ACCENT} 6%, ${SURFACE}) 90%, transparent) 0%, color-mix(in srgb, color-mix(in srgb, ${TEAL} 5%, ${SURFACE}) 90%, transparent) 100%)`,backdropFilter:"blur(14px)",WebkitBackdropFilter:"blur(14px)",borderRight:`1px solid ${BORDER}`,flexDirection:"column",paddingTop:118,paddingLeft:12,paddingRight:12,zIndex:5,overflowY:"auto",gap:2}}>
         <div style={{fontSize:12.5,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:INK_SOFT,padding:"0 14px",marginBottom:6}}>मुख्य</div>
-        {nav.map((n)=>{const Icon=n.icon;const active=screen===n.id;return(
-          <button key={n.id} onClick={()=>setScreen(n.id)} className={`ss-btn${active?"":" ss-nav-item"}`} style={{display:"flex",alignItems:"center",gap:11,padding:"11px 14px",border:"none",background:active?`linear-gradient(135deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`:"transparent",color:active?"#fff":INK_SOFT,fontWeight:active?700:600,fontSize:16,cursor:"pointer",textAlign:"left",width:"100%",borderRadius:12,boxShadow:active?SHADOW.accent:"none"}}>
-            <Icon size={18} color={active?"#fff":n.color}/>{n.label}
+        {nav.map((n,i)=>{const Icon=n.icon;const active=screen===n.id;return(
+          <button key={n.id} onClick={()=>setScreen(n.id)} className={`ss-btn${active?"":" ss-nav-item"}`} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",border:"none",background:active?`linear-gradient(135deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`:(i%2===0?"transparent":`color-mix(in srgb, ${n.color} 5%, transparent)`),color:active?"#fff":INK,fontWeight:active?700:600,fontSize:15.5,letterSpacing:"0.01em",cursor:"pointer",textAlign:"left",width:"100%",borderRadius:12,boxShadow:active?SHADOW.accent:"none"}}>
+            <div style={{width:28,height:28,borderRadius:8,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",background:active?"rgba(255,255,255,0.2)":`color-mix(in srgb, ${n.color} 16%, transparent)`}}><Icon size={16} color={active?"#fff":n.color}/></div>
+            {n.label}
           </button>
         );})}
         <div style={{height:1,background:BORDER,margin:"10px 4px"}}/>
         <div style={{fontSize:12.5,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:INK_SOFT,padding:"0 14px",marginBottom:6}}>थप</div>
-        {navMore.map((n)=>{const Icon=n.icon;const active=screen===n.id;return(
-          <button key={n.id} onClick={()=>setScreen(n.id)} className={`ss-btn${active?"":" ss-nav-item"}`} style={{display:"flex",alignItems:"center",gap:11,padding:"11px 14px",border:"none",background:active?`linear-gradient(135deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`:"transparent",color:active?"#fff":INK_SOFT,fontWeight:active?700:600,fontSize:16,cursor:"pointer",textAlign:"left",width:"100%",borderRadius:12,boxShadow:active?SHADOW.accent:"none"}}>
-            <Icon size={18} color={active?"#fff":n.color}/>{n.label}
+        {navMore.map((n,i)=>{const Icon=n.icon;const active=screen===n.id;return(
+          <button key={n.id} onClick={()=>setScreen(n.id)} className={`ss-btn${active?"":" ss-nav-item"}`} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",border:"none",background:active?`linear-gradient(135deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`:(i%2===0?"transparent":`color-mix(in srgb, ${n.color} 5%, transparent)`),color:active?"#fff":INK,fontWeight:active?700:600,fontSize:15.5,letterSpacing:"0.01em",cursor:"pointer",textAlign:"left",width:"100%",borderRadius:12,boxShadow:active?SHADOW.accent:"none"}}>
+            <div style={{width:28,height:28,borderRadius:8,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",background:active?"rgba(255,255,255,0.2)":`color-mix(in srgb, ${n.color} 16%, transparent)`}}><Icon size={16} color={active?"#fff":n.color}/></div>
+            {n.label}
           </button>
         );})}
       </div>
@@ -3779,12 +3983,32 @@ export default function App() {
         {screen==="planner"&&<Planner onOpenLesson={openLesson} section={currentSection} lessons={lessons} loading={lessonsLoading} onRefresh={loadLessons} chapters={chapters} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel} editLessonId={editLessonId} onEditConsumed={()=>setEditLessonId(null)} prefillChapter={prefillChapter} onPrefillConsumed={()=>setPrefillChapter(null)}/>}
         {screen==="materials"&&<Materials chapters={chapters} onAddChapter={addChapter} onChaptersChanged={loadChapters} classLabel={classLabel}/>}
         {screen==="ai"&&<AIAssistant lessons={lessons} classContext={classContext} classLabel={classLabel}/>}
-        {screen==="more"&&<MoreHub initialTab={moreTab} onInitialTabConsumed={()=>setMoreTab(null)}
+        {screen==="more"&&<MoreHub initialPanel={moreTab} onInitialPanelConsumed={()=>setMoreTab(null)}
           section={currentSection} homework={homework} hwLoading={hwLoading} onRefreshHomework={loadHomework}
-          lessons={lessons} classLabel={classLabel} onOpenLesson={openLesson} onGoMaterials={()=>setScreen("materials")} onGoAITools={goAITools}
+          lessons={lessons} classLabel={classLabel}
         />}
         {screen==="aitools"&&<AITools lessons={lessons} chapters={chapters} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel} initialTab={aiToolsTab} onInitialTabConsumed={()=>setAiToolsTab(null)}/>}
       </div>
+
+      {/* NEW — search used to navigate to a whole separate screen just to
+          type a query. It's a popup now, opens on top of wherever you
+          are, and its result actions (open a lesson, jump to Materials/AI
+          tools) close the popup first so you land on a clean screen. */}
+      {searchOpen&&(
+        <div className="no-print" onClick={()=>setSearchOpen(false)} style={{position:"fixed",inset:0,zIndex:89,display:"flex",alignItems:"flex-start",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",padding:"8vh 16px 16px"}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:18,width:"100%",maxWidth:640,maxHeight:"80vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative"}}>
+            <div style={{position:"sticky",top:0,zIndex:2,display:"flex",justifyContent:"flex-end",padding:"10px 10px 0",background:PAPER}}>
+              <button className="ss-icon-btn" onClick={()=>setSearchOpen(false)} style={{background:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,cursor:"pointer",color:INK_SOFT}}><X size={19}/></button>
+            </div>
+            <DocumentSearch lessons={lessons} homework={homework} classLabel={classLabel}
+              onOpenLesson={(l)=>{setSearchOpen(false);openLesson(l);}}
+              onGoMaterials={()=>{setSearchOpen(false);setScreen("materials");}}
+              onGoAITools={(tab)=>{setSearchOpen(false);goAITools(tab);}}
+              onGoHomework={()=>{setSearchOpen(false);goMore("homework");}}
+            />
+          </div>
+        </div>
+      )}
 
       {/* NEW — Settings as a popup instead of a full screen: opens on top
           of whatever screen you're already on, closes right back to it. */}
@@ -3845,6 +4069,14 @@ export default function App() {
       )}
 
       {activeLesson&&<LessonMode lesson={activeLesson} onClose={()=>{setActiveLesson(null);setActiveLessonAutoPrint(false);}} onEdit={editLessonFromViewer} autoPrint={activeLessonAutoPrint} classLabel={classLabel} teacherName={teacherName}/>}
+      {editingLessonPopup&&<LessonEditModal lesson={editingLessonPopup} chapters={chapters} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel}
+        onClose={()=>setEditingLessonPopup(null)}
+        onSaved={(updated,deleted)=>{
+          loadLessons();
+          if(deleted&&activeLesson?.id===editingLessonPopup.id){setActiveLesson(null);}
+          else if(updated&&activeLesson?.id===updated.id){setActiveLesson(updated);}
+        }}
+      />}
     </div>
   );
 }
