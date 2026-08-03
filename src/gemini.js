@@ -1,7 +1,13 @@
 // gemini.js — Google Gemini AI integration (free tier)
 import { supabase } from "./lib/supabase";
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+// FIX — switched from gemini-2.5-flash, which hit its free-tier rate limit
+// (confirmed in Google AI Studio's Rate Limit page), to gemini-3-flash-preview,
+// a current-generation model that's still free-tier. If this ever comes back
+// with a "model not found" error, open Google AI Studio → Rate Limit → find
+// whichever Flash-tier model shows a green checkmark (free) and swap its
+// exact name in here.
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GEMINI_API_KEY}`;
 
 // ─── IndexedDB storage for large PDF files (no size limit issues) ─────────────
 const DB_NAME = "sikshya_sathi";
