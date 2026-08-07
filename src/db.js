@@ -121,6 +121,32 @@ export const getOrCreateChapterId = async (title, classLabel = null) => {
   return data.id;
 };
 
+// NEW — the textbook-token-savings cache: once a chapter's plain text has
+// been pulled out of the textbook PDF, it's kept here (keyed by chapter_id,
+// so no title-matching fuzziness) and reused on every later AI call for
+// that chapter instead of re-attaching the whole book.
+export const getTextbookChapterText = async (chapterId) => {
+  if (!chapterId) return null;
+  const { data } = await supabase.from("textbook_chapter_text").select("extracted_text").eq("chapter_id", chapterId).maybeSingle();
+  return data?.extracted_text || null;
+};
+export const saveTextbookChapterText = async (chapterId, text) => {
+  if (!chapterId || !text) return;
+  const { data: { user } } = await supabase.auth.getUser();
+  await supabase.from("textbook_chapter_text").upsert({ chapter_id: chapterId, teacher_id: user.id, extracted_text: text }, { onConflict: "chapter_id" });
+};
+// Wipes the cache — call this whenever a class's textbook PDF is replaced
+// or removed, since cached text extracted from the OLD book would silently
+// keep being served as if it were still accurate otherwise.
+export const clearTextbookChapterTextCache = async (classLabel = null) => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+  if (!classLabel) { await supabase.from("textbook_chapter_text").delete().eq("teacher_id", user.id); return; }
+  const { data: chaps } = await supabase.from("chapters").select("id").eq("class_label", classLabel).eq("teacher_id", user.id);
+  const ids = (chaps || []).map((c) => c.id);
+  if (ids.length) await supabase.from("textbook_chapter_text").delete().in("chapter_id", ids);
+};
+
 // ─── LESSONS ─────────────────────────────────────────────────────────────────
 // NEW — scoped to class_label, same reasoning as chapters/materials: a
 // Class 5 lesson plan shouldn't show up while a teacher is looking at

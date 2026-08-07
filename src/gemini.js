@@ -237,20 +237,72 @@ export const blobToBase64 = (blob) =>
 // feature — this makes Gemini itself guarantee valid, parseable JSON with no
 // markdown fences, no stray sentences, and no unescaped raw newlines inside
 // strings. Far more reliable than asking nicely in the prompt and hoping.
+// FIX — reliability pass. Two concrete problems reported: the app going
+// "slow" and AI features being "unreliable". Root causes here, both silent
+// before this fix:
+//  1. No timeout — a stalled connection to Gemini just hung forever, with
+//     the UI stuck on its loading spinner and no way to know if it was
+//     ever coming back. Every call now gives up after 25s with a clear
+//     Nepali message instead of hanging indefinitely.
+//  2. No retry — the comment above GEMINI_URL already documents this app
+//     hitting the free-tier rate limit before. A 429 (rate limited) or 503
+//     (temporarily overloaded) response is often transient and succeeds a
+//     few seconds later, but the old code surfaced it as a hard failure on
+//     the first try every time. It now retries those two specific cases
+//     (up to 2 extra attempts, with backoff) before giving up — anything
+//     else (bad API key, blocked content, etc.) still fails immediately
+//     since retrying wouldn't help.
+const RETRYABLE_STATUS = new Set([429, 503]);
+const CALL_TIMEOUT_MS = 25000;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function fetchGeminiOnce(body) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), CALL_TIMEOUT_MS);
+  try {
+    return await fetch(GEMINI_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (e) {
+    if (e.name === "AbortError") {
+      throw new Error("Gemini ले समयमा जवाफ दिएन (२५ सेकेन्डभित्र) — फेरि प्रयास गर्नुहोस्।");
+    }
+    throw new Error("Gemini सर्भरसम्म पुग्न सकिएन (नेटवर्क समस्या): " + e.message);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096 } = {}) {
   const generationConfig = { temperature: 0.7, maxOutputTokens };
   if (jsonMode) generationConfig.response_mime_type = "application/json";
+  const body = { contents: [{ parts }], generationConfig };
 
   let res;
-  try {
-    res = await fetch(GEMINI_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents: [{ parts }], generationConfig }),
-    });
-  } catch (e) {
-    throw new Error("Gemini सर्भरसम्म पुग्न सकिएन (नेटवर्क समस्या): " + e.message);
+  let lastError;
+  for (let attempt = 0; attempt <= 2; attempt++) {
+    try {
+      res = await fetchGeminiOnce(body);
+    } catch (e) {
+      lastError = e;
+      // Network/timeout failures: also worth a retry, same backoff as a
+      // rate limit — a dropped connection is often just as transient.
+      if (attempt < 2) { await sleep(1000 * (attempt + 1)); continue; }
+      throw e;
+    }
+    if (RETRYABLE_STATUS.has(res.status) && attempt < 2) {
+      // Gemini's rate-limit/overload responses are usually short-lived —
+      // wait a bit longer each retry (1s, then 2s) rather than hammering
+      // it again immediately.
+      await sleep(1000 * (attempt + 1));
+      continue;
+    }
+    break;
   }
+  if (!res) throw lastError || new Error("Gemini सर्भरसम्म पुग्न सकिएन।");
 
   let data;
   try {
@@ -259,7 +311,16 @@ async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096 } = 
     throw new Error(`Gemini बाट अनपेक्षित जवाफ (HTTP ${res.status}). API key जाँच गर्नुहोस्।`);
   }
 
-  if (data.error) throw new Error(`Gemini API त्रुटि (${data.error.code || res.status}): ${data.error.message}`);
+  if (data.error) {
+    // FIX — a 429 that survives all retries used to show the same generic
+    // "Gemini API त्रुटि" as every other error, giving no hint that it's a
+    // temporary capacity issue rather than something broken. Now says so
+    // explicitly, since that's actionable ("try again shortly") in a way
+    // a raw error code isn't for a teacher mid-class.
+    if (res.status === 429) throw new Error("Gemini अहिले धेरै व्यस्त छ (rate limit) — केही सेकेन्ड पछि फेरि प्रयास गर्नुहोस्।");
+    if (res.status === 503) throw new Error("Gemini अहिले अस्थायी रूपमा उपलब्ध छैन — केही सेकेन्ड पछि फेरि प्रयास गर्नुहोस्।");
+    throw new Error(`Gemini API त्रुटि (${data.error.code || res.status}): ${data.error.message}`);
+  }
   if (data.promptFeedback?.blockReason) throw new Error("Gemini ले यो अनुरोध रोक्यो: " + data.promptFeedback.blockReason);
 
   const candidate = data.candidates?.[0];
@@ -369,32 +430,62 @@ export const parseJSON = (text) => {
 // to fill gaps the materials don't cover, never to override them.
 const MATERIALS_PRIORITY_NOTE = `\n\n[स्रोत प्राथमिकता — महत्त्वपूर्ण]: माथि शिक्षकले आफैं यो अध्यायमा ट्याग गर्नुभएको सामग्री (लेसन प्लान/प्रस्तुति/प्रश्नोत्तर/आदि) र पाठ्यपुस्तक दुवै संलग्न छन्। शिक्षकको ट्याग गरिएको सामग्रीलाई नै मुख्य र भरपर्दो स्रोत मानी त्यसैको संरचना, क्रम र जोड पछ्याउनुहोस्। पाठ्यपुस्तक केवल त्यो सामग्रीले नसमेटेको तर अध्यायको लागि आवश्यक विषयवस्तु (जस्तै छुटेको उपशीर्षक वा तथ्य) थप्नकै लागि प्रयोग गर्नुहोस् — सामग्रीमा भएको कुरासँग नबाझी, नबदली।`;
 
-// ─── Internal routers — pick the right call based on what's passed ──────────
-// `ctx` can be: null/undefined (plain prompt), a string (legacy — treated as
-// pdfBase64), or { pdfBase64, materialParts } (chapter-tagged materials).
-async function runPrompt(prompt, ctx) {
-  if (!ctx) return generateText(prompt);
-  if (typeof ctx === "string") return generateWithPDF(prompt, ctx);
-  const { pdfBase64 = null, materialParts = [] } = ctx;
-  if (materialParts.length){
-    const p = pdfBase64 ? prompt + MATERIALS_PRIORITY_NOTE : prompt;
-    return generateWithMaterials(p, materialParts, pdfBase64);
-  }
-  if (pdfBase64) return generateWithPDF(prompt, pdfBase64);
-  return generateText(prompt);
+// NEW — pulls one chapter's plain text out of the textbook PDF, once. This
+// itself costs one full-book read (same token cost as before), but it's
+// the ONLY time that cost is paid for a given chapter: App.jsx's
+// getMaterialContext caches the result via db.saveTextbookChapterText, so
+// every later AI call for that chapter sends this small text instead of
+// re-attaching the whole book — the actual token-savings win.
+export async function extractChapterText(chapterTitle, classLabel) {
+  const part = await getTextbookPart(classLabel);
+  if (!part) return null;
+  const prompt = `यो नेपाली पाठ्यपुस्तकबाट "${chapterTitle}" नामक अध्याय/पाठ पत्ता लगाउनुहोस् र त्यसको पूरा पाठ — जस्ताको त्यस्तै, नछोटाई, संक्षेप नगरी — सादा पाठको रूपमा मात्र फिर्ता दिनुहोस्। कुनै व्याख्या, शीर्षक, वा फर्म्याटिङ नथप्नुहोस्, केवल अध्यायको वास्तविक पाठ मात्र दिनुहोस्। यदि यस्तो नामको अध्याय ठ्याक्कै भेटिएन भने अरू केही नलेखी ठ्याक्कै यही शब्द मात्र लेख्नुहोस्: NOT_FOUND`;
+  let text;
+  try { text = await callGemini([part, { text: prompt }], { maxOutputTokens: 8192 }); }
+  catch { return null; } // extraction failures fall back silently — the caller re-tries with the whole book for this one call
+  const trimmed = (text || "").trim();
+  if (!trimmed || trimmed === "NOT_FOUND" || trimmed.length < 40) return null;
+  return trimmed;
 }
 
-async function runPromptJSON(prompt, ctx) {
-  if (!ctx) return generateTextJSON(prompt);
-  if (typeof ctx === "string") return generateWithPDFJSON(prompt, ctx);
-  const { pdfBase64 = null, materialParts = [] } = ctx;
-  if (materialParts.length){
-    const p = pdfBase64 ? prompt + MATERIALS_PRIORITY_NOTE : prompt;
-    return generateWithMaterialsJSON(p, materialParts, pdfBase64);
-  }
-  if (pdfBase64) return generateWithPDFJSON(prompt, pdfBase64);
-  return generateTextJSON(prompt);
+// ─── Internal routers — pick the right call based on what's passed ──────────
+// `ctx` can be: null/undefined (plain prompt), a string (legacy — treated as
+// pdfBase64), or { pdfBase64, materialParts, textbookText }, built by
+// App.jsx's getMaterialContext. textbookText (once-extracted, cached
+// chapter text) is preferred over pdfBase64 (the whole-book file
+// reference) whenever it's available — same content the AI sees, far fewer
+// tokens spent getting it there.
+function contextParts(ctx) {
+  if (!ctx) return [];
+  if (typeof ctx === "string") { const p = toTextbookPart(ctx); return p ? [p] : []; }
+  const { pdfBase64 = null, materialParts = [], textbookText = null } = ctx;
+  const parts = [...materialParts];
+  if (textbookText) parts.push({ text: `[पाठ्यपुस्तकको सान्दर्भिक अंश — यही अध्यायको लागि पहिले नै निकालिएको]\n${textbookText}` });
+  else { const p = toTextbookPart(pdfBase64); if (p) parts.push(p); }
+  return parts;
 }
+function hasBothSources(ctx) {
+  if (!ctx || typeof ctx === "string") return false;
+  const { pdfBase64 = null, materialParts = [], textbookText = null } = ctx;
+  return materialParts.length > 0 && !!(pdfBase64 || textbookText);
+}
+async function runPrompt(prompt, ctx) {
+  const parts = contextParts(ctx);
+  if (!parts.length) return generateText(prompt);
+  return callGemini([...parts, { text: hasBothSources(ctx) ? prompt + MATERIALS_PRIORITY_NOTE : prompt }]);
+}
+async function runPromptJSON(prompt, ctx) {
+  const parts = contextParts(ctx);
+  if (!parts.length) return generateTextJSON(prompt);
+  return callGemini([...parts, { text: hasBothSources(ctx) ? prompt + MATERIALS_PRIORITY_NOTE : prompt }], { jsonMode: true });
+}
+// NEW — the one function callers should use when they have a getMaterialContext()
+// ctx object (materials + textbook). Older code called generateWithMaterials/
+// generateWithPDF directly with pieces of ctx, which bypassed both the
+// materials-priority note and (now) the cached-chapter-text token savings.
+export const generateFromContext = (prompt, ctx) => runPrompt(prompt, ctx);
+export const generateFromContextJSON = (prompt, ctx) => runPromptJSON(prompt, ctx);
+
 
 // ─── High-level generation helpers ───────────────────────────────────────────
 export const generateLessonPlan = async (chapterTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन") => {

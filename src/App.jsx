@@ -9,7 +9,7 @@ import {
   Brain, Copy, ChevronRight, LogOut, User, AlertCircle, Loader,
   Settings as SettingsIcon, Trash2, RefreshCw, BookMarked, Zap,
   Sun, Moon, Lightbulb, Paperclip, ChevronDown, Pin, RotateCw,
-  GraduationCap, PartyPopper, Bell, Palmtree, Megaphone,
+  GraduationCap, PartyPopper, Bell, Palmtree, Megaphone, AlertTriangle, Download,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import * as db from "./db";
@@ -178,15 +178,36 @@ const getTextbookPDF = (classLabel) => gemini.getTextbookPart(classLabel);
 // database already has a proper `chapters` table). This helper resolves
 // the typed name to that chapter's id, fetches every material tagged to
 // it, and turns them into Gemini parts alongside the global textbook.
+// NEW — the token-savings cache the user asked for: instead of attaching
+// the whole textbook (even as a cheap file_uri reference, Gemini still
+// counts its full token count on EVERY call that includes it), the first
+// time a chapter's textbook content is needed it's extracted to plain text
+// once and saved (db.textbook_chapter_text, keyed by chapter_id — see
+// textbook_chapter_text.sql). Every call after that for the same chapter
+// reuses the small cached text instead of re-reading the whole book. Only
+// the very first call for a given chapter pays the old (whole-book) cost;
+// everything after is a fraction of it. The cache is invalidated
+// automatically whenever the textbook PDF is replaced/removed (see
+// uploadTextbook/clearTextbookHandler in Settings).
 async function getMaterialContext(chapterTitle, classLabel = null) {
   if (!chapterTitle || !chapterTitle.trim()) {
-    return { pdfBase64: await getTextbookPDF(classLabel), materialParts: [], matchedCount: 0 };
+    return { pdfBase64: await getTextbookPDF(classLabel), materialParts: [], textbookText: null, matchedCount: 0 };
   }
   const chapterId = await db.getChapterIdByTitle(chapterTitle.trim(), classLabel);
-  if (!chapterId) return { pdfBase64: await getTextbookPDF(classLabel), materialParts: [], matchedCount: 0 };
+  if (!chapterId) return { pdfBase64: await getTextbookPDF(classLabel), materialParts: [], textbookText: null, matchedCount: 0 };
   const { data: materials } = await db.getMaterialsByChapter(chapterId);
   const materialParts = await gemini.buildMaterialParts(materials || [], db.downloadMaterialFile);
-  return { pdfBase64: await getTextbookPDF(classLabel), materialParts, matchedCount: (materials || []).length };
+
+  let textbookText = await db.getTextbookChapterText(chapterId);
+  let pdfBase64 = null;
+  if (!textbookText) {
+    try {
+      const extracted = await gemini.extractChapterText(chapterTitle.trim(), classLabel);
+      if (extracted) { textbookText = extracted; db.saveTextbookChapterText(chapterId, extracted); }
+      else pdfBase64 = await getTextbookPDF(classLabel); // couldn't isolate this chapter (e.g. title doesn't match the book's wording) — fall back to the whole book for this call only, don't cache a miss
+    } catch { pdfBase64 = await getTextbookPDF(classLabel); }
+  }
+  return { pdfBase64, materialParts, textbookText, matchedCount: (materials || []).length };
 }
 
 // FIX — the root cause of the "wrong/broken tagging" problem: every screen
@@ -300,6 +321,19 @@ function StatusPill({ status }) {
 }
 function Spinner({ small }) {
   return <div style={{ display:"flex", justifyContent:"center", alignItems:"center", padding:small?0:40 }}><Loader size={small?18:28} color={ACCENT} style={{ animation:"spin 1s linear infinite" }} /><style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style></div>;
+}
+// NEW — relative-time text for the topbar sync badge ("३ मिनेट अगाडि सिंक
+// भयो" instead of a static "सिंक भएको" that never changed).
+function relativeSyncLabel(ts) {
+  if (!ts) return "सिंक भएको";
+  const secs = Math.floor((Date.now() - ts) / 1000);
+  if (secs < 45) return "भर्खरै सिंक भयो";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins} मिनेट अगाडि सिंक`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} घण्टा अगाडि सिंक`;
+  const days = Math.floor(hrs / 24);
+  return `${days} दिन अगाडि सिंक`;
 }
 function ErrorMsg({ msg }) {
   return <div style={{ display:"flex", alignItems:"center", gap:9, background:DANGER_BG, borderRadius:12, padding:"12px 15px", fontSize:16, color:DANGER, margin:"10px 0", fontWeight:500 }}><AlertCircle size={17}/>{msg}</div>;
@@ -1330,7 +1364,15 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, on
                 ))}
               </div>
             ):(
-              <Button variant="marigold" size="sm" icon={Sparkles} onClick={()=>onOpenLesson(today)}>आजको पाठ सुरु</Button>
+              // FIX — "print/display in class" is one of the two things
+              // done almost every day, but used to always be a second tap
+              // buried inside the lesson viewer (open lesson → find print
+              // button). It's a one-tap action from the dashboard now,
+              // sitting right next to opening the lesson itself.
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                <Button variant="marigold" size="sm" icon={Sparkles} onClick={()=>onOpenLesson(today)}>आजको पाठ सुरु</Button>
+                <Button size="sm" icon={Printer} onClick={()=>onOpenLesson(today,{autoPrint:true})} style={{background:"rgba(255,255,255,0.16)",border:"1px solid rgba(255,255,255,0.35)",color:"#fff"}}>प्रिन्ट गर्नुहोस्</Button>
+              </div>
             )}
           </div>
         </div>
@@ -2955,7 +2997,12 @@ function MoreHub({
 }
 
 function AITools({ lessons, chapters, onAddChapter, classContext, classLabel, initialTab, onInitialTabConsumed }) {
-  const [tab,setTab]=useState("questions");
+  // FIX — "AI च्याट" used to be its own top-level screen, separate from
+  // every other AI feature (question bank/activities/assessment/
+  // resources), even though it draws on the exact same lesson/material
+  // context. It's the first tab here now, so there's one AI screen with
+  // one obvious place to look, not two screens that both start with "AI".
+  const [tab,setTab]=useState("chat");
   // NEW — arriving here from a Search result: jump straight to the
   // relevant sub-tab instead of always opening on Question Bank.
   useEffect(()=>{
@@ -2964,6 +3011,7 @@ function AITools({ lessons, chapters, onAddChapter, classContext, classLabel, in
     onInitialTabConsumed?.();
   },[initialTab,onInitialTabConsumed]);
   const TABS=[
+    {id:"chat",label:"च्याट",icon:Bot,color:ACCENT,bg:ACCENT_LIGHT},
     {id:"questions",label:"प्रश्न बैंक",icon:HelpCircle,color:VIOLET,bg:VIOLET_LIGHT},
     {id:"activities",label:"क्रियाकलाप",icon:Gamepad2,color:TEAL,bg:TEAL_LIGHT},
     {id:"assessment",label:"मूल्याङ्कन",icon:NotebookPen,color:BLUE,bg:BLUE_LIGHT},
@@ -2993,6 +3041,7 @@ function AITools({ lessons, chapters, onAddChapter, classContext, classLabel, in
         @media(max-width:420px){.ai-tools-tab{padding:7px 11px !important;font-size:13.5px !important;}}
         .ai-tools-tabs{-webkit-mask-image:linear-gradient(to right, transparent 0, black 14px, black calc(100% - 14px), transparent 100%);mask-image:linear-gradient(to right, transparent 0, black 14px, black calc(100% - 14px), transparent 100%);}
       `}</style>
+      {tab==="chat"&&<AIAssistant lessons={lessons} classContext={classContext} classLabel={classLabel}/>}
       {tab==="questions"&&<QuestionBank chapters={chapters} onAddChapter={onAddChapter} classContext={classContext} classLabel={classLabel}/>}
       {tab==="activities"&&<ActivitiesLibrary chapters={chapters} onAddChapter={onAddChapter} classContext={classContext} classLabel={classLabel}/>}
       {tab==="assessment"&&<AssessmentBuilder chapters={chapters} onAddChapter={onAddChapter} classContext={classContext} classLabel={classLabel}/>}
@@ -3019,9 +3068,7 @@ function ResourceCreator({ lessons, classContext, classLabel }) {
       const ctx=await getMaterialContext(chapterTitle,classLabel);
       setMatchedCount(ctx.matchedCount||0);
       const prompt=template.prompt(lesson,classContext);
-      const text=(ctx.materialParts.length||ctx.pdfBase64)
-        ?await gemini.generateWithMaterials(prompt,ctx.materialParts,ctx.pdfBase64)
-        :await gemini.generateText(prompt);
+      const text=await gemini.generateFromContext(prompt,ctx);
       setGeneratedText(text);
     }catch(e){setGeneratedText("त्रुटि: "+e.message);}
     setGenerating(false);
@@ -3071,7 +3118,19 @@ function SavedResources() {
   const [items,setItems]=useState([]);
   const [loading,setLoading]=useState(true);
   const [viewing,setViewing]=useState(null);
-  const load=useCallback(async()=>{setLoading(true);const{data}=await db.getSavedResources();setItems(data||[]);setLoading(false);},[]);
+  // FIX — same bug as the lessons/homework/chapters loaders: on a failed
+  // fetch this used to run setItems(data||[]) regardless, wiping the
+  // whole "AI बाट बनाएका" list to empty. That's especially bad here since
+  // this is the *only* copy of things you already generated — losing the
+  // list (even just visually) means re-generating from scratch. Now a
+  // failed refresh keeps whatever's already showing and says so.
+  const [loadError,setLoadError]=useState("");
+  const load=useCallback(async()=>{
+    setLoading(true);
+    const{data,error}=await db.getSavedResources();
+    if(error){setLoadError("सुरक्षित स्रोतहरू लोड गर्न सकिएन — देखिएको सूची पुरानो हुन सक्छ।");setLoading(false);return;}
+    setLoadError("");setItems(data||[]);setLoading(false);
+  },[]);
   useEffect(()=>{load();},[load]);
 
   const remove=async(id,e)=>{
@@ -3084,6 +3143,7 @@ function SavedResources() {
     <div className="ss-page" style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
       <div style={{fontSize:20,fontWeight:700,color:INK,marginBottom:4,display:"flex",alignItems:"center",gap:8}}><BookMarked size={20} color={ROSE}/>सुरक्षित स्रोतहरू</div>
       <div style={{fontSize:16,color:INK_SOFT,marginBottom:16}}>AI बाट बनाएका र सुरक्षित गरेका कार्यपत्र, फ्ल्यासकार्ड, पुनरावलोकन पाना — पछि हेर्न वा प्रिन्ट गर्न।</div>
+      {loadError&&<ErrorMsg msg={loadError}/>}
       {loading?<Spinner/>:items.length===0?(
         <EmptyState icon={BookMarked} text="अझै कुनै स्रोत सुरक्षित गरिएको छैन। स्रोत निर्माताबाट बनाएर 'सुरक्षित गर्नुहोस्' थिच्नुहोस्।"/>
       ):(
@@ -3515,6 +3575,40 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
   const [pdfLoaded,setPdfLoaded]=useState(false);
   const [repairBusy,setRepairBusy]=useState(null);
   const [repairMsg,setRepairMsg]=useState({});
+  const [exportBusy,setExportBusy]=useState(false);
+  const [exportMsg,setExportMsg]=useState("");
+
+  const exportAllData=async()=>{
+    setExportBusy(true);setExportMsg("");
+    try{
+      const[lessons,homework,chapters,resources,questions,activities,materials]=await Promise.all([
+        db.getLessons(null,null),db.getHomework(null),db.getChapters(null),
+        db.getSavedResources(),db.getQuestions(),db.getActivities(),db.getMaterials(null),
+      ]);
+      // If any single piece failed to fetch, say so plainly rather than
+      // silently shipping a backup file that's missing a whole category
+      // of data — a backup you can't trust is worse than no backup.
+      const failed=[["पाठहरू",lessons],["गृहकार्य",homework],["अध्याय",chapters],["सुरक्षित स्रोत",resources],["प्रश्न",questions],["क्रियाकलाप",activities],["सामग्री",materials]]
+        .filter(([,r])=>r.error).map(([label])=>label);
+      const payload={
+        exported_at:new Date().toISOString(),
+        teacher_name:teacherName||null,
+        lessons:lessons.data||[],homework:homework.data||[],chapters:chapters.data||[],
+        saved_resources:resources.data||[],questions:questions.data||[],activities:activities.data||[],materials:materials.data||[],
+      };
+      const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a");
+      a.href=url;a.download=`sikshya-sathi-backup-${new Date().toISOString().slice(0,10)}.json`;
+      document.body.appendChild(a);a.click();a.remove();
+      URL.revokeObjectURL(url);
+      setExportMsg(failed.length?`त्रुटि: ${failed.join(", ")} डाउनलोड हुन सकेन — फेरि प्रयास गर्नुहोस्।`:"✓ डाउनलोड सम्पन्न भयो।");
+    }catch(e){
+      setExportMsg("त्रुटि: "+(e.message||"डाउनलोड असफल भयो।"));
+    }finally{
+      setExportBusy(false);
+    }
+  };
 
   const runRepair=async(key,fn)=>{
     setRepairBusy(key);setRepairMsg((m)=>({...m,[key]:""}));
@@ -3596,6 +3690,7 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
       const b64=await gemini.fileToBase64(file);
       await gemini.saveTextbook(b64,classLabel);
       gemini.invalidateTextbookCache(classLabel); // drop any stale cached reference so the new PDF gets (re-)uploaded next time it's needed
+      db.clearTextbookChapterTextCache(classLabel); // NEW — old cached chapter text was extracted from the previous book; a new upload invalidates it
       setPdfLoaded(true);
       setMsg(`"${file.name}" सफलतापूर्वक लोड भयो! अब AI ले यसबाट उत्तर दिनेछ।`);
     }catch(e){setMsg("त्रुटि: "+e.message);}
@@ -3606,6 +3701,7 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
     if(!confirm("पाठ्यपुस्तक PDF हटाउने? यसपछि AI ले यो पाठ्यपुस्तकबाट सामग्री बनाउन सक्दैन (छुट्टै ट्याग गरिएका सामग्री फाइलमा भने असर पर्दैन)।"))return;
     await gemini.clearTextbook(classLabel);
     gemini.invalidateTextbookCache(classLabel);
+    db.clearTextbookChapterTextCache(classLabel); // NEW — no textbook left, so no cached extract from it should linger either
     setPdfLoaded(false);
     setMsg("पाठ्यपुस्तक हटाइयो।");setTimeout(()=>setMsg(""),2000);
   };
@@ -3760,6 +3856,25 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
         ))}
       </Card>
 
+      {/* NEW — there was no way to get your data out of the app at all.
+          Everything lives in one Supabase project with no export button
+          anywhere — if that account ever gets locked out or something
+          goes wrong server-side, there's no local copy of a year's worth
+          of lesson plans. This pulls everything (lessons, homework,
+          chapters, saved AI resources) into one JSON file the browser
+          downloads directly — nothing is deleted or changed, and it works
+          even if you never touch it, just as a safety net. */}
+      <Card style={{marginBottom:14}}>
+        <SectionLabel icon={Download} color={TEAL}>डाटा ब्याकअप</SectionLabel>
+        <div style={{fontSize:15,color:INK_SOFT,marginBottom:12,lineHeight:1.5}}>
+          तपाईंका सबै पाठ योजना, गृहकार्य, अध्याय र सुरक्षित AI स्रोतहरू एउटै फाइलमा डाउनलोड गर्नुहोस्। सर्भरमा भएको डाटा जस्ताको तस्तै रहन्छ — यो केवल एक प्रति (copy) मात्र हो।
+        </div>
+        <button className="ss-btn" disabled={exportBusy} onClick={exportAllData} style={{background:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"9px 14px",fontWeight:700,fontSize:15,cursor:"pointer",color:INK,boxShadow:SHADOW.sm,display:"flex",alignItems:"center",gap:8}}>
+          <Download size={16}/>{exportBusy?"तयार हुँदैछ...":"सबै डाटा डाउनलोड गर्नुहोस्"}
+        </button>
+        {exportMsg&&<div style={{fontSize:14.5,color:exportMsg.startsWith("त्रुटि")?DANGER:ACCENT,fontWeight:600,marginTop:8}}>{exportMsg}</div>}
+      </Card>
+
       <Card>
         <SectionLabel icon={SettingsIcon}>एपको बारेमा</SectionLabel>
         {[["नाम","शिक्षा साथी"],["संस्करण","3.1"],["AI","Google Gemini (निःशुल्क)"],["डाटाबेस","Supabase (निःशुल्क)"],["होस्टिङ","Vercel (निःशुल्क)"]].map(([l,v])=><div key={l} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${BORDER}`}}><div style={{fontSize:16,color:INK_SOFT}}>{l}</div><div style={{fontSize:16,fontWeight:600,color:INK}}>{v}</div></div>)}
@@ -3820,7 +3935,6 @@ export default function App() {
   // NEW — one-click print from the Planner list: open the lesson AND print
   // it immediately, no second tap required.
   const openLesson=useCallback((l,opts)=>{setActiveLesson(l);setActiveLessonAutoPrint(!!opts?.autoPrint);},[]);
-  const [showMore,setShowMore]=useState(false);
   const [sections,setSections]=useState([]);
   const [currentSection,setCurrentSection]=useState(null);
   const [lessons,setLessons]=useState([]);
@@ -3828,6 +3942,20 @@ export default function App() {
   const [lessonsLoading,setLessonsLoading]=useState(true);
   const [hwLoading,setHwLoading]=useState(true);
   const [synced,setSynced]=useState(false);
+  // NEW — see loadLessons/loadHomework/loadChapters below: this tracks a
+  // failed sync so the topbar can say so, instead of the old behavior of
+  // silently wiping lessons/homework to an empty list on any fetch error
+  // (which looked exactly like "all my lesson plans just disappeared").
+  const [syncError,setSyncError]=useState("");
+  // NEW — the badge only ever said "सिंक भयो" (just synced, for 2s) or
+  // "सिंक भएको" (synced, no indication of when) — no way to tell a fresh
+  // sync from one that's actually hours stale, which matters most exactly
+  // when it'd be useful: patchy classroom wifi where syncs quietly stop
+  // succeeding. `tick` just forces a re-render every 30s so the relative
+  // time text stays current without needing a fresh sync to update it.
+  const [lastSyncedAt,setLastSyncedAt]=useState(null);
+  const [tick,setTick]=useState(0);
+  useEffect(()=>{const id=setInterval(()=>setTick((t)=>t+1),30000);return()=>clearInterval(id);},[]);
   const [chapters,setChapters]=useState([]);
 
   // NEW — installability. Chrome/Edge on both desktop and Android fire
@@ -3932,7 +4060,12 @@ export default function App() {
   // Bank, Activities, Assessment). This is what powers the dropdown instead
   // of everyone typing chapter names separately.
   const loadChapters=useCallback(async()=>{
-    const{data}=await db.getChapters(classLabel);
+    const{data,error}=await db.getChapters(classLabel);
+    // FIX — on error this used to run setChapters(data||[]) same as
+    // success, so a network blip made every chapter in Materials vanish
+    // from screen until the next successful load. Now a failed fetch
+    // leaves whatever was already loaded on screen untouched.
+    if(error){setSyncError("सामग्री लोड गर्न सकिएन — इन्टरनेट जाँच्नुहोस्।");return;}
     setChapters(data||[]);
   },[classLabel]);
   useEffect(()=>{ if(session) loadChapters(); },[session,loadChapters]);
@@ -3944,28 +4077,43 @@ export default function App() {
 
   const loadLessons=useCallback(async()=>{
     setLessonsLoading(true);
-    const{data}=await db.getLessons(currentSection?.id||null,classLabel);
-    setLessons(data||[]);setLessonsLoading(false);setSynced(true);
+    const{data,error}=await db.getLessons(currentSection?.id||null,classLabel);
+    if(error){
+      setSyncError("पाठहरू लोड गर्न सकिएन — इन्टरनेट/सर्भर जाँच्नुहोस्। देखिएको सूची पुरानो हुन सक्छ।");
+      setLessonsLoading(false);
+      return;
+    }
+    setSyncError("");
+    setLessons(data||[]);setLessonsLoading(false);setSynced(true);setLastSyncedAt(Date.now());
     setTimeout(()=>setSynced(false),2000);
   },[currentSection,classLabel]);
 
   const loadHomework=useCallback(async()=>{
     setHwLoading(true);
-    const{data}=await db.getHomework(currentSection?.id||null);
+    const{data,error}=await db.getHomework(currentSection?.id||null);
+    if(error){setSyncError("गृहकार्य लोड गर्न सकिएन — इन्टरनेट जाँच्नुहोस्।");setHwLoading(false);return;}
     setHomework(data||[]);setHwLoading(false);
   },[currentSection]);
 
   useEffect(()=>{if(session){loadLessons();loadHomework();}},[session,loadLessons,loadHomework]);
 
+  // FIX — UI/nav overhaul: "AI च्याट" (chat) and "AI उपकरण" (question
+  // bank/activities/assessment/resources) used to be two separate screens
+  // reached two different ways — chat sat directly in the bottom row while
+  // everything else AI-related was one tap further, hidden behind a "थप"
+  // sheet. A teacher generating a question bank had no way to know it
+  // wasn't under the visible "AI च्याट" icon. They're now one screen
+  // ("AI सहायक", chat is just its first tab — see AITools) reached one way.
+  // The old two-tier nav+navMore split (a always-visible row plus a sheet
+  // you had to open first to reach AI Tools or More) added a tap to two of
+  // the app's most-used destinations for no organizational benefit — five
+  // flat destinations fit one row fine, so everything is direct now.
   const nav=[
     {id:"dashboard",label:"आज",icon:Home,color:ACCENT},
-    {id:"ai",label:"AI च्याट",icon:Bot,color:VIOLET},
     {id:"planner",label:"योजना",icon:CalendarDays,color:TEAL},
     {id:"materials",label:"सामग्री",icon:BookOpen,color:MARIGOLD_DARK},
-  ];
-  const navMore=[
-    {id:"aitools",label:"AI उपकरण",icon:Wand2,color:VIOLET},
-    {id:"more",label:"थप विकल्प",icon:Layers,color:INK_SOFT},
+    {id:"aitools",label:"AI सहायक",icon:Wand2,color:VIOLET},
+    {id:"more",label:"थप",icon:Layers,color:ROSE},
   ];
 
   if(authLoading)return<div style={{minHeight:"100vh",background:"var(--bg,#F7F4EC)",display:"flex",alignItems:"center",justifyContent:"center"}}><Spinner/></div>;
@@ -4153,9 +4301,9 @@ export default function App() {
         <img src="/icons/icon-64.png" alt="शिक्षा साथी" width={40} height={40} style={{borderRadius:12,boxShadow:SHADOW.accent,flexShrink:0}}/>
         <div style={{minWidth:0,overflow:"hidden"}}><div style={{fontWeight:800,fontSize:18.5,letterSpacing:"-0.015em",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",background:`linear-gradient(100deg, ${ACCENT} 0%, ${TEAL} 100%)`,WebkitBackgroundClip:"text",backgroundClip:"text",color:"transparent"}}>शिक्षा साथी</div><div style={{fontSize:14.5,color:`color-mix(in srgb, ${ACCENT} 35%, ${INK_SOFT})`,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{classLabel} · {subjectLabel}</div></div>
         <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
-          <div title={lessonsLoading?"सिंक हुँदैछ...":synced?"सिंक भयो":"सिंक भएको"} style={{display:"flex",alignItems:"center",gap:4,fontSize:13.5,color:synced?ACCENT:INK_SOFT,fontWeight:700,transition:"color .3s",whiteSpace:"nowrap",background:synced?ACCENT_LIGHT:"transparent",padding:"5px 9px",borderRadius:999}}>
-            <RefreshCw size={13} style={{animation:lessonsLoading?"spin 1s linear infinite":"none",flexShrink:0}}/>
-            <span className="ss-sync-label">{lessonsLoading?"सिंक...":synced?"सिंक भयो ✓":"सिंक भएको"}</span>
+          <div title={syncError?syncError:lessonsLoading?"सिंक हुँदैछ...":synced?"सिंक भयो":"सिंक भएको"} onClick={syncError?()=>{setSyncError("");loadLessons();loadHomework();loadChapters();}:undefined} style={{display:"flex",alignItems:"center",gap:4,fontSize:13.5,color:syncError?ROSE:synced?ACCENT:INK_SOFT,fontWeight:700,transition:"color .3s",whiteSpace:"nowrap",background:syncError?"color-mix(in srgb, "+ROSE+" 14%, transparent)":synced?ACCENT_LIGHT:"transparent",padding:"5px 9px",borderRadius:999,cursor:syncError?"pointer":"default"}}>
+            {syncError?<AlertTriangle size={13} style={{flexShrink:0}}/>:<RefreshCw size={13} style={{animation:lessonsLoading?"spin 1s linear infinite":"none",flexShrink:0}}/>}
+            <span className="ss-sync-label">{syncError?"सिंक असफल — पुनः प्रयास":lessonsLoading?"सिंक...":synced?"सिंक भयो ✓":relativeSyncLabel(lastSyncedAt)}</span>
           </div>
           <button onClick={()=>setSearchOpen(true)} title="खोज" className="ss-btn ss-topbar-icon" style={{background:searchOpen?`linear-gradient(160deg, ${TEAL} 0%, color-mix(in srgb, ${TEAL} 70%, black) 100%)`:`linear-gradient(160deg, color-mix(in srgb, ${TEAL} 16%, ${SURFACE}) 0%, color-mix(in srgb, ${TEAL} 8%, ${SURFACE}) 100%)`,border:searchOpen?"none":`1px solid ${BORDER}`,color:searchOpen?"#fff":TEAL,boxShadow:searchOpen?`0 3px 10px color-mix(in srgb, ${TEAL} 40%, transparent)`:"none"}}><Search size={18}/></button>
           <button onClick={toggleTheme} title={theme==="light"?"गाढा मोडमा जानुहोस्":"उज्यालो मोडमा जानुहोस्"} className="ss-btn ss-topbar-icon" style={{background:`linear-gradient(160deg, ${MARIGOLD} 0%, ${MARIGOLD_DARK} 100%)`,border:"none",color:"#fff",boxShadow:`0 3px 10px color-mix(in srgb, ${MARIGOLD} 40%, transparent)`}}>
@@ -4185,14 +4333,6 @@ export default function App() {
             {n.label}
           </button>
         );})}
-        <div style={{height:1,background:BORDER,margin:"10px 4px"}}/>
-        <div style={{fontSize:12.5,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:INK_SOFT,padding:"0 14px",marginBottom:6}}>थप</div>
-        {navMore.map((n,i)=>{const Icon=n.icon;const active=screen===n.id;return(
-          <button key={n.id} onClick={()=>setScreen(n.id)} className={`ss-btn${active?"":" ss-nav-item"}`} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",border:"none",background:active?`linear-gradient(135deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`:(i%2===0?"transparent":`color-mix(in srgb, ${n.color} 5%, transparent)`),color:active?"#fff":INK,fontWeight:active?700:600,fontSize:15.5,letterSpacing:"0.01em",cursor:"pointer",textAlign:"left",width:"100%",borderRadius:12,boxShadow:active?SHADOW.accent:"none"}}>
-            <div style={{width:28,height:28,borderRadius:8,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",background:active?"rgba(255,255,255,0.2)":`color-mix(in srgb, ${n.color} 16%, transparent)`}}><Icon size={16} color={active?"#fff":n.color}/></div>
-            {n.label}
-          </button>
-        );})}
       </div>
 
       <div className="main-content">
@@ -4204,9 +4344,6 @@ export default function App() {
         </div>}
         {visitedScreens.has("materials")&&<div style={{display:screen==="materials"?undefined:"none"}}>
           <Materials chapters={chapters} onAddChapter={addChapter} onChaptersChanged={loadChapters} classLabel={classLabel}/>
-        </div>}
-        {visitedScreens.has("ai")&&<div style={{display:screen==="ai"?undefined:"none"}}>
-          <AIAssistant lessons={lessons} classContext={classContext} classLabel={classLabel}/>
         </div>}
         {visitedScreens.has("more")&&<div style={{display:screen==="more"?undefined:"none"}}>
           <MoreHub initialPanel={moreTab} onInitialPanelConsumed={()=>setMoreTab(null)}
@@ -4261,41 +4398,17 @@ export default function App() {
       )}
 
       <div className="mobile-bottom-nav no-print" style={{position:"fixed",bottom:0,left:0,right:0,background:`color-mix(in srgb, ${SURFACE} 94%, transparent)`,backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",borderTop:`1px solid ${BORDER}`,justifyContent:"space-around",padding:"7px 6px calc(7px + env(safe-area-inset-bottom))",zIndex:10,boxShadow:"0 -6px 20px rgba(0,0,0,0.07)"}}>
+        {/* FIX — this used to be 4 direct icons plus a 5th "थप" icon that
+            opened a bottom sheet, and that sheet was the ONLY way to reach
+            AI Tools or More — two taps for two of the app's most-used
+            screens. All five destinations are flat, direct taps now. */}
         {nav.map((n)=>{const Icon=n.icon;const active=screen===n.id;return(
           <button key={n.id} onClick={()=>setScreen(n.id)} className="ss-btn" style={{background:"none",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:active?n.color:INK_SOFT,fontSize:12.5,fontWeight:700,cursor:"pointer",padding:"5px 8px 3px",flex:1,borderRadius:14}}>
             <div style={{width:44,height:30,borderRadius:14,background:active?`linear-gradient(160deg, ${n.color} 0%, color-mix(in srgb, ${n.color} 70%, black) 100%)`:`linear-gradient(160deg, color-mix(in srgb, ${n.color} 18%, transparent) 0%, color-mix(in srgb, ${n.color} 7%, transparent) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:active?`inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 10px color-mix(in srgb, ${n.color} 45%, transparent)`:"none",transition:"all .18s ease"}}><Icon size={19} color={active?"#fff":n.color}/></div>
             {n.label}
           </button>
         );})}
-        <button onClick={()=>setShowMore(true)} className="ss-btn" style={{background:"none",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:navMore.some((n)=>n.id===screen)?ROSE:INK_SOFT,fontSize:12.5,fontWeight:700,cursor:"pointer",padding:"5px 8px 3px",flex:1,borderRadius:14}}>
-          <div style={{width:44,height:30,borderRadius:14,background:navMore.some((n)=>n.id===screen)?`linear-gradient(160deg, ${ROSE} 0%, color-mix(in srgb, ${ROSE} 70%, black) 100%)`:`linear-gradient(160deg, color-mix(in srgb, ${ROSE} 18%, transparent) 0%, color-mix(in srgb, ${ROSE} 7%, transparent) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:navMore.some((n)=>n.id===screen)?`inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 10px color-mix(in srgb, ${ROSE} 45%, transparent)`:"none",transition:"all .18s ease"}}><Layers size={19} color={navMore.some((n)=>n.id===screen)?"#fff":ROSE}/></div>
-          थप
-        </button>
       </div>
-
-      {showMore&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(15,13,10,0.55)",backdropFilter:"blur(2px)",WebkitBackdropFilter:"blur(2px)",zIndex:60,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={()=>setShowMore(false)}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:"24px 24px 0 0",padding:20,maxWidth:480,width:"100%",paddingBottom:"calc(40px + env(safe-area-inset-bottom))",boxShadow:SHADOW.lg}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-              <div style={{fontSize:18,fontWeight:800}}>थप विशेषताहरू</div>
-              <button className="ss-icon-btn" onClick={()=>setShowMore(false)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><X size={22}/></button>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
-              {/* FIX — every tile used to be an identical bordered box with a
-                  plain line icon; now each gets a glossy, colored 3D badge
-                  (same recipe as the Materials file-type icons) so all six
-                  are visually distinct from each other, not just from the
-                  one active tile. */}
-              {navMore.map((n)=>{const Icon=n.icon;const active=screen===n.id;return(
-                <button key={n.id} onClick={()=>{setScreen(n.id);setShowMore(false);}} className="ss-btn" style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8,padding:"16px 6px",borderRadius:16,border:`1.5px solid ${active?n.color:`color-mix(in srgb, ${n.color} 25%, ${BORDER})`}`,background:active?`color-mix(in srgb, ${n.color} 14%, ${SURFACE})`:SURFACE,color:active?n.color:INK,cursor:"pointer",fontSize:15.5,fontWeight:700,boxShadow:active?`0 6px 16px color-mix(in srgb, ${n.color} 30%, transparent)`:SHADOW.sm}}>
-                  <div style={{width:46,height:46,borderRadius:14,background:`linear-gradient(160deg, ${n.color} 0%, color-mix(in srgb, ${n.color} 70%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 10px color-mix(in srgb, ${n.color} 40%, transparent)`}}><Icon size={22} color="#fff"/></div>
-                  {n.label}
-                </button>
-              );})}
-            </div>
-          </div>
-        </div>
-      )}
 
       {activeLesson&&<LessonMode lesson={activeLesson} onClose={()=>{setActiveLesson(null);setActiveLessonAutoPrint(false);}} onEdit={editLessonFromViewer} autoPrint={activeLessonAutoPrint} classLabel={classLabel} teacherName={teacherName}/>}
       {editingLessonPopup&&<LessonEditModal lesson={editingLessonPopup} chapters={chapters} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel}
