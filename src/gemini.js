@@ -256,9 +256,9 @@ const RETRYABLE_STATUS = new Set([429, 503]);
 const CALL_TIMEOUT_MS = 25000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function fetchGeminiOnce(body) {
+async function fetchGeminiOnce(body, timeoutMs = CALL_TIMEOUT_MS) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), CALL_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(GEMINI_URL, {
       method: "POST",
@@ -268,7 +268,7 @@ async function fetchGeminiOnce(body) {
     });
   } catch (e) {
     if (e.name === "AbortError") {
-      throw new Error("Gemini ले समयमा जवाफ दिएन (२५ सेकेन्डभित्र) — फेरि प्रयास गर्नुहोस्।");
+      throw new Error(`Gemini ले समयमा जवाफ दिएन (${Math.round(timeoutMs / 1000)} सेकेन्डभित्र) — फेरि प्रयास गर्नुहोस्।`);
     }
     throw new Error("Gemini सर्भरसम्म पुग्न सकिएन (नेटवर्क समस्या): " + e.message);
   } finally {
@@ -276,7 +276,7 @@ async function fetchGeminiOnce(body) {
   }
 }
 
-async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096 } = {}) {
+async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, timeoutMs = CALL_TIMEOUT_MS } = {}) {
   const generationConfig = { temperature: 0.7, maxOutputTokens };
   if (jsonMode) generationConfig.response_mime_type = "application/json";
   const body = { contents: [{ parts }], generationConfig };
@@ -285,7 +285,7 @@ async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096 } = 
   let lastError;
   for (let attempt = 0; attempt <= 2; attempt++) {
     try {
-      res = await fetchGeminiOnce(body);
+      res = await fetchGeminiOnce(body, timeoutMs);
     } catch (e) {
       lastError = e;
       // Network/timeout failures: also worth a retry, same backoff as a
@@ -469,10 +469,10 @@ function hasBothSources(ctx) {
   const { pdfBase64 = null, materialParts = [], textbookText = null } = ctx;
   return materialParts.length > 0 && !!(pdfBase64 || textbookText);
 }
-async function runPrompt(prompt, ctx) {
+async function runPrompt(prompt, ctx, options = {}) {
   const parts = contextParts(ctx);
-  if (!parts.length) return generateText(prompt);
-  return callGemini([...parts, { text: hasBothSources(ctx) ? prompt + MATERIALS_PRIORITY_NOTE : prompt }]);
+  if (!parts.length) return callGemini([{ text: prompt }], options);
+  return callGemini([...parts, { text: hasBothSources(ctx) ? prompt + MATERIALS_PRIORITY_NOTE : prompt }], options);
 }
 async function runPromptJSON(prompt, ctx) {
   const parts = contextParts(ctx);
@@ -568,7 +568,7 @@ export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, 
 9. viewport meta ट्याग राख्नुहोस्: <meta name="viewport" content="width=device-width, initial-scale=1">
 
 अब मास्टियोक्त JSON/व्याख्या नराखी, सिधै HTML कागजात मात्र सुरु गर्नुहोस्।`;
-  const raw = await runPrompt(prompt, ctx);
+  const raw = await runPrompt(prompt, ctx, { maxOutputTokens: 8192, timeoutMs: 55000 });
   let html = (raw || "").trim();
   // Strip a ```html ... ``` fence if Gemini wrapped it despite instructions.
   html = html.replace(/^```html\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
