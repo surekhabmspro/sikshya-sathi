@@ -538,23 +538,75 @@ export const generateActivities = async (chapterTitle, ctx = null, classContext 
   return result;
 };
 
+// NEW — a broad pool of distinct interactive mechanics a simulation can be
+// built around. Previously the prompt just listed a few as suggestions and
+// let Gemini pick — in practice that meant it kept defaulting to whichever
+// one it found easiest, so repeated generations for the same lesson often
+// came out the same. pickNextSimulationType() now makes the choice in code
+// instead, so hitting "generate" repeatedly actually cycles through
+// different formats rather than hoping for variety.
+export const SIMULATION_TYPES = [
+  { id: "dragdrop", label: "ड्र्याग-ड्रप मिलाउने खेल", instruction: "एउटा ड्र्याग-एन्ड-ड्रप मिलाउने खेल बनाउनुहोस् — साना वस्तु/शब्द/तस्विर (कार्ड) तानेर सही ठाउँ, जोडी, वा समूहमा राख्नुपर्ने।" },
+  { id: "labeling", label: "लेबल गर्ने चित्र/नक्सा", instruction: "एउटा लेबल गर्नुपर्ने चित्र वा नक्सा बनाउनुहोस् — इनलाइन SVG/CSS ले कोड गरिएको एउटा दृश्य (नक्सा, चित्र, वा रेखाचित्र) मा विद्यार्थीले सही नाम/लेबल ट्याप वा तानेर सही ठाउँमा राख्नुपर्ने।" },
+  { id: "ordering", label: "क्रम मिलाउने खेल", instruction: "एउटा क्रम मिलाउने (sequencing/timeline) खेल बनाउनुहोस् — घटना, चरण, वा तथ्यहरूलाई सही क्रममा तानेर वा ट्याप गरेर मिलाउनुपर्ने।" },
+  { id: "sorting", label: "वर्गीकरण खेल", instruction: "एउटा वर्गीकरण (sorting/categorizing) खेल बनाउनुहोस् — विभिन्न वस्तु/तथ्य/उदाहरणहरूलाई सही समूह वा बाकसमा तानेर वा ट्याप गरेर छुट्याउनुपर्ने।" },
+  { id: "scenario", label: "निर्णय सिमुलेसन", instruction: "एउटा दृश्य-आधारित निर्णय सिमुलेसन बनाउनुहोस् — विद्यार्थीले एउटा परिस्थिति देखेर विकल्पमध्ये छनोट गर्ने, र प्रत्येक छनोटले फरक-फरक नतिजा/अर्को चरण देखाउने (branching)।" },
+  { id: "memory", label: "जोडा मिलाउने कार्ड खेल", instruction: "एउटा कार्ड पल्टाउने सम्झना/जोडा मिलाउने खेल (memory/flip-card matching) बनाउनुहोस् — कार्डहरू पल्टाएर सम्बन्धित जोडा (जस्तै शब्द र अर्थ, वा चित्र र नाम) फेला पार्नुपर्ने।" },
+  { id: "hotspot", label: "नक्सा/दृश्य अन्वेषण", instruction: "एउटा हटस्पट-अन्वेषण सिमुलेसन बनाउनुहोस् — इनलाइन SVG/CSS ले बनाएको एउटा नक्सा वा दृश्यमा विभिन्न ठाउँहरूमा ट्याप गर्दा त्यस ठाउँसँग सम्बन्धित जानकारी/तथ्य देखिने।" },
+  { id: "fillblank", label: "रिक्त स्थान भर्ने खेल", instruction: "एउटा रिक्त-स्थान भर्ने खेल बनाउनुहोस् — वाक्य/अनुच्छेदमा छुटेका ठाउँमा सही शब्द तानेर वा ट्याप गरेर भर्नुपर्ने (शब्द बैंकबाट छान्ने)।" },
+  { id: "buildsim", label: "निर्माण/जोड्ने सिमुलेसन", instruction: "एउटा चरणबद्ध निर्माण/जोड्ने सिमुलेसन बनाउनुहोस् — विद्यार्थीले सही क्रममा भाग/तत्वहरू थपेर वा ट्याप गरेर कुनै संरचना, प्रक्रिया, वा दृश्य पूरा गर्नुपर्ने।" },
+  { id: "resource", label: "स्रोत व्यवस्थापन सिमुलेसन", instruction: "एउटा स्रोत-व्यवस्थापन सिमुलेसन बनाउनुहोस् — विद्यार्थीले स्लाइडर/बटन/छनोटहरू प्रयोग गरी स्रोत वा निर्णय बाँड्ने, र त्यसको नतिजा/असर तुरुन्तै दृश्य रूपमा देखिने।" },
+  { id: "process", label: "प्रक्रिया सिमुलेसन", instruction: "एउटा प्रक्रिया-सिमुलेसन बनाउनुहोस् — कुनै प्राकृतिक वा सामाजिक प्रक्रियाका चरणहरूमा ट्याप गर्दै अगाडि बढ्दा हरेक चरणमा दृश्य परिवर्तन र छोटो व्याख्या देखिने।" },
+  { id: "puzzle", label: "टुक्रा जोड्ने पजल", instruction: "एउटा टुक्रा जोड्ने (jigsaw-जस्तो) पजल बनाउनुहोस् — इनलाइन SVG/CSS ले बनाइएको चित्र/नक्सालाई टुक्राहरूमा छुट्याई विद्यार्थीले तानेर सही ठाउँमा जोड्नुपर्ने।" },
+  { id: "wordsearch", label: "शब्द खोज्ने पजल", instruction: "एउटा अक्षर-ग्रिड शब्द खोज्ने खेल बनाउनुहोस् — पाठसँग सम्बन्धित शब्दहरू ग्रिडभित्र लुकाइएको हुनुपर्छ, विद्यार्थीले अक्षरहरू ट्याप/तानेर शब्द फेला पार्नुपर्ने।" },
+  { id: "crossword", label: "क्रसवर्ड पजल", instruction: "एउटा साधारण क्रसवर्ड (वाक्रम शब्द) पजल बनाउनुहोस् — पाठका शब्दावलीमा आधारित सङ्केत (clue) हेरेर ग्रिडका खानाहरूमा अक्षर ट्याइप/ट्याप गरी शब्द भर्नुपर्ने।" },
+  { id: "beforeafter", label: "पहिले-पछि तुलना स्लाइडर", instruction: "एउटा पहिले/पछि तुलना स्लाइडर बनाउनुहोस् — इनलाइन SVG/CSS ले बनाइएका दुई दृश्य (परिवर्तन हुनुअघि र पछि) बीच एउटा तान्न मिल्ने स्लाइडरले छुट्याउने, र फरकहरू लेबल गरिएको हुनुपर्ने।" },
+  { id: "maze", label: "मार्ग/भूलभुलैया खेल", instruction: "एउटा भूलभुलैया/मार्ग-खोज्ने खेल बनाउनुहोस् — विद्यार्थीले बटन/ट्याप/ड्र्यागद्वारा एउटा पात्र वा बिन्दुलाई सही मार्गबाट लक्ष्यसम्म लैजानुपर्ने, बाटोमा पाठसँग सम्बन्धित चेकपोइन्ट/तथ्यहरू राख्न सकिन्छ।" },
+  { id: "connectpath", label: "जोड्ने रेखा (कनेक्ट) खेल", instruction: "एउटा कनेक्ट-द-डट जस्तो जोड्ने खेल बनाउनुहोस् — सम्बन्धित दुई वस्तु/स्थान/तथ्यहरूबीच तानेर वा ट्याप गरेर रेखा जोड्नुपर्ने, सही जोडीमा मात्र रेखा मिल्ने।" },
+  { id: "votesim", label: "मतदान/निर्णय सिमुलेसन", instruction: "एउटा मतदान/सामूहिक निर्णय सिमुलेसन बनाउनुहोस् — विद्यार्थीले कुनै नागरिक/सामाजिक परिस्थितिमा विकल्पहरूमध्ये मत हाल्ने, र नतिजा/तालिका तुरुन्तै अपडेट भई छोटो व्याख्यासहित देखिने।" },
+  { id: "dialogue", label: "संवाद-आधारित भूमिका खेल", instruction: "एउटा संवाद-आधारित भूमिका खेल बनाउनुहोस् — कुनै पात्रसँगको कुराकानीमा विद्यार्थीले आफ्नो जवाफ/कार्य छनोट गर्दै जाने, र प्रत्येक छनोटले फरक-फरक संवाद वा नतिजामा लैजाने।" },
+  { id: "mapcolor", label: "नक्सा रङ्ग भर्ने खेल", instruction: "एउटा नक्सा/क्षेत्र रङ्ग भर्ने खेल बनाउनुहोस् — इनलाइन SVG ले बाँडिएको नक्सा/क्षेत्रमा ट्याप गर्दा सही श्रेणी अनुसार रङ्ग भरिने, गलत भए फरक संकेत देखिने।" },
+  { id: "timelinescrub", label: "घुमाउने समयरेखा", instruction: "एउटा तान्न मिल्ने समयरेखा (timeline slider) बनाउनुहोस् — स्लाइडर तानेर विभिन्न युग/घटनाहरूमा सर्दा दृश्य र छोटो तथ्य/विवरण परिवर्तन हुनुपर्ने।" },
+  { id: "bargraph", label: "तान्ने बार-ग्राफ खेल", instruction: "एउटा तान्न मिल्ने बार-ग्राफ खेल बनाउनुहोस् — दिइएको डाटा/तथ्यसँग मिलाउन विद्यार्थीले बारका उचाइहरू तानेर मिलाउनुपर्ने, सही भएमा तुरुन्तै संकेत देखिने।" },
+  { id: "spotdifference", label: "फरक पत्ता लगाउने खेल", instruction: "एउटा फरक पत्ता लगाउने खेल बनाउनुहोस् — इनलाइन SVG/CSS ले बनाइएका उस्तै-उस्तै देखिने दुई दृश्यमा भएका केही फरकहरू विद्यार्थीले ट्याप गरेर फेला पार्नुपर्ने।" },
+  { id: "barter", label: "साट्ने/व्यापार सिमुलेसन", instruction: "एउटा साट्ने/व्यापार सिमुलेसन बनाउनुहोस् — विद्यार्थीले वस्तुहरू तानेर साटासाट तालिकामा राख्ने, र त्यो साटासाट उचित/अनुचित हो भनी तुरुन्तै प्रतिक्रिया पाउने।" },
+  { id: "familytree", label: "संरचना/रेखाचित्र जोड्ने खेल", instruction: "एउटा संरचना/रेखाचित्र (जस्तै परिवार वा संगठन) जोड्ने खेल बनाउनुहोस् — नाम/भूमिका लेबलहरू तानेर रेखाचित्रको सही स्थानमा राख्नुपर्ने।" },
+  { id: "compassdir", label: "दिशा पत्ता लगाउने खेल", instruction: "एउटा दिशा/कम्पास पत्ता लगाउने खेल बनाउनुहोस् — इनलाइन SVG ले बनाइएको नक्सा/दृश्य हेरी विद्यार्थीले कम्पास घुमाएर वा ट्याप गरेर सही दिशा छान्नुपर्ने।" },
+  { id: "balancescale", label: "ब्यालेन्स स्केल तुलना खेल", instruction: "एउटा ब्यालेन्स-स्केल तुलना खेल बनाउनुहोस् — वस्तु/तौल तानेर स्केलका दुई पल्लामा राख्दा नतिजा (कुन बढी/कम, वा सन्तुलन मिल्यो कि मिलेन) तुरुन्तै दृश्य रूपमा देखिने।" },
+  { id: "seasoncycle", label: "ऋतु/चक्र सिमुलेसन", instruction: "एउटा चक्र-सिमुलेसन बनाउनुहोस् (जस्तै ऋतु, जल-चक्र, वा खेती-चक्र) — ट्याप गर्दै चक्रका चरणहरूमा अगाडि बढ्दा दृश्य परिवर्तन हुँदै हरेक चरणमा छोटो तथ्य देखिने।" },
+];
+
+// Picks a type not yet used for this lesson (in this sitting); once every
+// type has been tried, it just avoids repeating the immediately-previous
+// one rather than locking up.
+export function pickNextSimulationType(usedTypeIds = []) {
+  const unused = SIMULATION_TYPES.filter((t) => !usedTypeIds.includes(t.id));
+  const pool = unused.length ? unused : SIMULATION_TYPES.filter((t) => t.id !== usedTypeIds[usedTypeIds.length - 1]);
+  const list = pool.length ? pool : SIMULATION_TYPES;
+  return list[Math.floor(Math.random() * list.length)];
+}
+
 // NEW — generates one complete, self-contained interactive simulation/game
-// for a lesson (a click-and-drag matching game, a labeled-diagram
-// simulation, a scenario-based decision game, etc. — Gemini picks whatever
-// suits the topic best). Returned as a single HTML string with everything
-// inline (CSS + JS, no external files/CDNs, since it has to run offline in
-// a sandboxed iframe on a phone in a classroom with no reliable internet).
+// for a lesson, built around whichever `simulationType` is passed in (see
+// pickNextSimulationType above — the caller decides the mechanic, this
+// function just builds it). Returned as a single HTML string with
+// everything inline (CSS + JS, no external files/CDNs, since it has to
+// run offline in a sandboxed iframe on a phone in a classroom with no
+// reliable internet).
 // Deliberately NOT JSON mode — the payload itself IS the artifact, so
 // asking for raw HTML text and stripping any ```html fence around it is
 // both simpler and less likely to truncate/escape badly than smuggling a
 // large HTML document inside a JSON string field.
-export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन") => {
+export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", simulationType = null) => {
+  const type = simulationType || pickNextSimulationType();
   const prompt = `तपाईं नेपालको ${classContext}का लागि एउटा इन्टरएक्टिभ (अन्तरक्रियात्मक) सिमुलेसन/खेल बनाउँदै हुनुहुन्छ, जुन विद्यार्थीहरूले मोबाइल वा ट्याब्लेटको स्क्रिनमा छोई/तानी खेल्न सक्छन्।
 
 अध्याय: "${chapterTitle}"
 पाठ: "${lessonTitle || chapterTitle}"
 
-यो विषयका लागि सबैभन्दा उपयुक्त प्रकार आफैं छान्नुहोस् — जस्तै: मिलाउने खेल (drag-and-drop matching), लेबल गर्ने नक्सा/चित्र, समयसीमा (timeline) क्रम मिलाउने, दृश्य-आधारित निर्णय सिमुलेसन, वर्गीकरण खेल (sorting/categorizing), वा छोटो क्विज-सिमुलेसन। खेल विषयवस्तुसँग प्रत्यक्ष सान्दर्भिक हुनुपर्छ, सामान्य वा फितलो होइन।
+अनिवार्य ढाँचा: ${type.instruction}
+यो विषयवस्तुसँग प्रत्यक्ष सान्दर्भिक बनाउनुहोस् — सामान्य वा फितलो होइन, ठ्याक्कै यही अध्यायका तथ्य/अवधारणाहरूमा आधारित।
+महत्त्वपूर्ण: साधारण "प्रश्न सोध्ने र विकल्पमध्ये एउटा क्लिक गर्ने" बहुविकल्पीय प्रश्नोत्तर (MCQ quiz) कहिल्यै नबनाउनुहोस् — माथि तोकिएको ढाँचामै बनाउनुहोस्, अर्को ढाँचामा होइन।
 
 कडा आवश्यकताहरू — ठ्याक्कै पालना गर्नुहोस्:
 1. जवाफ ठ्याक्कै एउटा पूर्ण, स्वतन्त्र (self-contained) HTML कागजात मात्र दिनुहोस् — <!DOCTYPE html> बाट सुरु गरी </html> मा सकिने। कुनै व्याख्या, कुनै markdown कोड-फेन्स (\`\`\`), कुनै अगाडि/पछाडिको वाक्य नथप्नुहोस्।
@@ -566,8 +618,10 @@ export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, 
 7. एउटा "फेरि खेल्नुहोस्" (restart) बटन राख्नुहोस् जसले पूरै अवस्था रिसेट गरोस्।
 8. मोबाइल स्क्रिनमा राम्रोसँग मिल्ने गरी उत्तरदायी (responsive) बनाउनुहोस् — प्रयोगकर्ताले जुम/स्क्रोल गरिरहनु नपरोस्।
 9. viewport meta ट्याग राख्नुहोस्: <meta name="viewport" content="width=device-width, initial-scale=1">
+10. कहिल्यै <img>, background-image, वा कुनै पनि src/url() मार्फत बाहिरी फाइल/तस्विर नल्याउनुहोस् — यस्तो कुनै फाइल इन्टरनेटमा वा डिभाइसमा अवस्थित हुँदैन, त्यसैले त्यो सधैं टुटेको/खाली देखिन्छ। "यो चित्र हेर्नुहोस्" जस्तो कुनै पनि कार्य दिनुभएमा, त्यो चित्र/नक्सा/वस्तु अनिवार्य रूपमा इनलाइन SVG (<svg>...</svg>, सीधै HTML भित्र लेखिएको) वा CSS आकारहरू (div + border-radius/gradient/transform जस्ता) प्रयोग गरेरै आफैं कोड गरेर देखाउनुहोस्, ठूला इमोजीले पनि टेवा दिन सक्छ।
+11. कुनै पनि तस्विर/नक्सा/चित्र देखिनु आवश्यक भएको सिमुलेसन बनाउनुभएमा, त्यो चित्र पूर्ण रूपमा देखिन्छ र स्क्रिनमा भरिन्छ भनी सुनिश्चित गर्नुहोस् — कुनै अधुरो वा नदेखिने तत्व नराख्नुहोस्।
 
-अब मास्टियोक्त JSON/व्याख्या नराखी, सिधै HTML कागजात मात्र सुरु गर्नुहोस्।`;
+अब माथिको JSON/व्याख्या नराखी, सिधै HTML कागजात मात्र सुरु गर्नुहोस्।`;
   const raw = await runPrompt(prompt, ctx, { maxOutputTokens: 8192, timeoutMs: 55000 });
   let html = (raw || "").trim();
   // Strip a ```html ... ``` fence if Gemini wrapped it despite instructions.
@@ -578,7 +632,14 @@ export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, 
     const preview = html ? html.slice(0, 300) : "(खाली प्रतिक्रिया)";
     throw new Error("Gemini ले सिमुलेसन बनाउन सकेन। जवाफको सुरुवात: " + preview);
   }
-  return html;
+  // SAFETY NET — despite the prompt's instructions, Gemini occasionally
+  // still emits an <img src="..."> pointing at a file that doesn't exist
+  // (nothing is hosting it — this runs fully offline in a sandboxed
+  // iframe). Rather than let students see a broken-image icon, strip any
+  // such tags outright; the surrounding text/layout still works, it just
+  // loses that one (non-functional) picture.
+  html = html.replace(/<img\b[^>]*>/gi, "");
+  return { html, type };
 };
 
 // NEW — used by AssessmentBuilder for the rubric JSON. Same JSON-mode
