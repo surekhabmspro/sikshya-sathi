@@ -568,6 +568,40 @@ export const upsertActivity = async (activity) => {
   return { data, error };
 };
 
+// ─── SIMULATIONS (AI-generated interactive lesson exercises) ─────────────────
+// Each row is one self-contained interactive simulation (HTML+CSS+JS) tied
+// to a lesson, so a teacher can build up several attempts for the same
+// lesson and pick whichever works best in class, instead of only ever
+// having the latest one.
+export const getSimulationsByLesson = async (lessonId) => {
+  const { data, error } = await supabase
+    .from("simulations")
+    .select("*")
+    .eq("lesson_id", lessonId)
+    .order("created_at", { ascending: false });
+  return { data, error };
+};
+
+export const saveSimulation = async (simulation) => {
+  const { data: { user } } = await supabase.auth.getUser();
+  const { data, error } = await supabase
+    .from("simulations")
+    .insert({ ...simulation, teacher_id: user.id })
+    .select()
+    .single();
+  return { data, error };
+};
+
+export const renameSimulation = async (id, title) => {
+  const { data, error } = await supabase.from("simulations").update({ title }).eq("id", id).select().single();
+  return { data, error };
+};
+
+export const deleteSimulation = async (id) => {
+  const { error } = await supabase.from("simulations").delete().eq("id", id);
+  return { error };
+};
+
 // ─── AI MESSAGES ─────────────────────────────────────────────────────────────
 export const getAIMessages = async (lessonId) => {
   const { data, error } = await supabase

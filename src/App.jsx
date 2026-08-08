@@ -796,7 +796,7 @@ function LessonEditModal({ lesson, chapters, onAddChapter, classContext, classLa
   );
 }
 
-function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, teacherName }) {
+function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classContext, teacherName }) {
   const [tab,setTab]=useState("sequence");
   // NEW — vocabulary entries are stored as "शब्द: अर्थ" (word: meaning). This
   // used to just print the whole string as one flat pill (word and meaning
@@ -810,7 +810,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, teacherNam
   // sitting in the rail, so the rail stays a slim tab list and the actual
   // content gets the space (see the "empty space on PC" fix below).
   const [objPopup,setObjPopup]=useState(false);
-  const tabs=[{id:"sequence",label:"पढाउने",icon:ClipboardList},{id:"questions",label:"प्रश्नहरू",icon:MessageSquare},{id:"activities",label:"क्रियाकलाप",icon:Users},{id:"homework",label:"गृहकार्य",icon:PenSquare},{id:"rubric",label:"मूल्याङ्कन",icon:Layers}];
+  const tabs=[{id:"sequence",label:"पढाउने",icon:ClipboardList},{id:"questions",label:"प्रश्नहरू",icon:MessageSquare},{id:"activities",label:"क्रियाकलाप",icon:Users},{id:"simulation",label:"सिमुलेसन",icon:Gamepad2},{id:"homework",label:"गृहकार्य",icon:PenSquare},{id:"rubric",label:"मूल्याङ्कन",icon:Layers}];
   const objectives=lesson.objectives||[];
   const vocabulary=lesson.vocabulary||[];
   const sequence=lesson.sequence||[];
@@ -1026,6 +1026,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, teacherNam
           );
         })}</div></div>}
         {tab==="activities"&&<div><SectionLabel icon={Users} color={TEAL}>क्रियाकलापहरू</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:8}}>{activities.length===0?<div style={{color:INK_SOFT}}>क्रियाकलापहरू थपिएका छैनन्।</div>:activities.map((a,i)=><Card key={i} accentColor={PALETTE[i%PALETTE.length]}><div style={{fontSize:17,color:INK}}>{a}</div></Card>)}</div></div>}
+        {tab==="simulation"&&<SimulationPanel lesson={lesson} chapterTitle={chapterTitle} classLabel={classLabel} classContext={classContext}/>}
         {tab==="homework"&&<div><SectionLabel icon={PenSquare} color={MARIGOLD_DARK}>दिने गृहकार्य</SectionLabel><Card><div style={{fontSize:17,color:INK,lineHeight:1.6}}>{lesson.homework||"गृहकार्य थपिएको छैन।"}</div></Card></div>}
         {tab==="rubric"&&<div><SectionLabel icon={Layers} color={ROSE}>मूल्याङ्कन मापदण्ड</SectionLabel>{rubric.length===0?<div style={{color:INK_SOFT}}>मूल्याङ्कन मापदण्ड थपिएको छैन।</div>:<div style={{display:"flex",flexDirection:"column",gap:8}}>{rubric.map((r,i)=>{const c=r.level==="उत्कृष्ट"?ACCENT:r.level==="सहयोग आवश्यक"?ROSE:MARIGOLD_DARK;return<Card key={i} accentColor={c}><div style={{fontWeight:700,color:c,fontSize:16.5,marginBottom:3}}>{r.level}</div><div style={{fontSize:16.5,color:INK}}>{r.desc}</div></Card>;})}</div>}</div>}
         </div>
@@ -1143,6 +1144,84 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, teacherNam
       </div>
     </div>
   );
+}
+
+// NEW — per-lesson library of AI-generated interactive simulations. Each
+// generation is saved as its own row (see db.saveSimulation) so a teacher
+// can build up several attempts for the same lesson and keep whichever
+// ones actually work in class, instead of only ever having the latest —
+// same "save, don't just view once" pattern as Saved Resources.
+function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
+  const [sims,setSims]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [generating,setGenerating]=useState(false);
+  const [error,setError]=useState("");
+  const [viewing,setViewing]=useState(null);
+  const [deletingId,setDeletingId]=useState(null);
+
+  const load=useCallback(async()=>{
+    setLoading(true);
+    const{data}=await db.getSimulationsByLesson(lesson.id);
+    setSims(data||[]);
+    setLoading(false);
+  },[lesson.id]);
+  useEffect(()=>{load();},[load]);
+
+  const generate=async()=>{
+    setGenerating(true);setError("");
+    try{
+      const ctx=await getMaterialContext(chapterTitle,classLabel);
+      const html=await gemini.generateSimulation(chapterTitle,lesson.title,ctx,classContext);
+      const chapter_id=await resolveChapterId(chapterTitle,classLabel);
+      const{data,error}=await db.saveSimulation({lesson_id:lesson.id,chapter_id,chapter_title:chapterTitle,title:lesson.title,html_content:html});
+      if(error)throw error;
+      setSims((prev)=>[data,...prev]);
+      setViewing(data);
+    }catch(e){setError("AI त्रुटि: "+(e.message||"सिमुलेसन बनाउन सकिएन।"));}
+    setGenerating(false);
+  };
+
+  const remove=async(id,e)=>{
+    e?.stopPropagation();
+    setDeletingId(id);
+    await db.deleteSimulation(id);
+    setSims((prev)=>prev.filter((s)=>s.id!==id));
+    setDeletingId(null);
+    if(viewing?.id===id)setViewing(null);
+  };
+
+  return(<div>
+    <SectionLabel icon={Gamepad2} color={VIOLET}>इन्टरएक्टिभ सिमुलेसन</SectionLabel>
+    <div style={{fontSize:15.5,color:INK_SOFT,marginBottom:12,lineHeight:1.5}}>यस पाठका लागि AI ले खेल्न मिल्ने अन्तरक्रियात्मक अभ्यास बनाउँछ — विद्यार्थीहरूले स्क्रिनमा छोई/तानी खेल्न सक्छन्। एउटा मन नपरे नयाँ बनाई दुवै सुरक्षित राख्न सकिन्छ।</div>
+    {error&&<ErrorMsg msg={error}/>}
+    <button className="ss-btn" onClick={generate} disabled={generating} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,width:"100%",padding:"13px",borderRadius:12,border:"none",background:`linear-gradient(180deg, ${VIOLET} 0%, color-mix(in srgb, ${VIOLET} 75%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:16.5,cursor:generating?"default":"pointer",boxShadow:SHADOW.accent,marginBottom:16}}>
+      {generating?<><Loader size={17} style={{animation:"spin 1s linear infinite"}}/>सिमुलेसन बनाउँदै...</>:<><Wand2 size={17}/>{sims.length?"नयाँ सिमुलेसन बनाउनुहोस्":"AI बाट सिमुलेसन बनाउनुहोस्"}</>}
+    </button>
+    {loading?<Spinner/>:sims.length===0?<EmptyState icon={Gamepad2} text="अझै कुनै सिमुलेसन बनाइएको छैन। माथिको बटनबाट पहिलो बनाउनुहोस्।"/>:(
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {sims.map((s,i)=>{const color=PALETTE[i%PALETTE.length];return(
+          <Card key={s.id} accentColor={color} onClick={()=>setViewing(s)} style={{cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
+            <div style={{width:40,height:40,borderRadius:10,background:`linear-gradient(160deg, ${color} 0%, color-mix(in srgb, ${color} 70%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Gamepad2 size={19} color="#fff"/></div>
+            <div style={{minWidth:0,flex:1}}>
+              <div style={{fontWeight:700,fontSize:16.5,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.title}</div>
+              <div style={{fontSize:14,color:INK_SOFT}}>{new Date(s.created_at).toLocaleDateString("ne-NP",{day:"2-digit",month:"short",year:"numeric"})}</div>
+            </div>
+            <button className="ss-icon-btn" onClick={(e)=>remove(s.id,e)} disabled={deletingId===s.id} style={{background:"none",border:"none",color:DANGER,cursor:"pointer",padding:6,flexShrink:0}}><Trash2 size={16}/></button>
+          </Card>
+        );})}
+      </div>
+    )}
+    {viewing&&(
+      <div className="no-print" style={{position:"fixed",inset:0,zIndex:90,background:"#000",display:"flex",flexDirection:"column"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:INK,color:"#fff",flexShrink:0}}>
+          <div style={{flex:1,minWidth:0,fontWeight:700,fontSize:15.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{viewing.title}</div>
+          <button className="ss-icon-btn" onClick={generate} disabled={generating} title="अर्को नयाँ सिमुलेसन बनाउनुहोस्" style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:8,display:"flex",cursor:generating?"default":"pointer",flexShrink:0}}>{generating?<Loader size={17} style={{animation:"spin 1s linear infinite"}}/>:<RefreshCw size={17}/>}</button>
+          <button className="ss-icon-btn" onClick={()=>setViewing(null)} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:8,display:"flex",cursor:"pointer",flexShrink:0}}><X size={19}/></button>
+        </div>
+        <iframe title={viewing.title} srcDoc={viewing.html_content} sandbox="allow-scripts" style={{flex:1,border:"none",width:"100%",background:"#fff"}}/>
+      </div>
+    )}
+  </div>);
 }
 
 function StatCard({ icon:Icon, value, label, color, onClick, accent }) {
@@ -4410,7 +4489,7 @@ export default function App() {
         );})}
       </div>
 
-      {activeLesson&&<LessonMode lesson={activeLesson} onClose={()=>{setActiveLesson(null);setActiveLessonAutoPrint(false);}} onEdit={editLessonFromViewer} autoPrint={activeLessonAutoPrint} classLabel={classLabel} teacherName={teacherName}/>}
+      {activeLesson&&<LessonMode lesson={activeLesson} onClose={()=>{setActiveLesson(null);setActiveLessonAutoPrint(false);}} onEdit={editLessonFromViewer} autoPrint={activeLessonAutoPrint} classLabel={classLabel} classContext={classContext} teacherName={teacherName}/>}
       {editingLessonPopup&&<LessonEditModal lesson={editingLessonPopup} chapters={chapters} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel}
         onClose={()=>setEditingLessonPopup(null)}
         onSaved={(updated,deleted)=>{

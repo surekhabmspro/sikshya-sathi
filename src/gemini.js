@@ -538,6 +538,49 @@ export const generateActivities = async (chapterTitle, ctx = null, classContext 
   return result;
 };
 
+// NEW — generates one complete, self-contained interactive simulation/game
+// for a lesson (a click-and-drag matching game, a labeled-diagram
+// simulation, a scenario-based decision game, etc. — Gemini picks whatever
+// suits the topic best). Returned as a single HTML string with everything
+// inline (CSS + JS, no external files/CDNs, since it has to run offline in
+// a sandboxed iframe on a phone in a classroom with no reliable internet).
+// Deliberately NOT JSON mode — the payload itself IS the artifact, so
+// asking for raw HTML text and stripping any ```html fence around it is
+// both simpler and less likely to truncate/escape badly than smuggling a
+// large HTML document inside a JSON string field.
+export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन") => {
+  const prompt = `तपाईं नेपालको ${classContext}का लागि एउटा इन्टरएक्टिभ (अन्तरक्रियात्मक) सिमुलेसन/खेल बनाउँदै हुनुहुन्छ, जुन विद्यार्थीहरूले मोबाइल वा ट्याब्लेटको स्क्रिनमा छोई/तानी खेल्न सक्छन्।
+
+अध्याय: "${chapterTitle}"
+पाठ: "${lessonTitle || chapterTitle}"
+
+यो विषयका लागि सबैभन्दा उपयुक्त प्रकार आफैं छान्नुहोस् — जस्तै: मिलाउने खेल (drag-and-drop matching), लेबल गर्ने नक्सा/चित्र, समयसीमा (timeline) क्रम मिलाउने, दृश्य-आधारित निर्णय सिमुलेसन, वर्गीकरण खेल (sorting/categorizing), वा छोटो क्विज-सिमुलेसन। खेल विषयवस्तुसँग प्रत्यक्ष सान्दर्भिक हुनुपर्छ, सामान्य वा फितलो होइन।
+
+कडा आवश्यकताहरू — ठ्याक्कै पालना गर्नुहोस्:
+1. जवाफ ठ्याक्कै एउटा पूर्ण, स्वतन्त्र (self-contained) HTML कागजात मात्र दिनुहोस् — <!DOCTYPE html> बाट सुरु गरी </html> मा सकिने। कुनै व्याख्या, कुनै markdown कोड-फेन्स (\`\`\`), कुनै अगाडि/पछाडिको वाक्य नथप्नुहोस्।
+2. सबै CSS <style> ट्यागभित्र र सबै JavaScript <script> ट्यागभित्र, उही फाइलमा नै राख्नुहोस्। कुनै बाह्य फाइल, फन्ट, CDN, वा इन्टरनेट लिङ्क प्रयोग नगर्नुहोस् (अफलाइन चल्नुपर्छ)।
+3. सबै पाठ/लेबल/निर्देशन नेपाली भाषामा, कक्षा ५ का विद्यार्थीले सजिलै बुझ्ने सरल शब्दमा लेख्नुहोस्।
+4. डिजाइन आकर्षक र रमाइलो बनाउनुहोस्: उज्ज्वल रङहरू, गोलाकार कुनाहरू, नरम छायाँ (shadow), सहज एनिमेसन/ट्रान्जिसन, इमोजी वा CSS/SVG आकृतिहरूद्वारा दृश्य तत्व। फिका, बोरिङ, प्लेन टेक्स्ट देखिने पेज नबनाउनुहोस् — रङ्गीन र चलायमान महसुस हुनुपर्छ।
+5. इन्टरएक्टिभ बनाउनुहोस्: क्लिक/ट्याप/ड्र्याग जस्ता वास्तविक अन्तरक्रिया चाहिन्छ, केवल स्क्रोल गरेर पढ्ने स्थिर पृष्ठ पर्याप्त छैन।
+6. तत्काल प्रतिक्रिया दिनुहोस्: सही/गलत छनोटमा रंग/एनिमेसन/छोटो सन्देशद्वारा तुरुन्तै प्रतिक्रिया देखाउनुहोस्, र अन्त्यमा स्कोर वा सारांश देखाउनुहोस्।
+7. एउटा "फेरि खेल्नुहोस्" (restart) बटन राख्नुहोस् जसले पूरै अवस्था रिसेट गरोस्।
+8. मोबाइल स्क्रिनमा राम्रोसँग मिल्ने गरी उत्तरदायी (responsive) बनाउनुहोस् — प्रयोगकर्ताले जुम/स्क्रोल गरिरहनु नपरोस्।
+9. viewport meta ट्याग राख्नुहोस्: <meta name="viewport" content="width=device-width, initial-scale=1">
+
+अब मास्टियोक्त JSON/व्याख्या नराखी, सिधै HTML कागजात मात्र सुरु गर्नुहोस्।`;
+  const raw = await runPrompt(prompt, ctx);
+  let html = (raw || "").trim();
+  // Strip a ```html ... ``` fence if Gemini wrapped it despite instructions.
+  html = html.replace(/^```html\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
+  const docStart = html.search(/<!DOCTYPE html>|<html[\s>]/i);
+  if (docStart > 0) html = html.slice(docStart);
+  if (!html || docStart === -1) {
+    const preview = html ? html.slice(0, 300) : "(खाली प्रतिक्रिया)";
+    throw new Error("Gemini ले सिमुलेसन बनाउन सकेन। जवाफको सुरुवात: " + preview);
+  }
+  return html;
+};
+
 // NEW — used by AssessmentBuilder for the rubric JSON. Same JSON-mode
 // reliability as the functions above.
 export const generateRubric = async (prompt, ctx = null) => {
