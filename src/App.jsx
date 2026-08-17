@@ -986,17 +986,20 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
           </>)}
         </div>
         <div className="lesson-content">
-        {tab==="sequence"&&(<div><SectionLabel icon={ClipboardList}>पढाउने क्रम</SectionLabel>{sequence.length===0?<div style={{color:INK_SOFT}}>पढाउने क्रम थपिएको छैन।</div>:(<ol style={{margin:0,paddingLeft:0,listStyle:"none",display:"flex",flexDirection:"column",gap:8}}>{sequence.map((s,i)=>(<li key={i} style={{display:"flex",gap:12,padding:"12px 13px",background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12}}><div style={{width:26,height:26,borderRadius:"50%",background:`linear-gradient(160deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:SHADOW.accent}}>{i+1}</div><div style={{fontSize:17,color:INK,lineHeight:1.5,paddingTop:2}}>{s}</div></li>))}</ol>)}{lesson.notes&&<div style={{marginTop:14,background:WARN_BG,borderRadius:10,padding:12}}><div style={{fontSize:15,fontWeight:700,color:WARN,marginBottom:3}}>नोट</div><div style={{fontSize:16.5,color:INK}}>{lesson.notes}</div></div>}</div>)}
-        {tab==="questions"&&<div><SectionLabel icon={MessageSquare} color={VIOLET}>कक्षामा सोध्नुहोस्</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:8}}>{qState.length===0?<div style={{color:INK_SOFT}}>प्रश्नहरू थपिएका छैनन्।</div>:qState.map((item,i)=>{
+        {tab==="sequence"&&(<div><SectionLabel icon={ClipboardList}>पढाउने क्रम</SectionLabel>{sequence.length===0?<div style={{color:INK_SOFT}}>पढाउने क्रम थपिएको छैन।</div>:(<ol style={{margin:0,paddingLeft:0,listStyle:"none",display:"flex",flexDirection:"column",gap:14}}>{sequence.map((s,i)=>(<li key={i} style={{display:"flex",gap:14,padding:"15px 16px",background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12}}><div style={{width:32,height:32,borderRadius:"50%",background:`linear-gradient(160deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,fontSize:17,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:SHADOW.accent}}>{i+1}</div><div style={{fontSize:20,color:INK,lineHeight:1.55,paddingTop:3}}>{s}</div></li>))}</ol>)}{lesson.notes&&<div style={{marginTop:14,background:WARN_BG,borderRadius:10,padding:12}}><div style={{fontSize:15,fontWeight:700,color:WARN,marginBottom:3}}>नोट</div><div style={{fontSize:16.5,color:INK}}>{lesson.notes}</div></div>}</div>)}
+        {tab==="questions"&&<div><SectionLabel icon={MessageSquare} color={VIOLET}>कक्षामा सोध्नुहोस्</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:14}}>{qState.length===0?<div style={{color:INK_SOFT}}>प्रश्नहरू थपिएका छैनन्।</div>:qState.map((item,i)=>{
           const isOpen=qOpen.has(i);const isLoading=qLoading.has(i);const isEditingAnswer=qEditingIdx===i;const color=PALETTE[i%PALETTE.length];
           return(
-            <Card key={i} accentColor={color} onClick={()=>toggleQuestion(i)} style={{cursor:"pointer"}}>
-              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
-                <div style={{fontSize:17,color:INK,fontWeight:isOpen?700:500}}>{item.q}</div>
-                <ChevronDown size={18} color={INK_SOFT} style={{flexShrink:0,marginTop:2,transform:isOpen?"rotate(180deg)":"none",transition:"transform .15s ease"}}/>
+            <Card key={i} accentColor={color} onClick={()=>toggleQuestion(i)} style={{cursor:"pointer",padding:"16px 18px"}}>
+              <div style={{display:"flex",alignItems:"flex-start",gap:14}}>
+                <div style={{width:32,height:32,borderRadius:"50%",background:`linear-gradient(160deg, ${color} 0%, color-mix(in srgb, ${color} 70%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:17,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div>
+                <div style={{flex:1,display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
+                  <div style={{fontSize:20,color:INK,fontWeight:isOpen?700:600,lineHeight:1.5}}>{item.q}</div>
+                  <ChevronDown size={19} color={INK_SOFT} style={{flexShrink:0,marginTop:3,transform:isOpen?"rotate(180deg)":"none",transition:"transform .15s ease"}}/>
+                </div>
               </div>
               {isOpen&&(
-                <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${BORDER}`,fontSize:16,color:INK_SOFT,lineHeight:1.55}}>
+                <div style={{marginTop:12,paddingTop:12,paddingLeft:46,borderTop:`1px solid ${BORDER}`,fontSize:18,color:INK_SOFT,lineHeight:1.55}}>
                   {isLoading?(
                     <span style={{display:"flex",alignItems:"center",gap:7}}><Loader size={14} style={{animation:"spin 1s linear infinite"}}/>उत्तर तयार गर्दै...</span>
                   ):qErrors[i]?(
@@ -1025,7 +1028,14 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
             </Card>
           );
         })}</div></div>}
-        {tab==="activities"&&<div><SectionLabel icon={Users} color={TEAL}>क्रियाकलापहरू</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:8}}>{activities.length===0?<div style={{color:INK_SOFT}}>क्रियाकलापहरू थपिएका छैनन्।</div>:activities.map((a,i)=><Card key={i} accentColor={PALETTE[i%PALETTE.length]}><div style={{fontSize:17,color:INK}}>{a}</div></Card>)}</div></div>}
+        {tab==="activities"&&<div><SectionLabel icon={Users} color={TEAL}>क्रियाकलापहरू</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:14}}>{activities.length===0?<div style={{color:INK_SOFT}}>क्रियाकलापहरू थपिएका छैनन्।</div>:activities.map((a,i)=>{const color=PALETTE[i%PALETTE.length];return(
+          <Card key={i} accentColor={color} style={{padding:"16px 18px"}}>
+            <div style={{display:"flex",alignItems:"flex-start",gap:14}}>
+              <div style={{width:32,height:32,borderRadius:"50%",background:`linear-gradient(160deg, ${color} 0%, color-mix(in srgb, ${color} 70%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:17,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div>
+              <div style={{fontSize:20,color:INK,lineHeight:1.55,paddingTop:3}}>{a}</div>
+            </div>
+          </Card>
+        );})}</div></div>}
         {tab==="simulation"&&<SimulationPanel lesson={lesson} chapterTitle={chapterTitle} classLabel={classLabel} classContext={classContext}/>}
         {tab==="homework"&&<div><SectionLabel icon={PenSquare} color={MARIGOLD_DARK}>दिने गृहकार्य</SectionLabel><Card><div style={{fontSize:17,color:INK,lineHeight:1.6}}>{lesson.homework||"गृहकार्य थपिएको छैन।"}</div></Card></div>}
         {tab==="rubric"&&<div><SectionLabel icon={Layers} color={ROSE}>मूल्याङ्कन मापदण्ड</SectionLabel>{rubric.length===0?<div style={{color:INK_SOFT}}>मूल्याङ्कन मापदण्ड थपिएको छैन।</div>:<div style={{display:"flex",flexDirection:"column",gap:8}}>{rubric.map((r,i)=>{const c=r.level==="उत्कृष्ट"?ACCENT:r.level==="सहयोग आवश्यक"?ROSE:MARIGOLD_DARK;return<Card key={i} accentColor={c}><div style={{fontWeight:700,color:c,fontSize:16.5,marginBottom:3}}>{r.level}</div><div style={{fontSize:16.5,color:INK}}>{r.desc}</div></Card>;})}</div>}</div>}
