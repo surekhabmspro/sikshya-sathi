@@ -1158,12 +1158,6 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
   const [error,setError]=useState("");
   const [viewing,setViewing]=useState(null);
   const [deletingId,setDeletingId]=useState(null);
-  // NEW — tracks which simulation formats (drag-drop, labeling, ordering,
-  // sorting, scenario) have already been generated for this lesson in
-  // this sitting, so pickNextSimulationType() can steer each new
-  // generation toward one it hasn't tried yet instead of risking the same
-  // format twice in a row. Resets when a different lesson is opened.
-  const [usedTypes,setUsedTypes]=useState([]);
 
   const load=useCallback(async()=>{
     setLoading(true);
@@ -1171,19 +1165,24 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
     setSims(data||[]);
     setLoading(false);
   },[lesson.id]);
-  useEffect(()=>{load();setUsedTypes([]);},[load]);
+  useEffect(()=>{load();},[load]);
 
   const generate=async()=>{
     setGenerating(true);setError("");
     try{
       const ctx=await getMaterialContext(chapterTitle,classLabel);
+      // Which formats this lesson has already used — read from the saved
+      // simulations themselves (their `type` column), not session state,
+      // so variety is remembered permanently across visits/reloads, not
+      // just within one sitting. Simulations saved before this column
+      // existed have type=null and are simply ignored here.
+      const usedTypes=sims.map((s)=>s.type).filter(Boolean);
       const nextType=gemini.pickNextSimulationType(usedTypes);
       const{html,type}=await gemini.generateSimulation(chapterTitle,lesson.title,ctx,classContext,nextType);
       const chapter_id=await resolveChapterId(chapterTitle,classLabel);
-      const{data,error}=await db.saveSimulation({lesson_id:lesson.id,chapter_id,chapter_title:chapterTitle,title:`${lesson.title} — ${type.label}`,html_content:html});
+      const{data,error}=await db.saveSimulation({lesson_id:lesson.id,chapter_id,chapter_title:chapterTitle,title:`${lesson.title} — ${type.label}`,type:type.id,html_content:html});
       if(error)throw error;
       setSims((prev)=>[data,...prev]);
-      setUsedTypes((prev)=>[...prev,type.id]);
       setViewing(data);
     }catch(e){setError("AI त्रुटि: "+(e.message||"सिमुलेसन बनाउन सकिएन।"));}
     setGenerating(false);
