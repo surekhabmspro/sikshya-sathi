@@ -1199,7 +1199,7 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
 
   return(<div>
     <SectionLabel icon={Gamepad2} color={VIOLET}>इन्टरएक्टिभ सिमुलेसन</SectionLabel>
-    <div style={{fontSize:15.5,color:INK_SOFT,marginBottom:12,lineHeight:1.5}}>यस पाठका लागि AI ले खेल्न मिल्ने अन्तरक्रियात्मक अभ्यास बनाउँछ — विद्यार्थीहरूले स्क्रिनमा छोई/तानी खेल्न सक्छन्। हरेक पटक "नयाँ बनाउनुहोस्" थिच्दा फरक-फरक शैली (मिलाउने, लेबल, क्रम, वर्गीकरण, निर्णय) प्रयास गरिन्छ, र पुरानोहरू पनि सुरक्षित रहन्छन्।</div>
+    <div style={{fontSize:15.5,color:INK_SOFT,marginBottom:12,lineHeight:1.5}}>यस पाठका लागि AI ले प्रोजेक्टरमा देखाई कक्षालाई खेलाउन मिल्ने अन्तरक्रियात्मक अभ्यास बनाउँछ — तपाईंले ल्यापटपमा माउसले चलाउनुहुन्छ। हरेक पटक "नयाँ बनाउनुहोस्" थिच्दा फरक-फरक शैली प्रयास गरिन्छ, र पुरानोहरू पनि सुरक्षित रहन्छन्।</div>
     {error&&<ErrorMsg msg={error}/>}
     <button className="ss-btn" onClick={generate} disabled={generating} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,width:"100%",padding:"13px",borderRadius:12,border:"none",background:`linear-gradient(180deg, ${VIOLET} 0%, color-mix(in srgb, ${VIOLET} 75%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:16.5,cursor:generating?"default":"pointer",boxShadow:SHADOW.accent,marginBottom:16}}>
       {generating?<><Loader size={17} style={{animation:"spin 1s linear infinite"}}/>सिमुलेसन बनाउँदै...</>:<><Wand2 size={17}/>{sims.length?"नयाँ सिमुलेसन बनाउनुहोस्":"AI बाट सिमुलेसन बनाउनुहोस्"}</>}
