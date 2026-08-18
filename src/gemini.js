@@ -1,13 +1,18 @@
 // gemini.js — Google Gemini AI integration (free tier)
 import { supabase } from "./lib/supabase";
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-// FIX — switched from gemini-2.5-flash, which hit its free-tier rate limit
-// (confirmed in Google AI Studio's Rate Limit page), to gemini-3-flash-preview,
-// a current-generation model that's still free-tier. If this ever comes back
-// with a "model not found" error, open Google AI Studio → Rate Limit → find
-// whichever Flash-tier model shows a green checkmark (free) and swap its
-// exact name in here.
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GEMINI_API_KEY}`;
+// FIX — switched from gemini-3-flash-preview, a PREVIEW model, to
+// gemini-3.6-flash, a stable (GA) release. Google's own rate-limits page
+// states plainly: "Rate limits are more restricted for experimental and
+// preview models" — that's why generation kept failing with a rate-limit
+// error even a full day later (a daily quota, not a brief traffic spike).
+// gemini-3.6-flash is free-of-charge on the Standard tier and not a
+// preview/experimental model, so it gets the normal (much higher) free-tier
+// limits. If this ever comes back with a "model not found" error, open
+// https://ai.google.dev/gemini-api/docs/pricing and pick whichever current
+// Flash-generation model shows "Free of charge" under Standard AND does
+// NOT say "Preview" in its name, then swap its exact model id in here.
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${GEMINI_API_KEY}`;
 
 // ─── IndexedDB storage for large PDF files (no size limit issues) ─────────────
 const DB_NAME = "sikshya_sathi";
@@ -317,7 +322,7 @@ async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, tim
     // temporary capacity issue rather than something broken. Now says so
     // explicitly, since that's actionable ("try again shortly") in a way
     // a raw error code isn't for a teacher mid-class.
-    if (res.status === 429) throw new Error("Gemini अहिले धेरै व्यस्त छ (rate limit) — केही सेकेन्ड पछि फेरि प्रयास गर्नुहोस्।");
+    if (res.status === 429) throw new Error("Gemini अहिले धेरै व्यस्त छ (rate limit) — केही मिनेट पछि फेरि प्रयास गर्नुहोस्। धेरैचोटि यस्तै आउँछ भने, दिनको सीमा सकिएको हुन सक्छ — भोलि फेरि प्रयास गर्नुहोस्।");
     if (res.status === 503) throw new Error("Gemini अहिले अस्थायी रूपमा उपलब्ध छैन — केही सेकेन्ड पछि फेरि प्रयास गर्नुहोस्।");
     throw new Error(`Gemini API त्रुटि (${data.error.code || res.status}): ${data.error.message}`);
   }
