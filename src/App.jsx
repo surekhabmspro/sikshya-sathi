@@ -545,7 +545,7 @@ function MaterialsHint({ count, chapterTitle, pathTitle }) {
 // widget. Used by Planner, Question Bank, Activities and Assessment so none
 // of them require a separate trip to the Materials tab just to give the AI
 // something to read from.
-function MaterialAttach({ chapterTitle, lessonId, onEnsureLessonId, classLabel }) {
+function MaterialAttach({ chapterTitle, lessonId, onEnsureLessonId, onUploaded, classLabel }) {
   const [attaching,setAttaching]=useState(false);
   const [attachedNames,setAttachedNames]=useState([]);
   const [attachError,setAttachError]=useState("");
@@ -570,6 +570,7 @@ function MaterialAttach({ chapterTitle, lessonId, onEnsureLessonId, classLabel }
     if(warning)setAttachError(warning);
     setAttachedNames((prev)=>[...prev,file.name]);
     setAttaching(false);e.target.value="";
+    onUploaded?.();
   };
 
   const ready=!!chapterTitle?.trim();
@@ -1532,7 +1533,7 @@ function ChapterMaterialsList({ materials, onGoMaterials }) {
 // own uploaded lesson plan/PPT and the textbook as its source, never
 // replacing them. This is meant to be the only screen a teacher needs to
 // touch on a normal day.
-function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, onGoAITools, onGoSettings, section, lessons, homework, loading, chapters, teacherName, onAddChapter, classContext, classLabel }) {
+function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, onGoAITools, onGoSettings, section, lessons, homework, loading, chapters, materials, teacherName, onAddChapter, classContext, classLabel }) {
   // FIX — "today's lesson" was permanently whichever lesson happened to be
   // first "ready" (or just lessons[0]), with no way to change it — so once
   // you'd taught it, the card kept pointing at the same chapter forever.
@@ -1551,10 +1552,13 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, on
     try{localStorage.setItem(`ss-today-lesson::${classLabel||"default"}`,l.id);}catch{}
   };
   const today=lessons.find((l)=>l.id===todayOverrideId)||lessons.find((l)=>l.status==="ready")||lessons[0];
-  const [materialsCount,setMaterialsCount]=useState(0);
+  // FIX — this used to be its own separate fetch (mount-only), so
+  // uploading a file elsewhere never updated the dashboard count until the
+  // whole app reloaded. Derived directly from the shared materials list
+  // now — always current, no fetch of its own needed.
+  const materialsCount=(materials||[]).length;
   const [textbookReady,setTextbookReady]=useState(false);
   useEffect(()=>{ let cancelled=false; getTextbookPDF(classLabel).then((part)=>{if(!cancelled)setTextbookReady(!!part);}); return ()=>{cancelled=true;}; },[classLabel]);
-  useEffect(()=>{ db.getMaterials(classLabel).then(({data})=>setMaterialsCount((data||[]).length)); },[classLabel]);
 
   if(loading)return<Spinner/>;
   const hour=new Date().getHours();
@@ -1676,14 +1680,13 @@ function groupLessonsByChapter(chapters, lessons) {
   }));
 }
 
-function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters, onAddChapter, onChaptersChanged, classContext, classLabel, editLessonId, onEditConsumed, prefillChapter, onPrefillConsumed }) {
+function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters, onAddChapter, onChaptersChanged, materials, onMaterialsChanged, classContext, classLabel, editLessonId, onEditConsumed, prefillChapter, onPrefillConsumed }) {
   const [showForm,setShowForm]=useState(false);
   const [form,setForm]=useState(EMPTY_LESSON_FORM);
   const [saving,setSaving]=useState(false);
   const [generating,setGenerating]=useState(false);
   const [stepState,setStepState]=useState({});
   const [error,setError]=useState("");
-  const [matchedCount,setMatchedCount]=useState(0);
   const [linkedCounts,setLinkedCounts]=useState(null);
   const [showDetails,setShowDetails]=useState(false);
   const [showMaterials,setShowMaterials]=useState(false);
@@ -1770,16 +1773,13 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
     return()=>{cancelled=true;};
   },[form.chapter_title,classLabel]);
 
-  // FIX — this used to be chapter-wide (how many materials are tagged to
-  // the whole Adhyaya), which is exactly the hochpotch being fixed:
-  // materials belong to a specific पाठ now, so this counts only files
-  // tagged to THIS Path once it has been saved.
-  useEffect(()=>{
-    let cancelled=false;
-    if(!form.id){setMatchedCount(0);return;}
-    db.getMaterialsByLesson(form.id).then(({data})=>{if(!cancelled)setMatchedCount((data||[]).length);});
-    return()=>{cancelled=true;};
-  },[form.id]);
+  // FIX — this used to be its own separate fetch (db.getMaterialsByLesson,
+  // re-run only when form.id changed), so uploading another file to the
+  // SAME already-created Path didn't update the count until the form was
+  // reopened. Materials is now one shared list across the whole app (see
+  // App()'s loadMaterials), so this just filters it directly — always
+  // exactly in sync, no separate fetch or refresh trigger needed at all.
+  const matchedCount=useMemo(()=>form.id?(materials||[]).filter((m)=>m.lesson_id===form.id).length:0,[materials,form.id]);
 
   // NEW — lets material-attach lazily create this Path's row the first
   // time a file is dropped on a brand-new (unsaved) Path, so "सामग्री
@@ -1790,7 +1790,16 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
     if(!form.chapter_title.trim()||!form.title.trim())return null;
     const chapter_id=await resolveChapterId(form.chapter_title,classLabel);
     const{data}=await db.upsertLesson({title:form.title,chapter_id,status:"missing",class_label:classLabel,section_id:section?.id||null});
-    if(data){setForm((f)=>({...f,id:data.id}));return data.id;}
+    if(data){
+      setForm((f)=>({...f,id:data.id}));
+      // FIX — this created the Path row in the database but never told
+      // Planner's own shared lessons list to refresh, so a Path created
+      // just by attaching a file (without ever tapping "AI ले यो पाठ
+      // बनाओस्") stayed invisible in both this screen's अध्याय list AND
+      // समग्री's Path picker until an unrelated refresh happened to fire.
+      onRefresh?.();
+      return data.id;
+    }
     return null;
   };
 
@@ -1822,6 +1831,14 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
       });
       if(lesson){
         setForm(lessonToForm(lesson));
+        // FIX — this created/updated the Path in the database (via
+        // preparePath) but never told Planner's shared lessons list to
+        // refresh, so a Path made through the main "AI ले यो पाठ बनाओस्"
+        // button — the most common way to create one — stayed invisible
+        // in both this screen's अध्याय list and समग्री's Path picker until
+        // an unrelated screen refresh happened to fire. This was very
+        // likely the biggest single cause of "Path doesn't show up".
+        onRefresh?.();
       }else setError("AI ले डाटा बनाउन सकेन।");
     }catch(e){setError("AI त्रुटि: "+e.message);}
     setGenerating(false);
@@ -1954,7 +1971,7 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
             {showMaterials&&(
               <div>
                 <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title} pathTitle={form.title}/>
-                <MaterialAttach chapterTitle={form.chapter_title} lessonId={form.id} onEnsureLessonId={ensurePath} classLabel={classLabel}/>
+                <MaterialAttach chapterTitle={form.chapter_title} lessonId={form.id} onEnsureLessonId={ensurePath} onUploaded={onMaterialsChanged} classLabel={classLabel}/>
                 {linkedCounts&&(
                   <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:4}}>
                     <span style={{fontSize:13.5,background:SURFACE_2,color:INK_SOFT,padding:"4px 9px",borderRadius:999,fontWeight:700}}>❓ यो अध्यायमा {linkedCounts.questions} प्रश्न</span>
@@ -2068,9 +2085,15 @@ function CategoryPicker({ value, onChange }) {
 // created from समग्री only ever showed up in योजना after a full app
 // reload. Materials now shares the SAME `lessons` (and its refresh
 // function) that Planner uses, one source of truth for both screens.
-function Materials({ chapters, onAddChapter, onChaptersChanged, lessons, onLessonsChanged, classLabel }) {
-  const [materials,setMaterials]=useState([]);
-  const [loading,setLoading]=useState(true);
+// FIX — Materials had its own separate copy of both `lessons` (for its
+// Path pickers) and `materials` (its main list) — each fetched only for
+// this screen, so anything created or uploaded elsewhere (Planner, Question
+// Bank, Activities, Assessment) never told Materials to refresh. A Path or
+// a file could exist correctly in the database and still be invisible here
+// until the app fully reloaded. Materials now receives BOTH as shared
+// state from App(), same source of truth every other screen reads from —
+// no separate copies left anywhere to fall out of sync.
+function Materials({ chapters, onAddChapter, onChaptersChanged, lessons, onLessonsChanged, materials, materialsLoading, onMaterialsChanged, classLabel }) {
   const [uploading,setUploading]=useState(false);
   const [query,setQuery]=useState("");
   const [preview,setPreview]=useState(null);
@@ -2112,12 +2135,10 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, lessons, onLesso
   // picker below now accepts several files at once instead of one at a time.
   const [uploadProgress,setUploadProgress]=useState(null);
 
-  const load=useCallback(async()=>{
-    setLoading(true);const{data}=await db.getMaterials(classLabel);setMaterials(data||[]);setLoading(false);
-  },[classLabel]);
-  useEffect(()=>{load();},[load]);
-
+  const loading=materialsLoading;
+  const load=onMaterialsChanged;
   const sync=async()=>{setSyncing(true);await load();setSyncing(false);};
+
 
   // NEW — fetch lesson/question/activity counts for every chapter, once,
   // when the management panel opens (not on every render).
@@ -2864,7 +2885,7 @@ function AIAssistant({ lessons, classContext, classLabel }) {
   );
 }
 
-function QuestionBank({ chapters, onAddChapter, classContext, classLabel }) {
+function QuestionBank({ chapters, onAddChapter, onMaterialsChanged, classContext, classLabel }) {
   const [questions,setQuestions]=useState([]);
   const [loading,setLoading]=useState(true);
   const [showForm,setShowForm]=useState(false);
@@ -2931,7 +2952,7 @@ function QuestionBank({ chapters, onAddChapter, classContext, classLabel }) {
           <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title}/>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} chapters={chapters||[]} onAddChapter={onAddChapter} placeholder="— अध्याय छान्नुहोस् (AI का लागि अनिवार्य) —"/>
-            <MaterialAttach chapterTitle={form.chapter_title} classLabel={classLabel}/>
+            <MaterialAttach chapterTitle={form.chapter_title} onUploaded={onMaterialsChanged} classLabel={classLabel}/>
             <textarea placeholder="प्रश्न (म्यानुअल)" value={form.text} onChange={(e)=>setForm({...form,text:e.target.value})} rows={3} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
             <div style={{display:"flex",gap:8}}>
               <select value={form.type} onChange={(e)=>setForm({...form,type:e.target.value})} className="ss-field" style={{flex:1,borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}>{TYPES.map((t)=><option key={t}>{t}</option>)}</select>
@@ -2998,7 +3019,7 @@ function QuestionBank({ chapters, onAddChapter, classContext, classLabel }) {
   );
 }
 
-function AssessmentBuilder({ chapters, onAddChapter, classContext, classLabel }) {
+function AssessmentBuilder({ chapters, onAddChapter, onMaterialsChanged, classContext, classLabel }) {
   const [assessments,setAssessments]=useState([]);
   const [loading,setLoading]=useState(true);
   const [showForm,setShowForm]=useState(false);
@@ -3056,7 +3077,7 @@ function AssessmentBuilder({ chapters, onAddChapter, classContext, classLabel })
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             <input placeholder="शीर्षक *" value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
             <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} chapters={chapters||[]} onAddChapter={onAddChapter} placeholder="— अध्याय छान्नुहोस् (AI का लागि) —"/>
-            <MaterialAttach chapterTitle={form.chapter_title} classLabel={classLabel}/>
+            <MaterialAttach chapterTitle={form.chapter_title} onUploaded={onMaterialsChanged} classLabel={classLabel}/>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7}}>
               {TYPES.map((t,i)=>{const Icon=t.icon;const c=PALETTE[i%PALETTE.length];const active=form.type===t.id;return(
                 <button key={t.id} onClick={()=>setForm({...form,type:t.id})} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6,padding:"11px 6px",borderRadius:12,border:`1.5px solid ${active?c:`color-mix(in srgb, ${c} 25%, ${BORDER})`}`,background:active?`color-mix(in srgb, ${c} 14%, ${SURFACE})`:SURFACE,color:active?c:INK,fontWeight:600,fontSize:14.5,cursor:"pointer",boxShadow:active?`0 6px 14px color-mix(in srgb, ${c} 30%, transparent)`:SHADOW.sm}}>
@@ -3109,7 +3130,7 @@ function AssessmentBuilder({ chapters, onAddChapter, classContext, classLabel })
   );
 }
 
-function ActivitiesLibrary({ chapters, onAddChapter, classContext, classLabel }) {
+function ActivitiesLibrary({ chapters, onAddChapter, onMaterialsChanged, classContext, classLabel }) {
   const [activities,setActivities]=useState([]);
   const [loading,setLoading]=useState(true);
   const [showForm,setShowForm]=useState(false);
@@ -3166,7 +3187,7 @@ function ActivitiesLibrary({ chapters, onAddChapter, classContext, classLabel })
           <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title}/>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} chapters={chapters||[]} onAddChapter={onAddChapter} placeholder="— अध्याय छान्नुहोस् (AI का लागि अनिवार्य) —"/>
-            <MaterialAttach chapterTitle={form.chapter_title} classLabel={classLabel}/>
+            <MaterialAttach chapterTitle={form.chapter_title} onUploaded={onMaterialsChanged} classLabel={classLabel}/>
             <input placeholder="क्रियाकलापको नाम" value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
             <input placeholder="क्षमता" value={form.competency} onChange={(e)=>setForm({...form,competency:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
             <input placeholder="समय" value={form.duration} onChange={(e)=>setForm({...form,duration:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
@@ -3315,7 +3336,7 @@ function MoreHub({
   );
 }
 
-function AITools({ lessons, chapters, onAddChapter, classContext, classLabel, initialTab, onInitialTabConsumed }) {
+function AITools({ lessons, chapters, onAddChapter, onMaterialsChanged, classContext, classLabel, initialTab, onInitialTabConsumed }) {
   // FIX — "AI च्याट" used to be its own top-level screen, separate from
   // every other AI feature (question bank/activities/assessment/
   // resources), even though it draws on the exact same lesson/material
@@ -3361,9 +3382,9 @@ function AITools({ lessons, chapters, onAddChapter, classContext, classLabel, in
         .ai-tools-tabs{-webkit-mask-image:linear-gradient(to right, transparent 0, black 14px, black calc(100% - 14px), transparent 100%);mask-image:linear-gradient(to right, transparent 0, black 14px, black calc(100% - 14px), transparent 100%);}
       `}</style>
       {tab==="chat"&&<AIAssistant lessons={lessons} classContext={classContext} classLabel={classLabel}/>}
-      {tab==="questions"&&<QuestionBank chapters={chapters} onAddChapter={onAddChapter} classContext={classContext} classLabel={classLabel}/>}
-      {tab==="activities"&&<ActivitiesLibrary chapters={chapters} onAddChapter={onAddChapter} classContext={classContext} classLabel={classLabel}/>}
-      {tab==="assessment"&&<AssessmentBuilder chapters={chapters} onAddChapter={onAddChapter} classContext={classContext} classLabel={classLabel}/>}
+      {tab==="questions"&&<QuestionBank chapters={chapters} onAddChapter={onAddChapter} onMaterialsChanged={onMaterialsChanged} classContext={classContext} classLabel={classLabel}/>}
+      {tab==="activities"&&<ActivitiesLibrary chapters={chapters} onAddChapter={onAddChapter} onMaterialsChanged={onMaterialsChanged} classContext={classContext} classLabel={classLabel}/>}
+      {tab==="assessment"&&<AssessmentBuilder chapters={chapters} onAddChapter={onAddChapter} onMaterialsChanged={onMaterialsChanged} classContext={classContext} classLabel={classLabel}/>}
       {tab==="resources"&&<ResourceCreator lessons={lessons} classContext={classContext} classLabel={classLabel}/>}
       {tab==="saved"&&<SavedResources/>}
     </div>
@@ -4414,6 +4435,23 @@ export default function App() {
     setHomework(data||[]);setHwLoading(false);
   },[currentSection]);
 
+  // FIX — materials used to be fetched independently in three places
+  // (Materials tab's own list, Home's material count, and every "attach a
+  // material" button in Planner/Question Bank/Activities/Assessment
+  // creating rows nobody else knew to refresh for). Now it's one shared
+  // list, like chapters and lessons: uploading or tagging a file from
+  // ANYWHERE refreshes it everywhere it's shown, and Materials no longer
+  // needs its own separate copy that could fall out of sync.
+  const [materials,setMaterials]=useState([]);
+  const [materialsLoading,setMaterialsLoading]=useState(true);
+  const loadMaterials=useCallback(async()=>{
+    setMaterialsLoading(true);
+    const{data,error}=await db.getMaterials(classLabel);
+    if(error){setSyncError("सामग्री लोड गर्न सकिएन — इन्टरनेट जाँच्नुहोस्।");setMaterialsLoading(false);return;}
+    setMaterials(data||[]);setMaterialsLoading(false);
+  },[classLabel]);
+  useEffect(()=>{ if(session) loadMaterials(); },[session,loadMaterials]);
+
   useEffect(()=>{if(session){loadLessons();loadHomework();}},[session,loadLessons,loadHomework]);
 
   // FIX — UI/nav overhaul: "AI च्याट" (chat) and "AI उपकरण" (question
@@ -4656,13 +4694,13 @@ export default function App() {
 
       <div className="main-content">
         {visitedScreens.has("dashboard")&&<div style={{display:screen==="dashboard"?undefined:"none"}}>
-          <HomeScreen onOpenLesson={openLesson} onGoPlanner={goPlanner} onGoHomework={()=>goMore("homework")} onGoMaterials={()=>setScreen("materials")} onGoAITools={goAITools} onGoSettings={()=>setSettingsOpen(true)} section={currentSection} lessons={lessons} homework={homework} loading={lessonsLoading} chapters={chapters} teacherName={teacherName} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel}/>
+          <HomeScreen onOpenLesson={openLesson} onGoPlanner={goPlanner} onGoHomework={()=>goMore("homework")} onGoMaterials={()=>setScreen("materials")} onGoAITools={goAITools} onGoSettings={()=>setSettingsOpen(true)} section={currentSection} lessons={lessons} homework={homework} loading={lessonsLoading} chapters={chapters} materials={materials} teacherName={teacherName} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel}/>
         </div>}
         {visitedScreens.has("planner")&&<div style={{display:screen==="planner"?undefined:"none"}}>
-          <Planner onOpenLesson={openLesson} section={currentSection} lessons={lessons} loading={lessonsLoading} onRefresh={loadLessons} chapters={chapters} onAddChapter={addChapter} onChaptersChanged={loadChapters} classContext={classContext} classLabel={classLabel} editLessonId={editLessonId} onEditConsumed={()=>setEditLessonId(null)} prefillChapter={prefillChapter} onPrefillConsumed={()=>setPrefillChapter(null)}/>
+          <Planner onOpenLesson={openLesson} section={currentSection} lessons={lessons} loading={lessonsLoading} onRefresh={loadLessons} chapters={chapters} onAddChapter={addChapter} onChaptersChanged={loadChapters} materials={materials} onMaterialsChanged={loadMaterials} classContext={classContext} classLabel={classLabel} editLessonId={editLessonId} onEditConsumed={()=>setEditLessonId(null)} prefillChapter={prefillChapter} onPrefillConsumed={()=>setPrefillChapter(null)}/>
         </div>}
         {visitedScreens.has("materials")&&<div style={{display:screen==="materials"?undefined:"none"}}>
-          <Materials chapters={chapters} onAddChapter={addChapter} onChaptersChanged={loadChapters} lessons={lessons} onLessonsChanged={loadLessons} classLabel={classLabel}/>
+          <Materials chapters={chapters} onAddChapter={addChapter} onChaptersChanged={loadChapters} lessons={lessons} onLessonsChanged={loadLessons} materials={materials} materialsLoading={materialsLoading} onMaterialsChanged={loadMaterials} classLabel={classLabel}/>
         </div>}
         {visitedScreens.has("more")&&<div style={{display:screen==="more"?undefined:"none"}}>
           <MoreHub initialPanel={moreTab} onInitialPanelConsumed={()=>setMoreTab(null)}
@@ -4671,7 +4709,7 @@ export default function App() {
           />
         </div>}
         {visitedScreens.has("aitools")&&<div style={{display:screen==="aitools"?undefined:"none"}}>
-          <AITools lessons={lessons} chapters={chapters} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel} initialTab={aiToolsTab} onInitialTabConsumed={()=>setAiToolsTab(null)}/>
+          <AITools lessons={lessons} chapters={chapters} onAddChapter={addChapter} onMaterialsChanged={loadMaterials} classContext={classContext} classLabel={classLabel} initialTab={aiToolsTab} onInitialTabConsumed={()=>setAiToolsTab(null)}/>
         </div>}
       </div>
 

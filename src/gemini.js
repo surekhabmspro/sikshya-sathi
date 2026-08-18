@@ -19,7 +19,12 @@ const PRIMARY_MODEL = "gemini-3.6-flash";
 // requests-per-day. If the primary model is still rate-limited after its
 // own retries, one attempt goes to this instead of failing outright — a
 // heavy day of testing/use on one model doesn't have to stop everything.
-const FALLBACK_MODEL = "gemini-2.5-flash-lite";
+// FIX — this was gemini-2.5-flash-lite, which Google's API itself now
+// rejects with a 404 ("no longer available to new users... use
+// models/gemini-3.5-flash-lite"). That 404 was then shown to the teacher
+// as the error, masking the original rate-limit message entirely. Updated
+// to the model Google's own error told us to use.
+const FALLBACK_MODEL = "gemini-3.5-flash-lite";
 const geminiUrl = (model) => `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
 
 // ─── IndexedDB storage for large PDF files (no size limit issues) ─────────────
@@ -327,10 +332,16 @@ async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, tim
   // NEW — the primary model used up its own retries and is still
   // rate-limited (429): one last attempt on the fallback model, which has
   // its own separate free-tier daily allowance, before giving up entirely.
+  // FIX — only swap in the fallback's response when it actually succeeded
+  // (2xx). Previously ANY non-429 fallback status (including a 404 from a
+  // wrong/deprecated model id) got treated as "good enough to show the
+  // user," which is exactly how a bad FALLBACK_MODEL name once masked the
+  // real rate-limit error behind a confusing 404. A broken fallback should
+  // never hide the original, actionable error.
   if (res && res.status === 429) {
     try {
       const fallbackRes = await fetchGeminiOnce(body, FALLBACK_MODEL, timeoutMs);
-      if (fallbackRes.status !== 429) { res = fallbackRes; usedFallback = true; }
+      if (fallbackRes.ok) { res = fallbackRes; usedFallback = true; }
     } catch { /* keep the original 429 response/error below */ }
   }
   if (!res) throw lastError || new Error("Gemini सर्भरसम्म पुग्न सकिएन।");
