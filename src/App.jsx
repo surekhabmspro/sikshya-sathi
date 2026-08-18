@@ -269,7 +269,8 @@ async function getChapterLinkedCounts(chapterId) {
 // own separate set instead of everything piling up at the Adhyaya level.
 // onProgress(stepId, state) is optional, for a step-by-step UI.
 async function preparePath({ chapterTitle, chapterId, pathTitle, lessonId, sectionId, classLabel, classContext, onProgress }) {
-  const emit = (step, state) => onProgress && onProgress(step, state);
+  const emit = (step, state, message) => onProgress && onProgress(step, state, message);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const title = (pathTitle || "").trim() || chapterTitle;
   const cId = chapterId || await resolveChapterId(chapterTitle, classLabel);
   const ctx = await getMaterialContext(chapterTitle, classLabel, lessonId);
@@ -290,43 +291,59 @@ async function preparePath({ chapterTitle, chapterId, pathTitle, lessonId, secti
     if (err) throw err;
     lesson = data;
     emit("plan", "done");
-  } catch (e) { emit("plan", "error"); throw e; }
+  } catch (e) { emit("plan", "error", e.message); throw e; }
 
   const lid = lesson?.id || lessonId || null;
 
+  // FIX — the plan+questions+activities+rubric calls used to fire back to
+  // back with no gap, all carrying the same attached-materials context.
+  // Two would often go through fine and the next one or two would then
+  // fail — a classic sign of a per-minute rate limit being hit partway
+  // through, not a one-off fluke. Each remaining step now: (1) waits a
+  // moment before starting, spreading the four calls out instead of
+  // bursting them, and (2) gets one extra automatic retry with a longer
+  // pause if the first attempt fails, before finally giving up and
+  // showing the real error message under that step.
+  async function runStep(step, fn) {
+    emit(step, "loading");
+    await sleep(1200);
+    try {
+      return await fn();
+    } catch (e1) {
+      await sleep(4000);
+      try {
+        return await fn();
+      } catch (e2) {
+        emit(step, "error", e2.message);
+        return null;
+      }
+    }
+  }
+
   let questionsCount = 0;
-  emit("questions", "loading");
-  try {
-    const qs = await gemini.generateQuestions(chapterTitle, ctx, classContext, pathTitle);
-    if (qs?.length) {
-      for (const q of qs) await db.upsertQuestion({ text: q.text, type: q.type || "छोटो उत्तर", difficulty: q.difficulty || "सजिलो", bloom_level: q.bloom || "सम्झना", chapter_id: cId, lesson_id: lid, options: q.options || [], correct_option: q.correct_option ?? null });
-      questionsCount = qs.length;
-      emit("questions", "done");
-    } else emit("questions", "error");
-  } catch (e) { emit("questions", "error"); }
+  const qs = await runStep("questions", () => gemini.generateQuestions(chapterTitle, ctx, classContext, pathTitle));
+  if (qs?.length) {
+    for (const q of qs) await db.upsertQuestion({ text: q.text, type: q.type || "छोटो उत्तर", difficulty: q.difficulty || "सजिलो", bloom_level: q.bloom || "सम्झना", chapter_id: cId, lesson_id: lid, options: q.options || [], correct_option: q.correct_option ?? null });
+    questionsCount = qs.length;
+    emit("questions", "done");
+  } else if (qs !== null) emit("questions", "error", "AI ले प्रश्न बनाउन सकेन।");
 
   let activitiesCount = 0;
-  emit("activities", "loading");
-  try {
-    const acts = await gemini.generateActivities(chapterTitle, ctx, classContext, pathTitle);
-    if (acts?.length) {
-      for (const a of acts) await db.upsertActivity({ title: a.title, type: a.type || "game", duration: a.duration, competency: a.competency, description: a.description, chapter_id: cId, lesson_id: lid });
-      activitiesCount = acts.length;
-      emit("activities", "done");
-    } else emit("activities", "error");
-  } catch (e) { emit("activities", "error"); }
+  const acts = await runStep("activities", () => gemini.generateActivities(chapterTitle, ctx, classContext, pathTitle));
+  if (acts?.length) {
+    for (const a of acts) await db.upsertActivity({ title: a.title, type: a.type || "game", duration: a.duration, competency: a.competency, description: a.description, chapter_id: cId, lesson_id: lid });
+    activitiesCount = acts.length;
+    emit("activities", "done");
+  } else if (acts !== null) emit("activities", "error", "AI ले क्रियाकलाप बनाउन सकेन।");
 
   let gotRubric = false;
-  emit("assessment", "loading");
-  try {
-    const prompt = `नेपाल ${classContext} "${chapterTitle}"को "${title}" पाठका लागि अवलोकन मूल्याङ्कन मापदण्ड भएको JSON array मात्र: [{"level":"उत्कृष्ट","desc":"..."},{"level":"राम्रो","desc":"..."},{"level":"सहयोग आवश्यक","desc":"..."}]`;
-    const rubric = await gemini.generateRubric(prompt, ctx);
-    if (rubric?.length) {
-      await db.upsertAssessment({ title: `${title} — मूल्याङ्कन`, type: "observation", rubric, due_date: null, status: "pending", chapter_id: cId, lesson_id: lid });
-      gotRubric = true;
-      emit("assessment", "done");
-    } else emit("assessment", "error");
-  } catch (e) { emit("assessment", "error"); }
+  const prompt = `नेपाल ${classContext} "${chapterTitle}"को "${title}" पाठका लागि अवलोकन मूल्याङ्कन मापदण्ड भएको JSON array मात्र: [{"level":"उत्कृष्ट","desc":"..."},{"level":"राम्रो","desc":"..."},{"level":"सहयोग आवश्यक","desc":"..."}]`;
+  const rubric = await runStep("assessment", () => gemini.generateRubric(prompt, ctx));
+  if (rubric?.length) {
+    await db.upsertAssessment({ title: `${title} — मूल्याङ्कन`, type: "observation", rubric, due_date: null, status: "pending", chapter_id: cId, lesson_id: lid });
+    gotRubric = true;
+    emit("assessment", "done");
+  } else if (rubric !== null) emit("assessment", "error", "AI ले मूल्याङ्कन मापदण्ड बनाउन सकेन।");
 
   return { lesson, questionsCount, activitiesCount, gotRubric };
 }
@@ -1453,18 +1470,25 @@ const PREP_STEPS=[
   {id:"activities",label:"क्रियाकलाप"},
   {id:"assessment",label:"मूल्याङ्कन"},
 ];
-function PrepStepRow({ label, state }) {
+function PrepStepRow({ label, state, message }) {
   const color=state==="done"?ACCENT:state==="error"?DANGER:state==="loading"?MARIGOLD_DARK:INK_SOFT;
   const bg=state==="done"?ACCENT_LIGHT:state==="error"?DANGER_BG:state==="loading"?WARN_BG:SURFACE_2;
   return(
-    <div style={{display:"flex",alignItems:"center",gap:10,padding:"7px 2px"}}>
-      <div style={{width:24,height:24,borderRadius:"50%",background:bg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-        {state==="loading"?<Loader size={12} color={color} style={{animation:"spin 1s linear infinite"}}/>
-          :state==="done"?<CheckCircle2 size={13} color={color}/>
-          :state==="error"?<AlertCircle size={13} color={color}/>
-          :<div style={{width:6,height:6,borderRadius:"50%",background:color}}/>}
+    <div style={{padding:"7px 2px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10}}>
+        <div style={{width:24,height:24,borderRadius:"50%",background:bg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+          {state==="loading"?<Loader size={12} color={color} style={{animation:"spin 1s linear infinite"}}/>
+            :state==="done"?<CheckCircle2 size={13} color={color}/>
+            :state==="error"?<AlertCircle size={13} color={color}/>
+            :<div style={{width:6,height:6,borderRadius:"50%",background:color}}/>}
+        </div>
+        <div style={{fontSize:16,fontWeight:600,color:state==="idle"?INK_SOFT:INK}}>{label}</div>
       </div>
-      <div style={{fontSize:16,fontWeight:600,color:state==="idle"?INK_SOFT:INK}}>{label}</div>
+      {/* NEW — a failed step used to just show a red dot with no way to
+          know why. Now shows the actual error (after both the in-call and
+          the extra preparePath-level retry have been used up), so a
+          repeated rate-limit/timeout is visible instead of a silent X. */}
+      {state==="error"&&message&&<div style={{fontSize:14,color:DANGER,marginLeft:34,marginTop:2}}>{message}</div>}
     </div>
   );
 }
@@ -1662,6 +1686,8 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
   const [matchedCount,setMatchedCount]=useState(0);
   const [linkedCounts,setLinkedCounts]=useState(null);
   const [showDetails,setShowDetails]=useState(false);
+  const [showMaterials,setShowMaterials]=useState(false);
+  const [changingChapter,setChangingChapter]=useState(false);
   const [expanded,setExpanded]=useState(()=>new Set());
   const [editingChapterId,setEditingChapterId]=useState(null);
   const [chapterEditValue,setChapterEditValue]=useState("");
@@ -1768,12 +1794,12 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
     return null;
   };
 
-  const startEdit=(l)=>{setForm(lessonToForm(l));setShowForm(true);setShowDetails(true);setStepState({});};
+  const startEdit=(l)=>{setForm(lessonToForm(l));setShowForm(true);setShowDetails(true);setShowMaterials(true);setChangingChapter(false);setStepState({});};
   // NEW — chapterTitle is now passed in from whichever अध्याय group's
   // "+ नयाँ पाठ" button was tapped, so the Path being created is always
   // clearly inside a specific Unit — no more guessing/typing the chapter
   // separately after the fact.
-  const startNew=(chapterTitle="")=>{setForm({...EMPTY_LESSON_FORM,chapter_title:chapterTitle});setShowForm(true);setShowDetails(false);setStepState({});
+  const startNew=(chapterTitle="")=>{setForm({...EMPTY_LESSON_FORM,chapter_title:chapterTitle});setShowForm(true);setShowDetails(false);setShowMaterials(false);setChangingChapter(!chapterTitle);setStepState({});
     window.scrollTo({top:0,behavior:"smooth"});};
 
   // FIX — THE single door. Was previously three separate implementations
@@ -1787,12 +1813,12 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
     const chapter=form.chapter_title;
     if(!chapter.trim()){setError("पहिले अध्याय छान्नुहोस्।");return;}
     if(!form.title.trim()){setError("पहिले पाठको नाम लेख्नुहोस्।");return;}
-    setGenerating(true);setError("");setStepState({plan:"loading",questions:"idle",activities:"idle",assessment:"idle"});
+    setGenerating(true);setError("");setStepState({plan:{state:"loading"},questions:{state:"idle"},activities:{state:"idle"},assessment:{state:"idle"}});
     try{
       const {lesson,questionsCount,activitiesCount,gotRubric}=await preparePath({
         chapterTitle:chapter,pathTitle:form.title,lessonId:form.id||null,
         sectionId:section?.id||null,classLabel,classContext,
-        onProgress:(step,state)=>setStepState((s)=>({...s,[step]:state})),
+        onProgress:(step,state,message)=>setStepState((s)=>({...s,[step]:{state,message}})),
       });
       if(lesson){
         setForm(lessonToForm(lesson));
@@ -1873,49 +1899,73 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
 
       {showForm&&(
         <Card style={{marginBottom:14}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-            <div style={{fontWeight:700,fontSize:17}}>{isEditing?"पाठ सम्पादन गर्नुहोस्":"नयाँ पाठ (Path)"}{form.chapter_title&&<span style={{fontWeight:500,color:INK_SOFT,fontSize:15}}> — {form.chapter_title}</span>}</div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div style={{fontWeight:700,fontSize:18}}>{isEditing?"पाठ सम्पादन गर्नुहोस्":"नयाँ पाठ"}</div>
             {isEditing&&<span style={{fontSize:13.5,background:ACCENT_LIGHT,color:ACCENT,padding:"3px 9px",borderRadius:999,fontWeight:700}}>सम्पादन मोड</span>}
           </div>
           {error&&<ErrorMsg msg={error}/>}
-          <div style={{display:"flex",flexDirection:"column",gap:9}}>
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            {/* FIX — the अध्याय picker used to always show as a full
+                dropdown, even though it's almost always already known
+                (you tapped "+ नयाँ पाठ" inside a specific अध्याय's card).
+                Now it's just a plain label in that common case, with a
+                small "बदल्नुहोस्" to change it if truly needed — one less
+                decision on screen for the normal path. */}
             <div>
-              <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:700,marginBottom:4}}>१. अध्याय (Unit)</div>
-              <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} chapters={chapters||[]} onAddChapter={onAddChapter} placeholder="— अध्याय छान्नुहोस् —"/>
-              {linkedCounts&&(
-                <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>
-                  <span style={{fontSize:13.5,background:SURFACE_2,color:INK_SOFT,padding:"4px 9px",borderRadius:999,fontWeight:700}}>📎 {linkedCounts.materials} सामग्री</span>
-                  <span style={{fontSize:13.5,background:SURFACE_2,color:INK_SOFT,padding:"4px 9px",borderRadius:999,fontWeight:700}}>❓ {linkedCounts.questions} प्रश्न</span>
-                  <span style={{fontSize:13.5,background:SURFACE_2,color:INK_SOFT,padding:"4px 9px",borderRadius:999,fontWeight:700}}>🎲 {linkedCounts.activities} क्रियाकलाप</span>
+              {form.chapter_title&&!changingChapter?(
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,background:SURFACE_2,borderRadius:12,padding:"11px 14px"}}>
+                  <div style={{minWidth:0}}>
+                    <div style={{fontSize:12.5,color:INK_SOFT,fontWeight:700,marginBottom:1}}>अध्याय</div>
+                    <div style={{fontSize:16.5,fontWeight:700,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{form.chapter_title}</div>
+                  </div>
+                  <button className="ss-icon-btn" type="button" onClick={()=>setChangingChapter(true)} style={{background:"none",border:"none",color:ACCENT,fontWeight:700,fontSize:14.5,cursor:"pointer",flexShrink:0}}>बदल्नुहोस्</button>
                 </div>
+              ):(
+                <>
+                  <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:700,marginBottom:4}}>यो पाठ कुन अध्यायमा पर्छ?</div>
+                  <ChapterPicker value={form.chapter_title} onChange={(v)=>{setForm({...form,chapter_title:v});setChangingChapter(false);}} chapters={chapters||[]} onAddChapter={onAddChapter} placeholder="— अध्याय छान्नुहोस् —"/>
+                </>
               )}
             </div>
-            <div>
-              <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:700,marginBottom:4}}>२. पाठको नाम (Path)</div>
-              <input placeholder="पाठको नाम *" value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
-            </div>
 
             <div>
-              <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:700,marginBottom:4}}>३. सामग्री (वैकल्पिक)</div>
-              <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title} pathTitle={form.title}/>
-              <MaterialAttach chapterTitle={form.chapter_title} lessonId={form.id} onEnsureLessonId={ensurePath} classLabel={classLabel}/>
+              <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:700,marginBottom:4}}>यो पाठको नाम के हो?</div>
+              <input autoFocus={!form.chapter_title} placeholder="जस्तै: सडक सुरक्षा र ट्राफिक नियम" value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"12px 14px",fontSize:17,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
             </div>
 
+            {/* FIX — THE single door: one big, obvious button, generates
+                the lesson plan AND questions AND activities AND a rubric
+                together, all tied to this exact Path. Materials are tucked
+                behind an optional toggle below instead of always taking up
+                space — most of the time a teacher just wants to type a
+                name and tap this. */}
             <div>
-              <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:700,marginBottom:4}}>४. यो पाठ पूर्ण तयार गर्नुहोस्</div>
-              {/* FIX — THE single door: one button, generates the lesson
-                  plan AND questions AND activities AND a rubric together,
-                  all tied to this exact Path. */}
-              <AIButton label={generating?"बनाउँदै...":"AI बाट पूर्ण तयार गर्नुहोस्"} onClick={autoGenerate} loading={generating} style={{width:"100%",justifyContent:"center"}}/>
+              <AIButton label={generating?"बनाउँदै...":"✨ AI ले यो पाठ बनाओस्"} onClick={autoGenerate} loading={generating} style={{width:"100%",justifyContent:"center",fontSize:17,padding:"14px"}}/>
               {(generating||Object.keys(stepState).length>0)&&(
                 <div style={{marginTop:10,borderTop:`1px solid ${BORDER}`,paddingTop:6}}>
-                  {PREP_STEPS.map((s)=><PrepStepRow key={s.id} label={s.label} state={stepState[s.id]||"idle"}/>)}
+                  {PREP_STEPS.map((s)=><PrepStepRow key={s.id} label={s.label} state={stepState[s.id]?.state||"idle"} message={stepState[s.id]?.message}/>)}
                 </div>
               )}
             </div>
 
-            <button className="ss-icon-btn" type="button" onClick={()=>setShowDetails((v)=>!v)} style={{display:"flex",alignItems:"center",gap:5,background:"none",border:"none",color:ACCENT,fontWeight:700,fontSize:15,cursor:"pointer",padding:"6px 0",alignSelf:"flex-start"}}>
-              {showDetails?<ChevronDown size={15}/>:<ChevronRight size={15}/>}विवरण हेर्नुहोस् / सम्पादन गर्नुहोस् (उद्देश्य, शब्दावली, गृहकार्य...)
+            <button className="ss-icon-btn" type="button" onClick={()=>setShowMaterials((v)=>!v)} style={{display:"flex",alignItems:"center",gap:5,background:"none",border:"none",color:INK_SOFT,fontWeight:600,fontSize:14.5,cursor:"pointer",padding:"2px 0",alignSelf:"flex-start"}}>
+              {showMaterials?<ChevronDown size={14}/>:<ChevronRight size={14}/>}📎 पहिले नै लेसन प्लान/PPT छ भने यहाँ थप्नुहोस् (वैकल्पिक)
+            </button>
+            {showMaterials&&(
+              <div>
+                <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title} pathTitle={form.title}/>
+                <MaterialAttach chapterTitle={form.chapter_title} lessonId={form.id} onEnsureLessonId={ensurePath} classLabel={classLabel}/>
+                {linkedCounts&&(
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:4}}>
+                    <span style={{fontSize:13.5,background:SURFACE_2,color:INK_SOFT,padding:"4px 9px",borderRadius:999,fontWeight:700}}>❓ यो अध्यायमा {linkedCounts.questions} प्रश्न</span>
+                    <span style={{fontSize:13.5,background:SURFACE_2,color:INK_SOFT,padding:"4px 9px",borderRadius:999,fontWeight:700}}>🎲 {linkedCounts.activities} क्रियाकलाप</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <button className="ss-icon-btn" type="button" onClick={()=>setShowDetails((v)=>!v)} style={{display:"flex",alignItems:"center",gap:5,background:"none",border:"none",color:INK_SOFT,fontWeight:600,fontSize:14.5,cursor:"pointer",padding:"2px 0",alignSelf:"flex-start"}}>
+              {showDetails?<ChevronDown size={14}/>:<ChevronRight size={14}/>}✏️ हातैले सम्पादन गर्नुहोस् (उद्देश्य, शब्दावली, गृहकार्य...)
             </button>
             {showDetails&&(
               <>
@@ -1925,15 +1975,20 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
                 {[["objectives","उद्देश्यहरू (प्रत्येक नयाँ लाइनमा)"],["vocabulary","शब्दावली — यसरी लेख्नुहोस्: शब्द: अर्थ; अर्को शब्द: अर्थ"],["sequence","पढाउने क्रम (प्रत्येक नयाँ लाइनमा)"],["key_questions","मुख्य प्रश्नहरू (प्रत्येक नयाँ लाइनमा)"],["activities","क्रियाकलापहरू (प्रत्येक नयाँ लाइनमा)"]].map(([f,p])=>(
                   <textarea key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} rows={3} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
                 ))}
+                {/* NEW — "तयार" (ready) status only makes sense once there's
+                    something to mark ready; hiding it until a plan exists
+                    removes a meaningless decision from a brand-new form. */}
+                {form.id&&(
+                  <div style={{display:"flex",gap:8}}>
+                    {["missing","prep","ready"].map((s)=>{const meta=STATUS_META[s];const active=form.status===s;return(
+                      <button key={s} onClick={()=>setForm({...form,status:s})} style={{flex:1,padding:"8px",borderRadius:10,border:`1.5px solid ${active?meta.color:`color-mix(in srgb, ${meta.color} 25%, ${BORDER})`}`,background:active?`color-mix(in srgb, ${meta.color} 14%, ${SURFACE})`:SURFACE,cursor:"pointer",boxShadow:active?`0 4px 10px color-mix(in srgb, ${meta.color} 25%, transparent)`:"none"}}><StatusPill status={s}/></button>
+                    );})}
+                  </div>
+                )}
               </>
             )}
             <div style={{display:"flex",gap:8}}>
-              {["missing","prep","ready"].map((s)=>{const meta=STATUS_META[s];const active=form.status===s;return(
-                <button key={s} onClick={()=>setForm({...form,status:s})} style={{flex:1,padding:"8px",borderRadius:10,border:`1.5px solid ${active?meta.color:`color-mix(in srgb, ${meta.color} 25%, ${BORDER})`}`,background:active?`color-mix(in srgb, ${meta.color} 14%, ${SURFACE})`:SURFACE,cursor:"pointer",boxShadow:active?`0 4px 10px color-mix(in srgb, ${meta.color} 25%, transparent)`:"none"}}><StatusPill status={s}/></button>
-              );})}
-            </div>
-            <div style={{display:"flex",gap:8}}>
-              <button onClick={()=>{setShowForm(false);setForm(EMPTY_LESSON_FORM);setShowDetails(false);setStepState({});}} className="ss-btn" style={{flex:1,padding:"11px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer",boxShadow:SHADOW.sm}}>रद्द</button>
+              <button onClick={()=>{setShowForm(false);setForm(EMPTY_LESSON_FORM);setShowDetails(false);setShowMaterials(false);setChangingChapter(false);setStepState({});}} className="ss-btn" style={{flex:1,padding:"11px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer",boxShadow:SHADOW.sm}}>रद्द</button>
               <button className="ss-btn" onClick={save} disabled={saving} style={{flex:1,padding:"11px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}>{saving?"...":isEditing?"परिवर्तन सुरक्षित गर्नुहोस्":"सुरक्षित"}</button>
             </div>
           </div>
@@ -2282,19 +2337,12 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
       )}
 
       <Card style={{marginBottom:16,marginTop:12}}>
-        <div style={{fontSize:16.5,fontWeight:700,color:INK,marginBottom:10}}>नयाँ फाइल थप्नुहोस्</div>
-        <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          <div>
-            <div style={{fontSize:14.5,fontWeight:700,color:INK_SOFT,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.03em"}}>यो फाइल कस्तो प्रकारको हो?</div>
-            <CategoryPicker value={uploadCategory} onChange={setUploadCategory}/>
-          </div>
-          <ChapterPicker value={uploadChapter} onChange={setUploadChapter} chapters={chapters||[]} onAddChapter={addChapterAndRefresh} placeholder="डिफल्ट अध्याय (फाइलनामबाट पत्ता नलागे प्रयोग हुन्छ)"/>
-          <label className="ss-btn" style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:12,padding:"13px",fontSize:16.5,fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}>
-            <Plus size={16}/>फाइल(हरू) छान्नुहोस्
-            <input type="file" multiple onChange={selectFiles} style={{display:"none"}} accept=".pdf,.pptx,.ppt,.doc,.docx,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.mp4,.mp3"/>
-          </label>
-          <div style={{fontSize:15,color:INK_SOFT}}>फाइल छान्नुभएपछि हरेकको प्रकार र अध्याय समीक्षा गर्न पाइन्छ — फाइलनाम हेरेर (जस्तै "Lesson plan-U1L1") AI ले अनुमान लगाइदिन्छ, तपाईंले चाहेमा बदल्न सक्नुहुन्छ।</div>
-        </div>
+        <div style={{fontSize:16.5,fontWeight:700,color:INK,marginBottom:8}}>नयाँ फाइल थप्नुहोस्</div>
+        <div style={{fontSize:15,color:INK_SOFT,marginBottom:12}}>तल थिचेर आफ्नो फोनबाट फाइल छान्नुहोस् (लेसन प्लान, PPT, जे भए पनि) — कुन अध्याय र पाठको हो भनेर पछि सोध्नेछौं।</div>
+        <label className="ss-btn" style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:12,padding:"14px",fontSize:17,fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}>
+          <Plus size={17}/>फाइल छान्नुहोस्
+          <input type="file" multiple onChange={selectFiles} style={{display:"none"}} accept=".pdf,.pptx,.ppt,.doc,.docx,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.mp4,.mp3"/>
+        </label>
       </Card>
 
       {pendingFiles&&(
@@ -2314,12 +2362,30 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
                     {row.unitLessonHint&&<span style={{flexShrink:0,fontSize:12.5,fontWeight:700,color:ACCENT,background:ACCENT_LIGHT,borderRadius:999,padding:"2px 8px"}}>{row.unitLessonHint}</span>}
                   </div>
                   <div style={{marginBottom:8}}>
-                    <div style={{fontSize:12.5,fontWeight:700,color:INK_SOFT,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.03em",display:"flex",alignItems:"center",gap:4}}>प्रकार{row.categoryAuto&&<Sparkles size={11} color={ACCENT}/>}</div>
-                    <CategoryPicker value={row.category} onChange={(v)=>updatePendingRow(row._key,{category:v,categoryAuto:false})}/>
+                    <div style={{fontSize:12.5,fontWeight:700,color:INK_SOFT,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.03em"}}>प्रकार</div>
+                    {/* FIX — this used to always show the full category
+                        picker even though it's auto-detected correctly most
+                        of the time; now it's a plain badge you only need to
+                        touch if the guess is wrong. */}
+                    {row.categoryEditing?(
+                      <CategoryPicker value={row.category} onChange={(v)=>updatePendingRow(row._key,{category:v,categoryAuto:false,categoryEditing:false})}/>
+                    ):(
+                      <div onClick={()=>updatePendingRow(row._key,{categoryEditing:true})} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,background:SURFACE_2,borderRadius:10,padding:"9px 12px",cursor:"pointer"}}>
+                        <span style={{fontSize:15,fontWeight:600,color:INK,display:"flex",alignItems:"center",gap:5}}>{CATEGORY_META[row.category]?.label||row.category}{row.categoryAuto&&<Sparkles size={12} color={ACCENT}/>}</span>
+                        <span style={{fontSize:13.5,color:ACCENT,fontWeight:700,flexShrink:0}}>बदल्नुहोस्</span>
+                      </div>
+                    )}
                   </div>
                   <div>
-                    <div style={{fontSize:12.5,fontWeight:700,color:INK_SOFT,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.03em",display:"flex",alignItems:"center",gap:4}}>अध्याय{row.chapterAuto&&<Sparkles size={11} color={ACCENT}/>}</div>
-                    <ChapterPicker value={row.chapterTitle} onChange={(v)=>updatePendingRow(row._key,{chapterTitle:v,chapterAuto:false,pathId:null})} chapters={chapters||[]} onAddChapter={addChapterAndRefresh} placeholder="अध्याय छान्नुहोस् *"/>
+                    <div style={{fontSize:12.5,fontWeight:700,color:INK_SOFT,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.03em"}}>अध्याय</div>
+                    {row.chapterTitle&&!row.chapterEditing?(
+                      <div onClick={()=>updatePendingRow(row._key,{chapterEditing:true})} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,background:SURFACE_2,borderRadius:10,padding:"9px 12px",cursor:"pointer"}}>
+                        <span style={{fontSize:15,fontWeight:600,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:5}}>{row.chapterTitle}{row.chapterAuto&&<Sparkles size={12} color={ACCENT} style={{flexShrink:0}}/>}</span>
+                        <span style={{fontSize:13.5,color:ACCENT,fontWeight:700,flexShrink:0}}>बदल्नुहोस्</span>
+                      </div>
+                    ):(
+                      <ChapterPicker value={row.chapterTitle} onChange={(v)=>updatePendingRow(row._key,{chapterTitle:v,chapterAuto:false,chapterEditing:false,pathId:null})} chapters={chapters||[]} onAddChapter={addChapterAndRefresh} placeholder="अध्याय छान्नुहोस् *"/>
+                    )}
                   </div>
                   <div style={{marginTop:8}}>
                     <div style={{fontSize:12.5,fontWeight:700,color:INK_SOFT,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.03em"}}>पाठ (Path) *</div>
