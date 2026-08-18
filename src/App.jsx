@@ -2062,14 +2062,14 @@ function CategoryPicker({ value, onChange }) {
   );
 }
 
-function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
+// FIX — Materials had its own separate copy of `lessons`, fetched only for
+// its Path pickers. Creating a new Path from here updated that local copy
+// but never touched Planner's own `lessons` state up in App — so a Path
+// created from समग्री only ever showed up in योजना after a full app
+// reload. Materials now shares the SAME `lessons` (and its refresh
+// function) that Planner uses, one source of truth for both screens.
+function Materials({ chapters, onAddChapter, onChaptersChanged, lessons, onLessonsChanged, classLabel }) {
   const [materials,setMaterials]=useState([]);
-  const [lessons,setLessons]=useState([]);
-  const loadLessonsForPicker=useCallback(async()=>{
-    const{data}=await db.getLessons(null,classLabel);
-    setLessons(data||[]);
-  },[classLabel]);
-  useEffect(()=>{loadLessonsForPicker();},[loadLessonsForPicker]);
   const [loading,setLoading]=useState(true);
   const [uploading,setUploading]=useState(false);
   const [query,setQuery]=useState("");
@@ -2389,7 +2389,7 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
                   </div>
                   <div style={{marginTop:8}}>
                     <div style={{fontSize:12.5,fontWeight:700,color:INK_SOFT,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.03em"}}>पाठ (Path) *</div>
-                    <PathPicker value={row.pathId} onChange={(v)=>updatePendingRow(row._key,{pathId:v})} chapterTitle={row.chapterTitle} lessons={lessons} onLessonsChanged={loadLessonsForPicker} classLabel={classLabel}/>
+                    <PathPicker value={row.pathId} onChange={(v)=>updatePendingRow(row._key,{pathId:v})} chapterTitle={row.chapterTitle} lessons={lessons} onLessonsChanged={onLessonsChanged} classLabel={classLabel}/>
                   </div>
                 </div>
               ))}
@@ -2566,7 +2566,7 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
             <ChapterPicker value={tagValue} onChange={(v)=>{setTagValue(v);setTagPathId(null);}} chapters={chapters||[]} onAddChapter={addChapterAndRefresh} placeholder="— अध्याय छान्नुहोस् —"/>
             <div style={{height:14}}/>
             <div style={{fontSize:14.5,fontWeight:700,color:INK_SOFT,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.03em"}}>पाठ (Path) *</div>
-            <PathPicker value={tagPathId} onChange={setTagPathId} chapterTitle={tagValue} lessons={lessons} onLessonsChanged={loadLessonsForPicker} classLabel={classLabel}/>
+            <PathPicker value={tagPathId} onChange={setTagPathId} chapterTitle={tagValue} lessons={lessons} onLessonsChanged={onLessonsChanged} classLabel={classLabel}/>
             <div style={{height:16}}/>
             <Button variant="primary" onClick={saveTag} disabled={retagging} style={{width:"100%"}}>{retagging?"प्रशोधन गर्दै...":"सुरक्षित गर्नुहोस्"}</Button>
           </div>
@@ -4662,7 +4662,7 @@ export default function App() {
           <Planner onOpenLesson={openLesson} section={currentSection} lessons={lessons} loading={lessonsLoading} onRefresh={loadLessons} chapters={chapters} onAddChapter={addChapter} onChaptersChanged={loadChapters} classContext={classContext} classLabel={classLabel} editLessonId={editLessonId} onEditConsumed={()=>setEditLessonId(null)} prefillChapter={prefillChapter} onPrefillConsumed={()=>setPrefillChapter(null)}/>
         </div>}
         {visitedScreens.has("materials")&&<div style={{display:screen==="materials"?undefined:"none"}}>
-          <Materials chapters={chapters} onAddChapter={addChapter} onChaptersChanged={loadChapters} classLabel={classLabel}/>
+          <Materials chapters={chapters} onAddChapter={addChapter} onChaptersChanged={loadChapters} lessons={lessons} onLessonsChanged={loadLessons} classLabel={classLabel}/>
         </div>}
         {visitedScreens.has("more")&&<div style={{display:screen==="more"?undefined:"none"}}>
           <MoreHub initialPanel={moreTab} onInitialPanelConsumed={()=>setMoreTab(null)}
