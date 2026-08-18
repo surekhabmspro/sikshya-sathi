@@ -243,6 +243,79 @@ async function getChapterLinkedCounts(chapterId) {
   return { materials: mats.count || 0, questions: qs.count || 0, activities: acts.count || 0 };
 }
 
+// NEW — THE single door. Every place in the app that used to build its own
+// "generate with AI" flow (Home's chapter-prepare card, Planner's single-add
+// form, Planner's bulk-generate, LessonEditModal's regenerate) now calls
+// this one function instead. Given an अध्याय (Unit) and a specific पाठ
+// (Path) name inside it, it builds the whole bundle in one go — lesson
+// plan, questions, activities, assessment rubric — and, critically, tags
+// the questions/activities/assessment with this exact lesson_id (not just
+// the chapter_id), so several Paths under the same Adhyaya each keep their
+// own separate set instead of everything piling up at the Adhyaya level.
+// onProgress(stepId, state) is optional, for a step-by-step UI.
+async function preparePath({ chapterTitle, chapterId, pathTitle, lessonId, sectionId, classLabel, classContext, onProgress }) {
+  const emit = (step, state) => onProgress && onProgress(step, state);
+  const title = (pathTitle || "").trim() || chapterTitle;
+  const cId = chapterId || await resolveChapterId(chapterTitle, classLabel);
+  const ctx = await getMaterialContext(chapterTitle, classLabel);
+
+  emit("plan", "loading");
+  let lesson = null;
+  try {
+    const result = await gemini.generateLessonPlan(chapterTitle, ctx, classContext, pathTitle);
+    const payload = {
+      title, status: "prep", chapter_id: cId,
+      section_id: sectionId || null, class_label: classLabel,
+      objectives: result.objectives || [], vocabulary: result.vocabulary || [],
+      sequence: result.sequence || [], key_questions: result.key_questions || [],
+      activities: result.activities || [], homework: result.homework || "", notes: result.notes || "",
+    };
+    if (lessonId) payload.id = lessonId;
+    const { data, error: err } = await db.upsertLesson(payload);
+    if (err) throw err;
+    lesson = data;
+    emit("plan", "done");
+  } catch (e) { emit("plan", "error"); throw e; }
+
+  const lid = lesson?.id || lessonId || null;
+
+  let questionsCount = 0;
+  emit("questions", "loading");
+  try {
+    const qs = await gemini.generateQuestions(chapterTitle, ctx, classContext, pathTitle);
+    if (qs?.length) {
+      for (const q of qs) await db.upsertQuestion({ text: q.text, type: q.type || "छोटो उत्तर", difficulty: q.difficulty || "सजिलो", bloom_level: q.bloom || "सम्झना", chapter_id: cId, lesson_id: lid, options: q.options || [], correct_option: q.correct_option ?? null });
+      questionsCount = qs.length;
+      emit("questions", "done");
+    } else emit("questions", "error");
+  } catch (e) { emit("questions", "error"); }
+
+  let activitiesCount = 0;
+  emit("activities", "loading");
+  try {
+    const acts = await gemini.generateActivities(chapterTitle, ctx, classContext, pathTitle);
+    if (acts?.length) {
+      for (const a of acts) await db.upsertActivity({ title: a.title, type: a.type || "game", duration: a.duration, competency: a.competency, description: a.description, chapter_id: cId, lesson_id: lid });
+      activitiesCount = acts.length;
+      emit("activities", "done");
+    } else emit("activities", "error");
+  } catch (e) { emit("activities", "error"); }
+
+  let gotRubric = false;
+  emit("assessment", "loading");
+  try {
+    const prompt = `नेपाल ${classContext} "${chapterTitle}"को "${title}" पाठका लागि अवलोकन मूल्याङ्कन मापदण्ड भएको JSON array मात्र: [{"level":"उत्कृष्ट","desc":"..."},{"level":"राम्रो","desc":"..."},{"level":"सहयोग आवश्यक","desc":"..."}]`;
+    const rubric = await gemini.generateRubric(prompt, ctx);
+    if (rubric?.length) {
+      await db.upsertAssessment({ title: `${title} — मूल्याङ्कन`, type: "observation", rubric, due_date: null, status: "pending", chapter_id: cId, lesson_id: lid });
+      gotRubric = true;
+      emit("assessment", "done");
+    } else emit("assessment", "error");
+  } catch (e) { emit("assessment", "error"); }
+
+  return { lesson, questionsCount, activitiesCount, gotRubric };
+}
+
 // NEW — a real elevated, "premium" button with hover lift, active press,
 // and a soft focus ring, done in plain inline styles + a couple of CSS
 // classes injected globally (see the <style> block in App()) so :hover and
@@ -700,24 +773,21 @@ function LessonEditModal({ lesson, chapters, onAddChapter, classContext, classLa
   const [error,setError]=useState("");
   const [showDetails,setShowDetails]=useState(true);
 
+  // FIX — used to only regenerate the lesson-plan text fields (objectives,
+  // sequence...) and leave questions/activities/rubric untouched, as a
+  // separate implementation from Home/Planner's own generate buttons. Now
+  // calls the same single preparePath() door everything else uses, so
+  // regenerating here also refreshes this Path's questions, activities and
+  // rubric (tied to this exact lesson, not just the Adhyaya).
   const autoGenerate=async()=>{
-    const chapter=form.chapter_title||form.title;
-    if(!chapter.trim()){setError("पहिले अध्याय वा पाठको नाम लेख्नुहोस्।");return;}
+    const chapter=form.chapter_title;
+    if(!chapter.trim()){setError("पहिले अध्याय छान्नुहोस्।");return;}
+    if(!form.title.trim()){setError("पहिले पाठको नाम लेख्नुहोस्।");return;}
     setGenerating(true);setError("");
     try{
-      const ctx=await getMaterialContext(chapter,classLabel);
-      const result=await gemini.generateLessonPlan(chapter,ctx,classContext);
-      if(result){
-        setForm((prev)=>({...prev,
-          objectives:(result.objectives||[]).join("\n"),
-          vocabulary:(result.vocabulary||[]).join("; "),
-          sequence:(result.sequence||[]).join("\n"),
-          key_questions:(result.key_questions||[]).join("\n"),
-          activities:(result.activities||[]).join("\n"),
-          homework:result.homework||prev.homework,
-          notes:result.notes||prev.notes,
-        }));
-      }else setError("AI ले डाटा बनाउन सकेन।");
+      const {lesson}=await preparePath({chapterTitle:chapter,pathTitle:form.title,lessonId:form.id,classLabel,classContext});
+      if(lesson)setForm(lessonToForm(lesson));
+      else setError("AI ले डाटा बनाउन सकेन।");
     }catch(e){setError("AI त्रुटि: "+e.message);}
     setGenerating(false);
   };
@@ -767,7 +837,7 @@ function LessonEditModal({ lesson, chapters, onAddChapter, classContext, classLa
             <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} chapters={chapters||[]} onAddChapter={onAddChapter} placeholder="— अध्याय छान्नुहोस् —"/>
           </div>
           <div>
-            <AIButton label={generating?"बनाउँदै...":"AI बाट पुनः बनाउनुहोस्"} onClick={autoGenerate} loading={generating} style={{width:"100%",justifyContent:"center"}}/>
+            <AIButton label={generating?"बनाउँदै...":"AI बाट पुनः पूर्ण तयार गर्नुहोस् (योजना+प्रश्न+क्रियाकलाप+मूल्याङ्कन)"} onClick={autoGenerate} loading={generating} style={{width:"100%",justifyContent:"center"}}/>
           </div>
           <button className="ss-icon-btn" type="button" onClick={()=>setShowDetails((v)=>!v)} style={{display:"flex",alignItems:"center",gap:5,background:"none",border:"none",color:ACCENT,fontWeight:700,fontSize:15,cursor:"pointer",padding:"6px 0",alignSelf:"flex-start"}}>
             {showDetails?<ChevronDown size={15}/>:<ChevronRight size={15}/>}विवरण {showDetails?"लुकाउनुहोस्":"देखाउनुहोस्"}
@@ -1268,6 +1338,7 @@ function StatCard({ icon:Icon, value, label, color, onClick, accent }) {
 // uploaded (shown separately below) — this only fills in what AI is
 // actually useful for: questions, activities, and an assessment rubric.
 const PREP_STEPS=[
+  {id:"plan",label:"पाठ योजना"},
   {id:"questions",label:"प्रश्नहरू"},
   {id:"activities",label:"क्रियाकलाप"},
   {id:"assessment",label:"मूल्याङ्कन"},
@@ -1347,77 +1418,9 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, on
   };
   const today=lessons.find((l)=>l.id===todayOverrideId)||lessons.find((l)=>l.status==="ready")||lessons[0];
   const [materialsCount,setMaterialsCount]=useState(0);
-  const [prepChapter,setPrepChapter]=useState("");
-  const [chapterMaterials,setChapterMaterials]=useState([]);
-  const [stepState,setStepState]=useState({});
-  const [preparing,setPreparing]=useState(false);
-  const [prepError,setPrepError]=useState("");
-  const [prepResult,setPrepResult]=useState(null);
   const [textbookReady,setTextbookReady]=useState(false);
   useEffect(()=>{ let cancelled=false; getTextbookPDF(classLabel).then((part)=>{if(!cancelled)setTextbookReady(!!part);}); return ()=>{cancelled=true;}; },[classLabel]);
-
   useEffect(()=>{ db.getMaterials(classLabel).then(({data})=>setMaterialsCount((data||[]).length)); },[classLabel]);
-  useEffect(()=>{
-    if(!prepChapter){setChapterMaterials([]);return;}
-    let cancelled=false;
-    db.getChapterIdByTitle(prepChapter,classLabel).then((id)=>{
-      if(!id){if(!cancelled)setChapterMaterials([]);return;}
-      db.getMaterialsByChapter(id).then(({data})=>{if(!cancelled)setChapterMaterials(data||[]);});
-    });
-    return ()=>{cancelled=true;};
-  },[prepChapter,classLabel]);
-
-  const prepareChapter=async()=>{
-    const chapter=prepChapter.trim();
-    if(!chapter){setPrepError("पहिले अध्याय छान्नुहोस्।");return;}
-    setPreparing(true);setPrepError("");setPrepResult(null);
-    setStepState({questions:"loading",activities:"idle",assessment:"idle"});
-    let qCount=0,aCount=0,gotRubric=false;
-    // NEW: this pulls in the teacher's own uploaded lesson plan/PPT/materials
-    // for this chapter (plus the textbook) as the source AI reads from.
-    const ctx=await getMaterialContext(chapter,classLabel);
-    // FIX — same root-cause tagging bug as Planner/Question Bank/Activities
-    // had: resolve the real chapter_id ONCE up front and save it on
-    // everything this "prepare my class" flow creates, instead of only
-    // ever saving the typed chapter name. This is the main daily-use
-    // button on the dashboard, so it mattered most to get right.
-    const chapter_id=await resolveChapterId(chapter,classLabel);
-
-    try{
-      const qs=await gemini.generateQuestions(chapter,ctx,classContext);
-      if(qs?.length){
-        for(const q of qs)await db.upsertQuestion({text:q.text,type:q.type||"छोटो उत्तर",difficulty:q.difficulty||"सजिलो",bloom_level:q.bloom||"सम्झना",chapter_title:chapter,chapter_id,options:q.options||[],correct_option:q.correct_option??null});
-        qCount=qs.length;
-        setStepState((s)=>({...s,questions:"done",activities:"loading"}));
-      }else setStepState((s)=>({...s,questions:"error",activities:"loading"}));
-    }catch(e){setStepState((s)=>({...s,questions:"error",activities:"loading"}));}
-
-    try{
-      const acts=await gemini.generateActivities(chapter,ctx,classContext);
-      if(acts?.length){
-        for(const a of acts)await db.upsertActivity({title:a.title,type:a.type||"game",duration:a.duration,competency:a.competency,description:a.description,chapter_title:chapter,chapter_id});
-        aCount=acts.length;
-        setStepState((s)=>({...s,activities:"done",assessment:"loading"}));
-      }else setStepState((s)=>({...s,activities:"error",assessment:"loading"}));
-    }catch(e){setStepState((s)=>({...s,activities:"error",assessment:"loading"}));}
-
-    try{
-      const prompt=`नेपाल ${classContext} "${chapter}" का लागि अवलोकन मूल्याङ्कन मापदण्ड भएको JSON array मात्र: [{"level":"उत्कृष्ट","desc":"..."},{"level":"राम्रो","desc":"..."},{"level":"सहयोग आवश्यक","desc":"..."}]`;
-      const rubric=await gemini.generateRubric(prompt,ctx);
-      if(rubric?.length){
-        // FIX — chapter_title was previously never saved here at all, so a
-        // rubric made from this button could never be found again from any
-        // chapter-based view.
-        await db.upsertAssessment({title:`${chapter} — मूल्याङ्कन`,type:"observation",rubric,due_date:null,status:"pending",chapter_title:chapter});
-        gotRubric=true;
-        setStepState((s)=>({...s,assessment:"done"}));
-      }else setStepState((s)=>({...s,assessment:"error"}));
-    }catch(e){setStepState((s)=>({...s,assessment:"error"}));}
-
-    const hasLesson=lessons.some((l)=>(l.chapters?.title||l.chapter_title)===chapter);
-    setPrepResult({chapter,questions:qCount,activities:aCount,rubric:gotRubric,hasLesson});
-    setPreparing(false);
-  };
 
   if(loading)return<Spinner/>;
   const hour=new Date().getHours();
@@ -1474,47 +1477,17 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, on
         </div>
       )}
 
-      <Card style={{marginBottom:16}}>
-        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
-          <div style={{width:38,height:38,borderRadius:11,background:`linear-gradient(160deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:SHADOW.accent}}><Wand2 size={18} color="#fff"/></div>
-          <div style={{fontWeight:800,fontSize:18,color:INK}}>कक्षा तयार गर्नुहोस्</div>
+      {/* FIX — this used to be its own full "generate" flow, duplicating
+          (and drifting out of sync with) the one inside Planner. Now it's a
+          plain shortcut: Planner is the single door where you pick an
+          Adhyaya, see its Paths, and generate a Path's full bundle. */}
+      <Card onClick={()=>onGoPlanner()} style={{marginBottom:16,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}>
+        <div style={{width:38,height:38,borderRadius:11,background:`linear-gradient(160deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:SHADOW.accent}}><Wand2 size={18} color="#fff"/></div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontWeight:700,fontSize:16.5,color:INK}}>पाठ योजना बनाउनुहोस्</div>
+          <div style={{fontSize:14.5,color:INK_SOFT}}>अध्याय (Unit) छान्नुहोस्, त्यसभित्र पाठ (Path) थप्नुहोस् — AI ले एकैचोटि सबै तयार गर्छ</div>
         </div>
-        <div style={{fontSize:15,color:INK_SOFT,marginBottom:12,lineHeight:1.5}}>अध्याय छान्नुहोस् — तपाईंले अपलोड गरेको पाठ योजना र सामग्री (जस्तै PPT) प्रयोग गरेर प्रश्न, क्रियाकलाप र मूल्याङ्कन एकैचोटि तयार हुनेछ।</div>
-
-        <ChapterPicker value={prepChapter} onChange={setPrepChapter} chapters={chapters||[]} onAddChapter={onAddChapter} placeholder="— अध्याय छान्नुहोस् —"/>
-        {prepChapter.trim()&&<div style={{marginTop:8}}><ChapterMaterialsList materials={chapterMaterials} onGoMaterials={onGoMaterials}/></div>}
-
-        {prepError&&<ErrorMsg msg={prepError}/>}
-
-        <Button variant="primary" size="lg" icon={preparing?undefined:Zap} disabled={preparing||!prepChapter.trim()} onClick={prepareChapter} style={{width:"100%",marginTop:6}}>
-          {preparing?<><Spinner small/> तयार हुँदै...</>:"यो अध्याय तयार गर्नुहोस्"}
-        </Button>
-
-        {(preparing||prepResult)&&(
-          <div style={{marginTop:14,borderTop:`1px solid ${BORDER}`,paddingTop:8}}>
-            {PREP_STEPS.map((s)=><PrepStepRow key={s.id} label={s.label} state={stepState[s.id]||"idle"}/>)}
-          </div>
-        )}
-
-        {prepResult&&(
-          <div style={{marginTop:12,background:ACCENT_LIGHT,borderRadius:12,padding:14}}>
-            <div style={{fontWeight:700,color:ACCENT,fontSize:16.5,marginBottom:6}}>"{prepResult.chapter}" तयार भयो ✓</div>
-            <div style={{fontSize:15,color:INK,marginBottom:10}}>{prepResult.questions} प्रश्न · {prepResult.activities} क्रियाकलाप{prepResult.rubric?" · मूल्याङ्कन मापदण्ड":""} बनाइयो</div>
-            {/* NEW — this flow deliberately never writes the lesson plan
-                itself (objectives/sequence), only what's built on top of
-                it; without a visible link back to the Planner, that gap
-                was easy to miss. Shows whether one already exists for this
-                chapter, and jumps straight there either way. */}
-            {!prepResult.hasLesson&&(
-              <div style={{display:"flex",alignItems:"center",gap:6,fontSize:14.5,color:WARN,marginBottom:10}}><ClipboardList size={14}/>यो अध्यायको पाठ योजना (उद्देश्य/क्रम) अझै बनेको छैन।</div>
-            )}
-            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-              <Button variant="secondary" size="sm" onClick={onGoAITools}>प्रश्न/क्रियाकलाप हेर्नुहोस्</Button>
-              <Button variant="secondary" size="sm" onClick={onGoMaterials}>सामग्री हेर्नुहोस्</Button>
-              <Button variant="secondary" size="sm" onClick={()=>onGoPlanner(prepResult.chapter)}>{prepResult.hasLesson?"पाठ योजना हेर्नुहोस्":"पाठ योजना बनाउनुहोस्"}</Button>
-            </div>
-          </div>
-        )}
+        <ChevronRight size={18} color={INK_SOFT} style={{flexShrink:0}}/>
       </Card>
 
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:16}}>
@@ -1547,16 +1520,41 @@ function lessonToForm(l){
   };
 }
 
+// NEW — every अध्याय (Unit) shown as a group, holding its own list of पाठ
+// (Path) entries — real Unit→Lesson structure instead of a flat list where
+// Adhyaya and Path kept blurring into the same thing. Groups every chapter
+// from `chapters` (even ones with zero paths yet, so a freshly-added
+// Adhyaya still shows up ready to receive its first Path) and buckets each
+// lesson under its chapter_id (falling back to a title match for any old
+// rows saved before chapter_id was reliably set).
+function groupLessonsByChapter(chapters, lessons) {
+  const byId=new Map();
+  const byTitle=new Map();
+  for(const l of lessons){
+    const cid=l.chapter_id||null;
+    const ctitle=l.chapters?.title||l.chapter_title||"";
+    if(cid){ if(!byId.has(cid))byId.set(cid,[]); byId.get(cid).push(l); }
+    else if(ctitle){ if(!byTitle.has(ctitle))byTitle.set(ctitle,[]); byTitle.get(ctitle).push(l); }
+  }
+  return (chapters||[]).map((c)=>({
+    chapter:c,
+    paths:[...(byId.get(c.id)||[]), ...(byTitle.get(c.title)||[])],
+  }));
+}
+
 function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters, onAddChapter, classContext, classLabel, editLessonId, onEditConsumed, prefillChapter, onPrefillConsumed }) {
   const [showForm,setShowForm]=useState(false);
   const [form,setForm]=useState(EMPTY_LESSON_FORM);
   const [saving,setSaving]=useState(false);
   const [generating,setGenerating]=useState(false);
+  const [stepState,setStepState]=useState({});
   const [error,setError]=useState("");
   const [matchedCount,setMatchedCount]=useState(0);
   const [linkedCounts,setLinkedCounts]=useState(null);
   const [showDetails,setShowDetails]=useState(false);
+  const [expanded,setExpanded]=useState(()=>new Set());
   const isEditing=!!form.id;
+  const groups=groupLessonsByChapter(chapters,lessons);
 
   // NEW — opening a lesson for editing can be triggered from outside this
   // screen (the "सम्पादन गर्नुहोस्" button inside a lesson's full-screen
@@ -1606,71 +1604,35 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
     return()=>{cancelled=true;};
   },[form.chapter_title,classLabel]);
 
-  const startEdit=(l)=>{setForm(lessonToForm(l));setShowForm(true);setShowDetails(true);};
-  const startNew=()=>{setForm(EMPTY_LESSON_FORM);setShowForm(true);setShowDetails(false);};
+  const startEdit=(l)=>{setForm(lessonToForm(l));setShowForm(true);setShowDetails(true);setStepState({});};
+  // NEW — chapterTitle is now passed in from whichever अध्याय group's
+  // "+ नयाँ पाठ" button was tapped, so the Path being created is always
+  // clearly inside a specific Unit — no more guessing/typing the chapter
+  // separately after the fact.
+  const startNew=(chapterTitle="")=>{setForm({...EMPTY_LESSON_FORM,chapter_title:chapterTitle});setShowForm(true);setShowDetails(false);setStepState({});
+    window.scrollTo({top:0,behavior:"smooth"});};
 
-  // NEW — "make the plan for all the chapters at once": generates and
-  // saves a full lesson plan (objectives/vocabulary/sequence/questions/
-  // activities/homework) for every chapter that doesn't already have one,
-  // one chapter after another (not in parallel — gentler on the free AI
-  // quota and lets each one finish cleanly before the next starts).
-  // Saved with status "prep" (needs review), not "ready" — AI output
-  // should get a look before being treated as classroom-ready, and this
-  // makes it obvious which ones still need a read-through.
-  const [bulkRunning,setBulkRunning]=useState(false);
-  const [bulkProgress,setBulkProgress]=useState(null);
-  const [bulkResult,setBulkResult]=useState(null);
-  const [bulkConfirming,setBulkConfirming]=useState(false);
-  const chaptersMissingLessons=(chapters||[]).filter((c)=>!lessons.some((l)=>(l.chapters?.title||l.chapter_title)===c.title));
-  const bulkGenerateAll=async()=>{
-    setBulkConfirming(false);
-    const targets=chaptersMissingLessons;
-    if(!targets.length)return;
-    setBulkRunning(true);setBulkResult(null);
-    let done=0,failed=[];
-    for(const c of targets){
-      setBulkProgress({current:done+1,total:targets.length,chapter:c.title});
-      try{
-        const ctx=await getMaterialContext(c.title,classLabel);
-        const result=await gemini.generateLessonPlan(c.title,ctx,classContext);
-        if(!result){failed.push(c.title);done++;continue;}
-        const chapter_id=await resolveChapterId(c.title,classLabel);
-        const payload={
-          title:c.title,status:"prep",chapter_title:c.title,chapter_id,
-          section_id:section?.id||null,class_label:classLabel,
-          objectives:result.objectives||[],vocabulary:result.vocabulary||[],
-          sequence:result.sequence||[],key_questions:result.key_questions||[],
-          activities:result.activities||[],homework:result.homework||"",notes:result.notes||"",
-        };
-        const{error:err}=await db.upsertLesson(payload);
-        if(err)failed.push(c.title);
-      }catch(e){failed.push(c.title);}
-      done++;
-    }
-    setBulkRunning(false);setBulkProgress(null);
-    setBulkResult({done:targets.length-failed.length,failed});
-    onRefresh();
-  };
-
+  // FIX — THE single door. Was previously three separate implementations
+  // (this form's own generate, the dashboard's chapter-prepare card, and a
+  // bulk "do every chapter" button) each calling the AI slightly
+  // differently. Now this is the only place Planner triggers generation,
+  // and it calls the exact same preparePath() every other screen uses —
+  // producing the lesson plan AND the questions/activities/rubric for this
+  // specific पाठ (Path) in one go, tied to this lesson's own id.
   const autoGenerate=async()=>{
-    const chapter=form.chapter_title||form.title;
-    if(!chapter.trim()){setError("पहिले अध्याय वा पाठको नाम लेख्नुहोस्।");return;}
-    setGenerating(true);setError("");
+    const chapter=form.chapter_title;
+    if(!chapter.trim()){setError("पहिले अध्याय छान्नुहोस्।");return;}
+    if(!form.title.trim()){setError("पहिले पाठको नाम लेख्नुहोस्।");return;}
+    setGenerating(true);setError("");setStepState({plan:"loading",questions:"idle",activities:"idle",assessment:"idle"});
     try{
-      // NEW: pulls in the global textbook PDF *and* every material tagged to this chapter
-      const ctx=await getMaterialContext(chapter,classLabel);
-      setMatchedCount(ctx.matchedCount||0);
-      const result=await gemini.generateLessonPlan(chapter,ctx,classContext);
-      if(result){
-        setForm((prev)=>({...prev,
-          objectives:(result.objectives||[]).join("\n"),
-          vocabulary:(result.vocabulary||[]).join("; "),
-          sequence:(result.sequence||[]).join("\n"),
-          key_questions:(result.key_questions||[]).join("\n"),
-          activities:(result.activities||[]).join("\n"),
-          homework:result.homework||prev.homework,
-          notes:result.notes||prev.notes,
-        }));
+      const {lesson,questionsCount,activitiesCount,gotRubric}=await preparePath({
+        chapterTitle:chapter,pathTitle:form.title,lessonId:form.id||null,
+        sectionId:section?.id||null,classLabel,classContext,
+        onProgress:(step,state)=>setStepState((s)=>({...s,[step]:state})),
+      });
+      if(lesson){
+        setForm(lessonToForm(lesson));
+        setMatchedCount((await getMaterialContext(chapter,classLabel)).matchedCount||0);
       }else setError("AI ले डाटा बनाउन सकेन।");
     }catch(e){setError("AI त्रुटि: "+e.message);}
     setGenerating(false);
@@ -1678,15 +1640,6 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
 
   const save=async()=>{
     if(!form.title.trim()){setError("पाठको नाम आवश्यक छ।");return;}
-    // NEW — warn before creating a second lesson for a chapter that already
-    // has one. Only applies when creating a new lesson (not while editing
-    // this same lesson — previously this fired on every re-save of an
-    // existing plan because there was no way to tell "editing" from
-    // "creating" apart).
-    if(!isEditing&&form.chapter_title.trim()){
-      const dup=lessons.find((l)=>(l.chapters?.title||l.chapter_title)===form.chapter_title);
-      if(dup&&!confirm(`"${form.chapter_title}" का लागि पहिले नै "${dup.title}" भन्ने पाठ बनाइसकिएको छ। फेरि पनि नयाँ पाठ बनाउने?`))return;
-    }
     setSaving(true);setError("");
     // FIX — resolve the real chapter_id (not just the typed title) before
     // saving, so this lesson is actually linked to its chapter everywhere
@@ -1715,66 +1668,57 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
     await db.deleteLesson(id);onRefresh();
   };
 
+  const toggleExpand=(id)=>setExpanded((prev)=>{const next=new Set(prev);next.has(id)?next.delete(id):next.add(id);return next;});
+
+  // NEW — quick inline "+ नयाँ अध्याय", so a fresh Unit can be created right
+  // from this screen and immediately shown as an (empty) group ready for
+  // its first Path — same add-chapter logic ChapterPicker already used,
+  // just surfaced directly here too.
+  const [addingChapter,setAddingChapter]=useState(false);
+  const [newChapterTitle,setNewChapterTitle]=useState("");
+  const submitNewChapter=async()=>{
+    if(!newChapterTitle.trim())return;
+    const title=newChapterTitle.trim();
+    await onAddChapter(title);
+    setAddingChapter(false);setNewChapterTitle("");
+    onRefresh();
+  };
+
   return(
     <div className="ss-page" style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={{fontSize:20,fontWeight:700,color:INK}}>पाठ योजना</div>
-        <div style={{display:"flex",gap:8}}>
-          {/* NEW — the actual "make the plan for all chapters at once" button. */}
-          {chaptersMissingLessons.length>0&&(
-            <button className="ss-btn" onClick={()=>setBulkConfirming(true)} disabled={bulkRunning} style={{display:"flex",alignItems:"center",gap:5,background:`linear-gradient(180deg, ${TEAL} 0%, color-mix(in srgb, ${TEAL} 70%, black) 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:bulkRunning?"default":"pointer",boxShadow:`0 6px 16px color-mix(in srgb, ${TEAL} 35%, transparent)`}}><Sparkles size={14}/>सबै अध्याय तयार गर्नुहोस् ({chaptersMissingLessons.length})</button>
-          )}
-          <button className="ss-btn" onClick={startNew} style={{display:"flex",alignItems:"center",gap:5,background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}><Plus size={14}/>नयाँ पाठ</button>
-        </div>
+        <button className="ss-btn" onClick={()=>setAddingChapter(true)} style={{display:"flex",alignItems:"center",gap:5,background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}><Plus size={14}/>नयाँ अध्याय</button>
       </div>
-      {bulkConfirming&&(
-        <Card style={{marginBottom:14,borderLeft:`4px solid ${TEAL}`}}>
-          <div style={{fontWeight:700,fontSize:16.5,marginBottom:6}}>{chaptersMissingLessons.length} वटा अध्यायको पाठ योजना बनाउने?</div>
-          <div style={{fontSize:15,color:INK_SOFT,marginBottom:10,lineHeight:1.5}}>{chaptersMissingLessons.map((c)=>c.title).join(" · ")}</div>
-          <div style={{fontSize:14.5,color:INK_SOFT,marginBottom:12}}>प्रत्येक अध्यायको लागि छुट्टै AI अनुरोध पठाइने भएकाले केही समय लाग्न सक्छ। बनेपछि "तयारी चाहिने" चिन्हका साथ देखिन्छन् — हेरेर मिलाएपछि मात्र "तयार" बनाउनुहोस्।</div>
+
+      {/* NEW — पहिले अध्याय (Unit), त्यसपछि त्यो भित्र धेरै पाठ (Path):
+          every अध्याय below can hold several पाठ, expanded/collapsed like
+          a folder, instead of one flat list where the two kept blurring
+          together. */}
+      <div style={{fontSize:14.5,color:INK_SOFT,marginBottom:14,lineHeight:1.5}}>पहिले अध्याय (Unit) छान्नुहोस् वा खोल्नुहोस्, त्यसपछि त्यो भित्र पाठ (Path) थप्नुहोस्। हरेक पाठको आफ्नै छुट्टै योजना, प्रश्न, क्रियाकलाप र मूल्याङ्कन हुन्छ।</div>
+
+      {addingChapter&&(
+        <Card style={{marginBottom:14}}>
+          <div style={{fontWeight:700,fontSize:16.5,marginBottom:8}}>नयाँ अध्याय (Unit)</div>
           <div style={{display:"flex",gap:8}}>
-            <button onClick={()=>setBulkConfirming(false)} className="ss-btn" style={{flex:1,padding:"10px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer",boxShadow:SHADOW.sm}}>रद्द</button>
-            <button className="ss-btn" onClick={bulkGenerateAll} style={{flex:1,padding:"10px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${TEAL} 0%, color-mix(in srgb, ${TEAL} 70%, black) 100%)`,color:"#fff",fontWeight:700,cursor:"pointer",boxShadow:`0 6px 16px color-mix(in srgb, ${TEAL} 35%, transparent)`}}>सुरु गर्नुहोस्</button>
+            <input autoFocus value={newChapterTitle} onChange={(e)=>setNewChapterTitle(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&submitNewChapter()} placeholder="अध्यायको नाम लेख्नुहोस्" className="ss-field" style={{flex:1,minWidth:0,borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+            <button className="ss-btn" onClick={submitNewChapter} disabled={!newChapterTitle.trim()} style={{background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:SHADOW.accent}}>थप्नुहोस्</button>
+            <button className="ss-btn" onClick={()=>{setAddingChapter(false);setNewChapterTitle("");}} style={{padding:"10px 14px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer"}}>रद्द</button>
           </div>
         </Card>
       )}
-      {bulkRunning&&(
-        <Card style={{marginBottom:14,borderLeft:`4px solid ${TEAL}`}}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <Spinner small/>
-            <div>
-              <div style={{fontWeight:700,fontSize:16}}>तयार गर्दै... ({bulkProgress?.current}/{bulkProgress?.total})</div>
-              <div style={{fontSize:15,color:INK_SOFT}}>{bulkProgress?.chapter}</div>
-            </div>
-          </div>
-        </Card>
-      )}
-      {bulkResult&&(
-        <Card style={{marginBottom:14,borderLeft:`4px solid ${bulkResult.failed.length?WARN:ACCENT}`}}>
-          <div style={{fontWeight:700,fontSize:16,color:bulkResult.failed.length?WARN:ACCENT}}>✓ {bulkResult.done} वटा पाठ योजना बनियो (तयारी चाहिने)</div>
-          {bulkResult.failed.length>0&&<div style={{fontSize:15,color:INK_SOFT,marginTop:4}}>असफल: {bulkResult.failed.join(" · ")}</div>}
-        </Card>
-      )}
+
       {showForm&&(
         <Card style={{marginBottom:14}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-            <div style={{fontWeight:700,fontSize:17}}>{isEditing?"पाठ सम्पादन गर्नुहोस्":"नयाँ पाठ"}</div>
+            <div style={{fontWeight:700,fontSize:17}}>{isEditing?"पाठ सम्पादन गर्नुहोस्":"नयाँ पाठ (Path)"}{form.chapter_title&&<span style={{fontWeight:500,color:INK_SOFT,fontSize:15}}> — {form.chapter_title}</span>}</div>
             {isEditing&&<span style={{fontSize:13.5,background:ACCENT_LIGHT,color:ACCENT,padding:"3px 9px",borderRadius:999,fontWeight:700}}>सम्पादन मोड</span>}
           </div>
           {error&&<ErrorMsg msg={error}/>}
           <div style={{display:"flex",flexDirection:"column",gap:9}}>
             <div>
-              <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:700,marginBottom:4}}>१. पाठको नाम</div>
-              {[["title","पाठको नाम *"]].map(([f,p])=>(
-                <input key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
-              ))}
-            </div>
-            <div>
-              <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:700,marginBottom:4}}>२. अध्याय</div>
+              <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:700,marginBottom:4}}>१. अध्याय (Unit)</div>
               <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} chapters={chapters||[]} onAddChapter={onAddChapter} placeholder="— अध्याय छान्नुहोस् —"/>
-              {/* NEW — proof the chapters really are connected across screens:
-                  shows what's already linked to this chapter elsewhere in
-                  the app, live, as soon as one is picked. */}
               {linkedCounts&&(
                 <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>
                   <span style={{fontSize:13.5,background:SURFACE_2,color:INK_SOFT,padding:"4px 9px",borderRadius:999,fontWeight:700}}>📎 {linkedCounts.materials} सामग्री</span>
@@ -1783,10 +1727,11 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
                 </div>
               )}
             </div>
+            <div>
+              <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:700,marginBottom:4}}>२. पाठको नाम (Path)</div>
+              <input placeholder="पाठको नाम *" value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+            </div>
 
-            {/* NEW — attach materials right here instead of needing a separate
-                trip to the Materials tab first. Uses whatever chapter was just
-                picked above. */}
             <div>
               <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:700,marginBottom:4}}>३. सामग्री (वैकल्पिक)</div>
               <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title}/>
@@ -1794,8 +1739,16 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
             </div>
 
             <div>
-              <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:700,marginBottom:4}}>४. सामग्री तयार गर्नुहोस्</div>
-              <AIButton label={generating?"बनाउँदै...":"AI बाट स्वतः बनाउनुहोस्"} onClick={autoGenerate} loading={generating} style={{width:"100%",justifyContent:"center"}}/>
+              <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:700,marginBottom:4}}>४. यो पाठ पूर्ण तयार गर्नुहोस्</div>
+              {/* FIX — THE single door: one button, generates the lesson
+                  plan AND questions AND activities AND a rubric together,
+                  all tied to this exact Path. */}
+              <AIButton label={generating?"बनाउँदै...":"AI बाट पूर्ण तयार गर्नुहोस्"} onClick={autoGenerate} loading={generating} style={{width:"100%",justifyContent:"center"}}/>
+              {(generating||Object.keys(stepState).length>0)&&(
+                <div style={{marginTop:10,borderTop:`1px solid ${BORDER}`,paddingTop:6}}>
+                  {PREP_STEPS.map((s)=><PrepStepRow key={s.id} label={s.label} state={stepState[s.id]||"idle"}/>)}
+                </div>
+              )}
             </div>
 
             <button className="ss-icon-btn" type="button" onClick={()=>setShowDetails((v)=>!v)} style={{display:"flex",alignItems:"center",gap:5,background:"none",border:"none",color:ACCENT,fontWeight:700,fontSize:15,cursor:"pointer",padding:"6px 0",alignSelf:"flex-start"}}>
@@ -1817,33 +1770,44 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
               );})}
             </div>
             <div style={{display:"flex",gap:8}}>
-              <button onClick={()=>{setShowForm(false);setForm(EMPTY_LESSON_FORM);setShowDetails(false);}} className="ss-btn" style={{flex:1,padding:"11px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer",boxShadow:SHADOW.sm}}>रद्द</button>
+              <button onClick={()=>{setShowForm(false);setForm(EMPTY_LESSON_FORM);setShowDetails(false);setStepState({});}} className="ss-btn" style={{flex:1,padding:"11px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer",boxShadow:SHADOW.sm}}>रद्द</button>
               <button className="ss-btn" onClick={save} disabled={saving} style={{flex:1,padding:"11px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}>{saving?"...":isEditing?"परिवर्तन सुरक्षित गर्नुहोस्":"सुरक्षित"}</button>
             </div>
           </div>
         </Card>
       )}
-      {loading?<Spinner/>:lessons.length===0?<EmptyState icon={ClipboardList} text="कुनै पाठ छैन।" actionLabel="पहिलो पाठ थप्नुहोस्" onAction={startNew}/>:(
+
+      {loading?<Spinner/>:groups.length===0?<EmptyState icon={ClipboardList} text="अझै कुनै अध्याय छैन।" actionLabel="पहिलो अध्याय थप्नुहोस्" onAction={()=>setAddingChapter(true)}/>:(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {lessons.map((l)=>(
-            <Card key={l.id} onClick={()=>onOpenLesson(l)} accentColor={STATUS_META[l.status]?.color||STATUS_META.prep.color} style={{paddingTop:20,position:"relative",overflow:"visible"}}>
-              <PinBadge color={STATUS_META[l.status]?.color||STATUS_META.prep.color}/>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:15,color:INK_SOFT,fontWeight:600,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.chapters?.title||l.chapter_title||""}</div>
-                  <div style={{fontSize:17.5,fontWeight:700,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.title}</div>
+          {groups.map(({chapter,paths})=>{
+            const isOpen=expanded.has(chapter.id);
+            return(
+              <Card key={chapter.id} style={{padding:0,overflow:"hidden"}}>
+                <div onClick={()=>toggleExpand(chapter.id)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"14px 16px",cursor:"pointer"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0,flex:1}}>
+                    {isOpen?<ChevronDown size={16} color={INK_SOFT} style={{flexShrink:0}}/>:<ChevronRight size={16} color={INK_SOFT} style={{flexShrink:0}}/>}
+                    <div style={{fontWeight:700,fontSize:17,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{chapter.title}</div>
+                  </div>
+                  <span style={{fontSize:13.5,background:paths.length?ACCENT_LIGHT:SURFACE_2,color:paths.length?ACCENT:INK_SOFT,padding:"3px 9px",borderRadius:999,fontWeight:700,flexShrink:0}}>{paths.length} पाठ</span>
                 </div>
-                <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
-                  <StatusPill status={l.status}/>
-                  {/* NEW — one-click edit and one-click "print the whole plan"
-                      right from the list, no need to open the lesson first. */}
-                  <button className="ss-icon-btn" onClick={(e)=>{e.stopPropagation();startEdit(l);}} title="सम्पादन गर्नुहोस्" style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,padding:4}}><PenSquare size={15}/></button>
-                  <button className="ss-icon-btn" onClick={(e)=>{e.stopPropagation();onOpenLesson(l,{autoPrint:true});}} title="पूरा पाठ योजना प्रिन्ट गर्नुहोस्" style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,padding:4}}><Printer size={15}/></button>
-                  <button className="ss-icon-btn" onClick={(e)=>deleteLesson(l.id,e)} title="मेटाउनुहोस्" style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,padding:4}}><Trash2 size={15}/></button>
-                </div>
-              </div>
-            </Card>
-          ))}
+                {isOpen&&(
+                  <div style={{padding:"0 16px 16px",display:"flex",flexDirection:"column",gap:8}}>
+                    {paths.length===0&&<div style={{fontSize:14.5,color:INK_SOFT,padding:"4px 0 8px"}}>यो अध्यायमा अझै कुनै पाठ छैन।</div>}
+                    {paths.map((l)=>(
+                      <div key={l.id} onClick={()=>onOpenLesson(l)} style={{display:"flex",alignItems:"center",gap:8,background:SURFACE_2,borderRadius:10,padding:"10px 12px",cursor:"pointer"}}>
+                        <div style={{flex:1,minWidth:0,fontWeight:700,fontSize:16,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.title}</div>
+                        <StatusPill status={l.status}/>
+                        <button className="ss-icon-btn" onClick={(e)=>{e.stopPropagation();startEdit(l);}} title="सम्पादन गर्नुहोस्" style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,padding:4}}><PenSquare size={15}/></button>
+                        <button className="ss-icon-btn" onClick={(e)=>{e.stopPropagation();onOpenLesson(l,{autoPrint:true});}} title="प्रिन्ट गर्नुहोस्" style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,padding:4}}><Printer size={15}/></button>
+                        <button className="ss-icon-btn" onClick={(e)=>deleteLesson(l.id,e)} title="मेटाउनुहोस्" style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,padding:4}}><Trash2 size={15}/></button>
+                      </div>
+                    ))}
+                    <button className="ss-btn" onClick={()=>startNew(chapter.title)} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:"none",border:`1.5px dashed ${BORDER}`,color:ACCENT,borderRadius:10,padding:"10px",fontWeight:700,fontSize:15,cursor:"pointer"}}><Plus size={14}/>नयाँ पाठ थप्नुहोस्</button>
+                  </div>
+                )}
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>
@@ -2673,7 +2637,7 @@ function QuestionBank({ chapters, onAddChapter, classContext, classLabel }) {
         // (free text) was saved, so these never actually showed up as
         // "linked" to the chapter anywhere else in the app.
         const chapter_id=await resolveChapterId(form.chapter_title,classLabel);
-        for(const q of results)await db.upsertQuestion({text:q.text,type:q.type||"छोटो उत्तर",difficulty:q.difficulty||"सजिलो",bloom_level:q.bloom||"सम्झना",chapter_title:form.chapter_title,chapter_id,options:q.options||[],correct_option:q.correct_option??null});
+        for(const q of results)await db.upsertQuestion({text:q.text,type:q.type||"छोटो उत्तर",difficulty:q.difficulty||"सजिलो",bloom_level:q.bloom||"सम्झना",chapter_id,options:q.options||[],correct_option:q.correct_option??null});
         load();setShowForm(false);
       }else setError("प्रश्न बनाउन सकिएन।");
     }catch(e){setError("AI त्रुटि: "+e.message);}
@@ -2684,7 +2648,7 @@ function QuestionBank({ chapters, onAddChapter, classContext, classLabel }) {
     if(!form.text.trim()){setError("प्रश्न लेख्नुहोस्।");return;}
     setSaving(true);
     const chapter_id=await resolveChapterId(form.chapter_title,classLabel);
-    await db.upsertQuestion({text:form.text,type:form.type,difficulty:form.difficulty,bloom_level:form.bloom,chapter_title:form.chapter_title,chapter_id,options:form.options?form.options.split("\n").filter(Boolean):[],correct_option:form.answer?parseInt(form.answer)-1:null});
+    await db.upsertQuestion({text:form.text,type:form.type,difficulty:form.difficulty,bloom_level:form.bloom,chapter_id,options:form.options?form.options.split("\n").filter(Boolean):[],correct_option:form.answer?parseInt(form.answer)-1:null});
     setSaving(false);setShowForm(false);setForm({text:"",type:"छोटो उत्तर",difficulty:"सजिलो",bloom:"सम्झना",chapter_title:"",options:"",answer:""});load();
   };
 
@@ -2807,13 +2771,13 @@ function AssessmentBuilder({ chapters, onAddChapter, classContext, classLabel })
   const save=async()=>{
     if(!form.title.trim())return;setSaving(true);
     const rubric=form.rubric_text?form.rubric_text.split("\n").filter(Boolean).map((line)=>{const[level,...rest]=line.split(":");return{level:level.trim(),desc:rest.join(":").trim()};}):[];
-    // FIX — chapter_title was previously dropped entirely here, so an
-    // assessment could never be linked to a chapter at all, even though the
-    // form has a chapter picker for it. (Note: unlike Lessons/Questions/
-    // Activities, assessments join on `lessons`, not `chapters` — see
-    // getAssessments in db.js — so we save chapter_title only, matching the
-    // column this table actually has.)
-    await db.upsertAssessment({title:form.title,type:form.type,rubric,due_date:form.due_date||null,status:"pending",chapter_title:form.chapter_title});
+    // FIX — assessments never actually had a chapter_title column (only
+    // chapter_id, added by migration_path_structure.sql) — saving
+    // chapter_title here was silently failing against the database every
+    // time. Resolves the real chapter_id instead, same as every other
+    // screen.
+    const chapter_id=await resolveChapterId(form.chapter_title,classLabel);
+    await db.upsertAssessment({title:form.title,type:form.type,rubric,due_date:form.due_date||null,status:"pending",chapter_id});
     setSaving(false);setShowForm(false);setForm({title:"",type:"observation",rubric_text:"",due_date:"",chapter_title:""});load();
   };
 
@@ -2911,7 +2875,7 @@ function ActivitiesLibrary({ chapters, onAddChapter, classContext, classLabel })
       const results=await gemini.generateActivities(form.chapter_title,ctx,classContext);
       if(results?.length){
         const chapter_id=await resolveChapterId(form.chapter_title,classLabel);
-        for(const a of results)await db.upsertActivity({title:a.title,type:a.type||"game",duration:a.duration,competency:a.competency,description:a.description,chapter_title:form.chapter_title,chapter_id});
+        for(const a of results)await db.upsertActivity({title:a.title,type:a.type||"game",duration:a.duration,competency:a.competency,description:a.description,chapter_id});
         load();setShowForm(false);
       }
       else setError("क्रियाकलाप बनाउन सकिएन।");
@@ -2922,7 +2886,8 @@ function ActivitiesLibrary({ chapters, onAddChapter, classContext, classLabel })
   const save=async()=>{
     if(!form.title.trim())return;setSaving(true);
     const chapter_id=await resolveChapterId(form.chapter_title,classLabel);
-    await db.upsertActivity({...form,chapter_id});
+    const{chapter_title,...rest}=form;
+    await db.upsertActivity({...rest,chapter_id});
     setSaving(false);setShowForm(false);setForm({title:"",type:"game",competency:"",duration:"",description:"",chapter_title:""});load();
   };
   const filtered=typeFilter==="सबै"?activities:activities.filter((a)=>a.type===typeFilter);

@@ -488,9 +488,13 @@ export const generateFromContextJSON = (prompt, ctx) => runPromptJSON(prompt, ct
 
 
 // ─── High-level generation helpers ───────────────────────────────────────────
-export const generateLessonPlan = async (chapterTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन") => {
+export const generateLessonPlan = async (chapterTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", pathTitle = null) => {
+  const focusLine = (pathTitle && pathTitle.trim() && pathTitle.trim() !== chapterTitle.trim())
+    ? `यो अध्याय भित्रको यो खास पाठ (Path) का लागि मात्र योजना बनाउनुहोस्: "${pathTitle}"। अध्यायका अरू पाठहरूसँग दोहोरिने सामग्री नराख्नुहोस्।`
+    : "";
   const prompt = `तपाईं नेपालको ${classContext}का लागि पाठ योजना बनाउँदै हुनुहुन्छ।
-अध्याय: "${chapterTitle}"
+अध्याय (Unit): "${chapterTitle}"
+${focusLine}
 यो ठ्याक्कै यो JSON संरचनामा मात्र जवाफ दिनुहोस्:
 {
   "objectives": ["उद्देश्य १","उद्देश्य २","उद्देश्य ३"],
@@ -512,8 +516,9 @@ export const generateLessonPlan = async (chapterTitle, ctx = null, classContext 
   return result;
 };
 
-export const generateQuestions = async (chapterTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन") => {
-  const prompt = `नेपालको ${classContext} "${chapterTitle}" अध्यायका लागि १० विभिन्न प्रकारका प्रश्नहरू भएको JSON array मात्र:
+export const generateQuestions = async (chapterTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", pathTitle = null) => {
+  const focus = (pathTitle && pathTitle.trim() && pathTitle.trim() !== chapterTitle.trim()) ? ` को "${pathTitle}" पाठ` : "";
+  const prompt = `नेपालको ${classContext} "${chapterTitle}" अध्याय${focus}का लागि १० विभिन्न प्रकारका प्रश्नहरू भएको JSON array मात्र:
 [{"text":"प्रश्न?","type":"छोटो उत्तर","difficulty":"सजिलो","bloom":"सम्झना","answer":"उत्तर"},
 {"text":"प्रश्न?","type":"बहुविकल्पीय","difficulty":"मध्यम","bloom":"बुझाई","options":["क) विकल्प","ख) विकल्प","ग) विकल्प","घ) विकल्प"],"correct_option":0,"answer":"उत्तर"}]`;
   const text = await runPromptJSON(prompt, ctx);
@@ -525,8 +530,9 @@ export const generateQuestions = async (chapterTitle, ctx = null, classContext =
   return result;
 };
 
-export const generateActivities = async (chapterTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन") => {
-  const prompt = `नेपाल ${classContext} "${chapterTitle}" का लागि ५ कक्षागत क्रियाकलाप भएको JSON array मात्र:
+export const generateActivities = async (chapterTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", pathTitle = null) => {
+  const focus = (pathTitle && pathTitle.trim() && pathTitle.trim() !== chapterTitle.trim()) ? ` "${pathTitle}" पाठ (अध्याय: "${chapterTitle}")` : ` "${chapterTitle}"`;
+  const prompt = `नेपाल ${classContext}${focus} का लागि ५ कक्षागत क्रियाकलाप भएको JSON array मात्र:
 [{"title":"नाम","type":"game","duration":"१५ मिनेट","competency":"क्षमता","description":"विवरण"}]
 प्रकार: game, roleplay, project, map, debate, presentation`;
   const text = await runPromptJSON(prompt, ctx);
