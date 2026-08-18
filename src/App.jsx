@@ -1542,7 +1542,7 @@ function groupLessonsByChapter(chapters, lessons) {
   }));
 }
 
-function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters, onAddChapter, classContext, classLabel, editLessonId, onEditConsumed, prefillChapter, onPrefillConsumed }) {
+function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters, onAddChapter, onChaptersChanged, classContext, classLabel, editLessonId, onEditConsumed, prefillChapter, onPrefillConsumed }) {
   const [showForm,setShowForm]=useState(false);
   const [form,setForm]=useState(EMPTY_LESSON_FORM);
   const [saving,setSaving]=useState(false);
@@ -1553,8 +1553,38 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
   const [linkedCounts,setLinkedCounts]=useState(null);
   const [showDetails,setShowDetails]=useState(false);
   const [expanded,setExpanded]=useState(()=>new Set());
+  const [editingChapterId,setEditingChapterId]=useState(null);
+  const [chapterEditValue,setChapterEditValue]=useState("");
+  const [chapterBusy,setChapterBusy]=useState(null);
   const isEditing=!!form.id;
   const groups=groupLessonsByChapter(chapters,lessons);
+
+  // NEW — अध्याय (Unit) rename/delete, right from Planner where units are
+  // now actually created and managed. Deleting a chapter that still has
+  // पाठ (Path) entries under it doesn't delete those paths — the database
+  // just clears their chapter tag (they'd show as "अध्याय नतोकिएको" until
+  // reassigned) — so nothing a teacher already generated gets lost.
+  const renameChapter=async(chapter)=>{
+    const title=chapterEditValue.trim();
+    if(!title||title===chapter.title){setEditingChapterId(null);return;}
+    setChapterBusy(chapter.id);
+    await supabase.from("chapters").update({title}).eq("id",chapter.id);
+    setChapterBusy(null);setEditingChapterId(null);
+    onChaptersChanged?.();
+  };
+  const deleteChapterInPlanner=async(chapter,e)=>{
+    e.stopPropagation();
+    const count=(groups.find((g)=>g.chapter.id===chapter.id)?.paths||[]).length;
+    const msg=count>0
+      ?`"${chapter.title}" मेटाउने? यसभित्रका ${count} पाठ मेटिने छैनन्, तर तिनको अध्याय-ट्याग हट्नेछ।`
+      :`"${chapter.title}" मेटाउने?`;
+    if(!confirm(msg))return;
+    setChapterBusy(chapter.id);
+    await supabase.from("chapters").delete().eq("id",chapter.id);
+    setChapterBusy(null);
+    onChaptersChanged?.();
+    onRefresh();
+  };
 
   // NEW — opening a lesson for editing can be triggered from outside this
   // screen (the "सम्पादन गर्नुहोस्" button inside a lesson's full-screen
@@ -1783,12 +1813,26 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
             const isOpen=expanded.has(chapter.id);
             return(
               <Card key={chapter.id} style={{padding:0,overflow:"hidden"}}>
-                <div onClick={()=>toggleExpand(chapter.id)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"14px 16px",cursor:"pointer"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0,flex:1}}>
-                    {isOpen?<ChevronDown size={16} color={INK_SOFT} style={{flexShrink:0}}/>:<ChevronRight size={16} color={INK_SOFT} style={{flexShrink:0}}/>}
-                    <div style={{fontWeight:700,fontSize:17,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{chapter.title}</div>
-                  </div>
-                  <span style={{fontSize:13.5,background:paths.length?ACCENT_LIGHT:SURFACE_2,color:paths.length?ACCENT:INK_SOFT,padding:"3px 9px",borderRadius:999,fontWeight:700,flexShrink:0}}>{paths.length} पाठ</span>
+                <div onClick={()=>editingChapterId!==chapter.id&&toggleExpand(chapter.id)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"14px 16px",cursor:"pointer"}}>
+                  {editingChapterId===chapter.id?(
+                    <div style={{display:"flex",gap:6,flex:1,minWidth:0}} onClick={(e)=>e.stopPropagation()}>
+                      <input autoFocus value={chapterEditValue} onChange={(e)=>setChapterEditValue(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&renameChapter(chapter)} className="ss-field" style={{flex:1,minWidth:0,borderRadius:10,padding:"7px 10px",fontSize:16,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+                      <button className="ss-btn" onClick={()=>renameChapter(chapter)} disabled={chapterBusy===chapter.id} style={{padding:"7px 12px",borderRadius:8,border:"none",background:ACCENT,color:"#fff",fontWeight:700,cursor:"pointer"}}>✓</button>
+                      <button className="ss-btn" onClick={()=>setEditingChapterId(null)} style={{padding:"7px 12px",borderRadius:8,border:`1px solid ${BORDER}`,background:SURFACE,cursor:"pointer"}}>✕</button>
+                    </div>
+                  ):(
+                    <>
+                      <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0,flex:1}}>
+                        {isOpen?<ChevronDown size={16} color={INK_SOFT} style={{flexShrink:0}}/>:<ChevronRight size={16} color={INK_SOFT} style={{flexShrink:0}}/>}
+                        <div style={{fontWeight:700,fontSize:17,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{chapter.title}</div>
+                      </div>
+                      <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                        <span style={{fontSize:13.5,background:paths.length?ACCENT_LIGHT:SURFACE_2,color:paths.length?ACCENT:INK_SOFT,padding:"3px 9px",borderRadius:999,fontWeight:700}}>{paths.length} पाठ</span>
+                        <button className="ss-icon-btn" onClick={(e)=>{e.stopPropagation();setEditingChapterId(chapter.id);setChapterEditValue(chapter.title);}} title="नाम बदल्नुहोस्" style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,padding:4}}><PenSquare size={15}/></button>
+                        <button className="ss-icon-btn" onClick={(e)=>deleteChapterInPlanner(chapter,e)} disabled={chapterBusy===chapter.id} title="मेटाउनुहोस्" style={{background:"none",border:"none",cursor:"pointer",color:DANGER,padding:4}}><Trash2 size={15}/></button>
+                      </div>
+                    </>
+                  )}
                 </div>
                 {isOpen&&(
                   <div style={{padding:"0 16px 16px",display:"flex",flexDirection:"column",gap:8}}>
@@ -4401,7 +4445,7 @@ export default function App() {
           <HomeScreen onOpenLesson={openLesson} onGoPlanner={goPlanner} onGoHomework={()=>goMore("homework")} onGoMaterials={()=>setScreen("materials")} onGoAITools={goAITools} onGoSettings={()=>setSettingsOpen(true)} section={currentSection} lessons={lessons} homework={homework} loading={lessonsLoading} chapters={chapters} teacherName={teacherName} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel}/>
         </div>}
         {visitedScreens.has("planner")&&<div style={{display:screen==="planner"?undefined:"none"}}>
-          <Planner onOpenLesson={openLesson} section={currentSection} lessons={lessons} loading={lessonsLoading} onRefresh={loadLessons} chapters={chapters} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel} editLessonId={editLessonId} onEditConsumed={()=>setEditLessonId(null)} prefillChapter={prefillChapter} onPrefillConsumed={()=>setPrefillChapter(null)}/>
+          <Planner onOpenLesson={openLesson} section={currentSection} lessons={lessons} loading={lessonsLoading} onRefresh={loadLessons} chapters={chapters} onAddChapter={addChapter} onChaptersChanged={loadChapters} classContext={classContext} classLabel={classLabel} editLessonId={editLessonId} onEditConsumed={()=>setEditLessonId(null)} prefillChapter={prefillChapter} onPrefillConsumed={()=>setPrefillChapter(null)}/>
         </div>}
         {visitedScreens.has("materials")&&<div style={{display:screen==="materials"?undefined:"none"}}>
           <Materials chapters={chapters} onAddChapter={addChapter} onChaptersChanged={loadChapters} classLabel={classLabel}/>
