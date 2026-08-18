@@ -200,6 +200,18 @@ export const getMaterialsByChapter = async (chapterId) => {
   return { data, error };
 };
 
+// NEW — materials scoped to one पाठ (Path), not the whole अध्याय. Used by
+// the Planner Path form and by AI generation so a file uploaded for one
+// Path doesn't bleed into another Path's context.
+export const getMaterialsByLesson = async (lessonId) => {
+  if (!lessonId) return { data: [], error: null };
+  const { data, error } = await supabase
+    .from("materials")
+    .select("*")
+    .eq("lesson_id", lessonId);
+  return { data, error };
+};
+
 export const insertMaterial = async (material) => {
   const { data: { user } } = await supabase.auth.getUser();
   const { data, error } = await supabase

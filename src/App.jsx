@@ -189,14 +189,29 @@ const getTextbookPDF = (classLabel) => gemini.getTextbookPart(classLabel);
 // everything after is a fraction of it. The cache is invalidated
 // automatically whenever the textbook PDF is replaced/removed (see
 // uploadTextbook/clearTextbookHandler in Settings).
-async function getMaterialContext(chapterTitle, classLabel = null) {
+async function getMaterialContext(chapterTitle, classLabel = null, lessonId = null) {
   if (!chapterTitle || !chapterTitle.trim()) {
     return { pdfBase64: await getTextbookPDF(classLabel), materialParts: [], textbookText: null, matchedCount: 0 };
   }
   const chapterId = await db.getChapterIdByTitle(chapterTitle.trim(), classLabel);
   if (!chapterId) return { pdfBase64: await getTextbookPDF(classLabel), materialParts: [], textbookText: null, matchedCount: 0 };
-  const { data: materials } = await db.getMaterialsByChapter(chapterId);
-  const materialParts = await gemini.buildMaterialParts(materials || [], db.downloadMaterialFile);
+  // FIX — materials now belong to a specific पाठ (Path), not the whole
+  // अध्याय (Unit): a lesson plan/PPT uploaded for Path 2 was previously
+  // fed into every Path's AI context just because they shared a chapter.
+  // When generating a specific Path, use ONLY that Path's own materials.
+  // Falls back to chapter-wide materials that still have no Path tag
+  // (uploaded before this existed, or genuinely apply to the whole unit)
+  // — never another Path's own files.
+  let materials = [];
+  if (lessonId) {
+    const { data } = await db.getMaterialsByLesson(lessonId);
+    materials = data || [];
+  }
+  if (!materials.length) {
+    const { data } = await db.getMaterialsByChapter(chapterId);
+    materials = (data || []).filter((m) => !m.lesson_id);
+  }
+  const materialParts = await gemini.buildMaterialParts(materials, db.downloadMaterialFile);
 
   let textbookText = await db.getTextbookChapterText(chapterId);
   let pdfBase64 = null;
@@ -207,7 +222,7 @@ async function getMaterialContext(chapterTitle, classLabel = null) {
       else pdfBase64 = await getTextbookPDF(classLabel); // couldn't isolate this chapter (e.g. title doesn't match the book's wording) — fall back to the whole book for this call only, don't cache a miss
     } catch { pdfBase64 = await getTextbookPDF(classLabel); }
   }
-  return { pdfBase64, materialParts, textbookText, matchedCount: (materials || []).length };
+  return { pdfBase64, materialParts, textbookText, matchedCount: materials.length };
 }
 
 // FIX — the root cause of the "wrong/broken tagging" problem: every screen
@@ -257,7 +272,7 @@ async function preparePath({ chapterTitle, chapterId, pathTitle, lessonId, secti
   const emit = (step, state) => onProgress && onProgress(step, state);
   const title = (pathTitle || "").trim() || chapterTitle;
   const cId = chapterId || await resolveChapterId(chapterTitle, classLabel);
-  const ctx = await getMaterialContext(chapterTitle, classLabel);
+  const ctx = await getMaterialContext(chapterTitle, classLabel, lessonId);
 
   emit("plan", "loading");
   let lesson = null;
@@ -452,12 +467,59 @@ function PageHeader({ icon:Icon, title, subtitle, action, color=ACCENT }) {
 function AIButton({ label, onClick, loading, style }) {
   return <Button variant="ghost" size="sm" onClick={onClick} disabled={loading} icon={loading?undefined:Zap} style={style}>{loading?<><Spinner small/> {label}</>:label}</Button>;
 }
-function MaterialsHint({ count, chapterTitle }) {
-  if (!chapterTitle || !chapterTitle.trim()) return null;
+// NEW — THE single door for saving a material file, same one-door pattern
+// as preparePath() for lesson plans. The bulk uploader in समग्री and the
+// quick "सामग्री थप्नुहोस्" attach widget (used from Planner, Question Bank,
+// Activities, Assessment) used to each have their own copy of this
+// extraction + chapter-resolution + storage-upload logic, silently drifting
+// out of sync with each other. Both call this now.
+async function uploadOneMaterial({ file, chapterTitle, lessonId, category, classLabel }) {
+  const typeMap={pdf:"pdf",pptx:"pptx",ppt:"pptx",doc:"doc",docx:"doc",xlsx:"sheet",xls:"sheet",csv:"sheet",jpg:"image",jpeg:"image",png:"image",mp4:"video",mp3:"audio"};
+  const ext=file.name.split(".").pop().toLowerCase();
+  const fileType=typeMap[ext]||"doc";
+  let extracted_text="",extraction_status="not_needed",warning=null;
+  if(["docx","pptx","xlsx","xls","csv"].includes(ext)){
+    const res=await extractTextFromFile(file);
+    extracted_text=res.text;extraction_status=res.status;
+    if(res.status==="failed")warning=`${file.name} (टेक्स्ट निकाल्न सकिएन)`;
+  }else if(ext==="doc"){
+    extraction_status="failed";
+    warning=`${file.name} (.doc समर्थित छैन — .docx बनाएर फेरि पठाउनुहोस्)`;
+  }
+  const{data:{user}}=await supabase.auth.getUser();
+  const chapterId=await resolveChapterId(chapterTitle,classLabel);
+  const{path,error:upErr}=await db.uploadMaterialFile(file,user.id);
+  if(upErr)return{data:null,error:upErr,warning:`${file.name} (${upErr.message})`};
+  const{data,error}=await db.insertMaterial({name:file.name,storage_path:path,file_type:fileType,size_bytes:file.size,tags:[],chapter_id:chapterId,lesson_id:lessonId||null,category:category||"other",extracted_text,extraction_status,class_label:classLabel});
+  return{data,error,warning};
+}
+
+// NEW — the matching single door for re-tagging (chapter/Path/category) an
+// already-uploaded material, including lazily extracting text for older
+// files uploaded before extraction existed.
+async function retagMaterial({ material, chapterTitle, lessonId, category, classLabel }) {
+  const chapterId=await resolveChapterId(chapterTitle,classLabel);
+  let patch={chapter_id:chapterId,lesson_id:lessonId||null,category,class_label:classLabel};
+  const ext=material.name.split(".").pop().toLowerCase();
+  if(!material.extracted_text&&["docx","pptx","xlsx","xls","csv"].includes(ext)){
+    try{
+      const blob=await db.downloadMaterialFile(material.storage_path);
+      const file=new File([blob],material.name);
+      const res=await extractTextFromFile(file);
+      patch.extracted_text=res.text;patch.extraction_status=res.status;
+    }catch(e){patch.extraction_status="failed";}
+  }
+  return await db.updateMaterial(material.id,patch);
+}
+
+function MaterialsHint({ count, chapterTitle, pathTitle }) {
+  const label=(pathTitle&&pathTitle.trim())?pathTitle:chapterTitle;
+  const scope=(pathTitle&&pathTitle.trim())?"पाठ":"अध्याय";
+  if (!label || !label.trim()) return null;
   return (
     <div style={{ fontSize:15, color: count>0?ACCENT:WARN, background: count>0?ACCENT_LIGHT:WARN_BG, borderRadius:8, padding:"6px 10px", marginBottom:8, display:"flex", alignItems:"center", gap:6 }}>
       <FileText size={13}/>
-      {count>0?`"${chapterTitle}" मा ट्याग गरिएका ${count} फाइल AI ले प्रयोग गर्दैछ`:`"${chapterTitle}" मा कुनै सामग्री ट्याग गरिएको छैन`}
+      {count>0?`"${label}" ${scope}मा ट्याग गरिएका ${count} फाइल AI ले प्रयोग गर्दैछ`:`"${label}" ${scope}मा कुनै सामग्री ट्याग गरिएको छैन`}
     </div>
   );
 }
@@ -466,7 +528,7 @@ function MaterialsHint({ count, chapterTitle }) {
 // widget. Used by Planner, Question Bank, Activities and Assessment so none
 // of them require a separate trip to the Materials tab just to give the AI
 // something to read from.
-function MaterialAttach({ chapterTitle, lessonId, classLabel }) {
+function MaterialAttach({ chapterTitle, lessonId, onEnsureLessonId, classLabel }) {
   const [attaching,setAttaching]=useState(false);
   const [attachedNames,setAttachedNames]=useState([]);
   const [attachError,setAttachError]=useState("");
@@ -474,27 +536,26 @@ function MaterialAttach({ chapterTitle, lessonId, classLabel }) {
   const attachMaterial=async(e)=>{
     const file=e.target.files[0];if(!file)return;
     if(!chapterTitle||!chapterTitle.trim()){setAttachError("पहिले माथि अध्याय छान्नुहोस्।");e.target.value="";return;}
-    setAttaching(true);setAttachError("");
-    const{data:{user}}=await supabase.auth.getUser();
-    const ext=file.name.split(".").pop().toLowerCase();
-    const typeMap={pdf:"pdf",pptx:"pptx",ppt:"pptx",doc:"doc",docx:"doc",xlsx:"sheet",xls:"sheet",csv:"sheet",jpg:"image",jpeg:"image",png:"image",mp4:"video",mp3:"audio"};
-    const fileType=typeMap[ext]||"doc";
-    let extracted_text="",extraction_status="not_needed";
-    if(["docx","pptx","xlsx","xls","csv"].includes(ext)){
-      const res=await extractTextFromFile(file);
-      extracted_text=res.text;extraction_status=res.status;
-    }else if(ext==="doc"){
-      extraction_status="failed";
-      setAttachError(`पुरानो .doc ढाँचा समर्थित छैन — ".docx" बनाएर फेरि प्रयास गर्नुहोस्।`);
+    // NEW — in a Path-aware context (Planner passes onEnsureLessonId) a
+    // material always belongs to a specific पाठ. If this Path hasn't been
+    // saved yet, resolve/create it first instead of silently attaching the
+    // file at the whole-chapter level. Screens with no Path concept
+    // (Question Bank/Activities/Assessment) don't pass onEnsureLessonId,
+    // so they keep working exactly as before.
+    let lid=lessonId||null;
+    if(!lid&&onEnsureLessonId){
+      lid=await onEnsureLessonId();
+      if(!lid){setAttachError("पहिले माथि पाठको नाम लेख्नुहोस्।");e.target.value="";return;}
     }
-    const chapterId=await db.getOrCreateChapterId(chapterTitle.trim(),classLabel);
-    const{path,error:upErr}=await db.uploadMaterialFile(file,user.id);
-    if(upErr){setAttachError(upErr.message);setAttaching(false);return;}
-    await db.insertMaterial({name:file.name,storage_path:path,file_type:fileType,size_bytes:file.size,tags:[],chapter_id:chapterId,lesson_id:lessonId||null,category:"other",extracted_text,extraction_status,class_label:classLabel});
+    setAttaching(true);setAttachError("");
+    const{data,error,warning}=await uploadOneMaterial({file,chapterTitle:chapterTitle.trim(),lessonId:lid,category:"other",classLabel});
+    if(error){setAttachError(warning||error.message);setAttaching(false);e.target.value="";return;}
+    if(warning)setAttachError(warning);
     setAttachedNames((prev)=>[...prev,file.name]);
     setAttaching(false);e.target.value="";
   };
 
+  const ready=!!chapterTitle?.trim();
   return (
     <div style={{marginBottom:8}}>
       {attachedNames.length>0&&(
@@ -503,9 +564,9 @@ function MaterialAttach({ chapterTitle, lessonId, classLabel }) {
         </div>
       )}
       {attachError&&<div style={{fontSize:14.5,color:DANGER,marginBottom:6}}>{attachError}</div>}
-      <label style={{display:"inline-flex",alignItems:"center",gap:7,background:chapterTitle?.trim()?ACCENT_LIGHT:SURFACE_2,color:chapterTitle?.trim()?ACCENT:INK_SOFT,border:`1.5px dashed ${chapterTitle?.trim()?ACCENT:BORDER}`,borderRadius:10,padding:"9px 14px",fontWeight:700,fontSize:15,cursor:chapterTitle?.trim()?"pointer":"not-allowed"}}>
+      <label style={{display:"inline-flex",alignItems:"center",gap:7,background:ready?ACCENT_LIGHT:SURFACE_2,color:ready?ACCENT:INK_SOFT,border:`1.5px dashed ${ready?ACCENT:BORDER}`,borderRadius:10,padding:"9px 14px",fontWeight:700,fontSize:15,cursor:ready?"pointer":"not-allowed"}}>
         {attaching?<Spinner small/>:<Paperclip size={15}/>}{attaching?"अपलोड हुँदै...":"सामग्री थप्नुहोस्"}
-        <input type="file" onChange={attachMaterial} disabled={!chapterTitle?.trim()||attaching} style={{display:"none"}}/>
+        <input type="file" onChange={attachMaterial} disabled={!ready||attaching} style={{display:"none"}}/>
       </label>
     </div>
   );
@@ -590,7 +651,7 @@ function PathPicker({ value, onChange, chapterTitle, lessons, onLessonsChanged, 
         }}
         className="ss-field"
         style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,color:value?INK:INK_SOFT}}>
-        <option value="">— पाठ नतोकिएको (सम्पूर्ण अध्यायमा लागू) —</option>
+        <option value="">— पाठ छान्नुहोस् * —</option>
         {chapterPaths.map((l)=><option key={l.id} value={l.id}>{l.title}</option>)}
         <option value="__new__">+ नयाँ पाठ थप्नुहोस्</option>
       </select>
@@ -1683,6 +1744,30 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
     return()=>{cancelled=true;};
   },[form.chapter_title,classLabel]);
 
+  // FIX — this used to be chapter-wide (how many materials are tagged to
+  // the whole Adhyaya), which is exactly the hochpotch being fixed:
+  // materials belong to a specific पाठ now, so this counts only files
+  // tagged to THIS Path once it has been saved.
+  useEffect(()=>{
+    let cancelled=false;
+    if(!form.id){setMatchedCount(0);return;}
+    db.getMaterialsByLesson(form.id).then(({data})=>{if(!cancelled)setMatchedCount((data||[]).length);});
+    return()=>{cancelled=true;};
+  },[form.id]);
+
+  // NEW — lets material-attach lazily create this Path's row the first
+  // time a file is dropped on a brand-new (unsaved) Path, so "सामग्री
+  // थप्नुहोस्" works immediately after typing a title, without forcing the
+  // teacher to run AI generation first just to get an id to tag against.
+  const ensurePath=async()=>{
+    if(form.id)return form.id;
+    if(!form.chapter_title.trim()||!form.title.trim())return null;
+    const chapter_id=await resolveChapterId(form.chapter_title,classLabel);
+    const{data}=await db.upsertLesson({title:form.title,chapter_id,status:"missing",class_label:classLabel,section_id:section?.id||null});
+    if(data){setForm((f)=>({...f,id:data.id}));return data.id;}
+    return null;
+  };
+
   const startEdit=(l)=>{setForm(lessonToForm(l));setShowForm(true);setShowDetails(true);setStepState({});};
   // NEW — chapterTitle is now passed in from whichever अध्याय group's
   // "+ नयाँ पाठ" button was tapped, so the Path being created is always
@@ -1711,7 +1796,6 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
       });
       if(lesson){
         setForm(lessonToForm(lesson));
-        setMatchedCount((await getMaterialContext(chapter,classLabel)).matchedCount||0);
       }else setError("AI ले डाटा बनाउन सकेन।");
     }catch(e){setError("AI त्रुटि: "+e.message);}
     setGenerating(false);
@@ -1813,8 +1897,8 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
 
             <div>
               <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:700,marginBottom:4}}>३. सामग्री (वैकल्पिक)</div>
-              <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title}/>
-              <MaterialAttach chapterTitle={form.chapter_title} lessonId={form.id} classLabel={classLabel}/>
+              <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title} pathTitle={form.title}/>
+              <MaterialAttach chapterTitle={form.chapter_title} lessonId={form.id} onEnsureLessonId={ensurePath} classLabel={classLabel}/>
             </div>
 
             <div>
@@ -2064,31 +2148,29 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
       setPendingError("हरेक फाइलको लागि अध्याय छान्नुहोस् — केही फाइलमा अझै छानिएको छैन।");
       return;
     }
+    // FIX — materials belong to a specific पाठ (Path), not the whole
+    // अध्याय (Unit): a lesson plan, PPT, or any other file is always for
+    // one particular lesson, so every file now needs a Path picked (or
+    // created) before it can upload — no more "applies to the whole
+    // chapter" option, which is what made AI context matching hochpotch
+    // (a file for Path 2 was bleeding into Path 1's generation).
+    if(pendingFiles.some((r)=>!r.pathId)){
+      setPendingError("हरेक फाइलको लागि पाठ (Path) पनि छान्नुहोस् वा नयाँ बनाउनुहोस् — केही फाइलमा अझै छानिएको छैन।");
+      return;
+    }
     setUploading(true);setError("");setPendingError("");
-    const{data:{user}}=await supabase.auth.getUser();
-    const typeMap={pdf:"pdf",pptx:"pptx",ppt:"pptx",doc:"doc",docx:"doc",xlsx:"sheet",xls:"sheet",csv:"sheet",jpg:"image",jpeg:"image",png:"image",mp4:"video",mp3:"audio"};
+    // FIX — this loop used to duplicate MaterialAttach's upload logic
+    // (extraction, chapter resolution, storage upload) almost line for
+    // line, with the two slowly drifting apart. Both now call the same
+    // uploadOneMaterial() door.
     let failedNames=[];
-    const chapterIdCache={};
     for(let i=0;i<pendingFiles.length;i++){
       const row=pendingFiles[i];
       const file=row.file;
       setUploadProgress(pendingFiles.length>1?{current:i+1,total:pendingFiles.length,name:file.name}:null);
-      const ext=file.name.split(".").pop().toLowerCase();
-      const fileType=typeMap[ext]||"doc";
-      let extracted_text="", extraction_status="not_needed";
-      if(["docx","pptx","xlsx","xls","csv"].includes(ext)){
-        const res=await extractTextFromFile(file);
-        extracted_text=res.text;extraction_status=res.status;
-        if(res.status==="failed") failedNames.push(`${file.name} (टेक्स्ट निकाल्न सकिएन)`);
-      }else if(ext==="doc"){
-        extraction_status="failed";
-        failedNames.push(`${file.name} (.doc समर्थित छैन — .docx बनाएर फेरि पठाउनुहोस्)`);
-      }
-      const{path,error:upErr}=await db.uploadMaterialFile(file,user.id);
-      if(upErr){failedNames.push(`${file.name} (${upErr.message})`);continue;}
-      const chapterTitle=row.chapterTitle.trim();
-      if(!(chapterTitle in chapterIdCache)) chapterIdCache[chapterTitle]=await db.getOrCreateChapterId(chapterTitle,classLabel);
-      await db.insertMaterial({name:file.name,storage_path:path,file_type:fileType,size_bytes:file.size,tags:[],chapter_id:chapterIdCache[chapterTitle],lesson_id:row.pathId||null,category:row.category,extracted_text,extraction_status,class_label:classLabel});
+      const{error:err,warning}=await uploadOneMaterial({file,chapterTitle:row.chapterTitle.trim(),lessonId:row.pathId,category:row.category,classLabel});
+      if(err){failedNames.push(warning||`${file.name} (${err.message})`);continue;}
+      if(warning)failedNames.push(warning);
     }
     if(failedNames.length)setError(failedNames.join(" · "));
     setUploading(false);setUploadProgress(null);setPendingFiles(null);load();onChaptersChanged?.();
@@ -2146,20 +2228,13 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
   const [tagError,setTagError]=useState("");
   const saveTag=async()=>{
     if(!tagging||!tagValue.trim())return;
+    // FIX — same "must belong to a पाठ, not the whole अध्याय" rule as new
+    // uploads: re-tagging can't leave a file chapter-wide either, or it
+    // silently falls back to bleeding into every Path's AI context again.
+    if(!tagPathId){setTagError("पाठ (Path) पनि छान्नुहोस् वा नयाँ बनाउनुहोस्।");return;}
     setRetagging(true);setTagError("");
     try{
-      const chapterId=await db.getOrCreateChapterId(tagValue.trim(),classLabel);
-      let patch={chapter_id:chapterId, lesson_id:tagPathId||null, category:tagCategory, class_label:classLabel};
-      const ext=tagging.name.split(".").pop().toLowerCase();
-      if(!tagging.extracted_text && ["docx","pptx","xlsx","xls","csv"].includes(ext)){
-        try{
-          const blob=await db.downloadMaterialFile(tagging.storage_path);
-          const file=new File([blob],tagging.name);
-          const res=await extractTextFromFile(file);
-          patch.extracted_text=res.text;patch.extraction_status=res.status;
-        }catch(e){patch.extraction_status="failed";}
-      }
-      const{error:err}=await db.updateMaterial(tagging.id,patch);
+      const{error:err}=await retagMaterial({material:tagging,chapterTitle:tagValue.trim(),lessonId:tagPathId,category:tagCategory,classLabel});
       if(err)throw err;
       setRetagging(false);setTagging(null);load();
     }catch(e){
@@ -2247,7 +2322,7 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
                     <ChapterPicker value={row.chapterTitle} onChange={(v)=>updatePendingRow(row._key,{chapterTitle:v,chapterAuto:false,pathId:null})} chapters={chapters||[]} onAddChapter={addChapterAndRefresh} placeholder="अध्याय छान्नुहोस् *"/>
                   </div>
                   <div style={{marginTop:8}}>
-                    <div style={{fontSize:12.5,fontWeight:700,color:INK_SOFT,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.03em"}}>पाठ (वैकल्पिक)</div>
+                    <div style={{fontSize:12.5,fontWeight:700,color:INK_SOFT,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.03em"}}>पाठ (Path) *</div>
                     <PathPicker value={row.pathId} onChange={(v)=>updatePendingRow(row._key,{pathId:v})} chapterTitle={row.chapterTitle} lessons={lessons} onLessonsChanged={loadLessonsForPicker} classLabel={classLabel}/>
                   </div>
                 </div>
@@ -2360,8 +2435,14 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
                   ):(
                     <span style={{fontSize:13.5,background:WARN_BG,color:WARN,padding:"3px 8px",borderRadius:999,fontWeight:700,display:"inline-block"}}>अध्याय छैन</span>
                   )}
-                  {f.lessons?.title&&(
+                  {f.lessons?.title?(
                     <span style={{fontSize:13.5,background:SURFACE_2,color:INK_SOFT,padding:"3px 8px",borderRadius:999,fontWeight:700,display:"inline-block",maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",verticalAlign:"bottom",marginLeft:4,marginTop:4}}>📍{f.lessons.title}</span>
+                  ):(
+                    // NEW — materials uploaded before Path tagging existed
+                    // (or via the old chapter-wide option) show this so a
+                    // teacher can see at a glance which files still need a
+                    // Path assigned via the 🏷 button.
+                    <span style={{fontSize:13.5,background:WARN_BG,color:WARN,padding:"3px 8px",borderRadius:999,fontWeight:700,display:"inline-block",marginLeft:4,marginTop:4}}>पाठ छैन</span>
                   )}
                   {needsExtraction&&f.extraction_status==="done"&&<div style={{fontSize:13.5,color:ACCENT,marginTop:5,fontWeight:700}}>✓ AI तयार</div>}
                   {needsExtraction&&f.extraction_status==="failed"&&<div style={{fontSize:13.5,color:DANGER,marginTop:5,fontWeight:700}}>⚠ टेक्स्ट निकाल्न सकिएन</div>}
@@ -2418,7 +2499,7 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
             <div style={{fontSize:14.5,fontWeight:700,color:INK_SOFT,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.03em"}}>अध्याय</div>
             <ChapterPicker value={tagValue} onChange={(v)=>{setTagValue(v);setTagPathId(null);}} chapters={chapters||[]} onAddChapter={addChapterAndRefresh} placeholder="— अध्याय छान्नुहोस् —"/>
             <div style={{height:14}}/>
-            <div style={{fontSize:14.5,fontWeight:700,color:INK_SOFT,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.03em"}}>पाठ (वैकल्पिक)</div>
+            <div style={{fontSize:14.5,fontWeight:700,color:INK_SOFT,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.03em"}}>पाठ (Path) *</div>
             <PathPicker value={tagPathId} onChange={setTagPathId} chapterTitle={tagValue} lessons={lessons} onLessonsChanged={loadLessonsForPicker} classLabel={classLabel}/>
             <div style={{height:16}}/>
             <Button variant="primary" onClick={saveTag} disabled={retagging} style={{width:"100%"}}>{retagging?"प्रशोधन गर्दै...":"सुरक्षित गर्नुहोस्"}</Button>
