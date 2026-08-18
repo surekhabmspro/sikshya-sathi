@@ -257,8 +257,16 @@ export const blobToBase64 = (blob) =>
 //     (up to 2 extra attempts, with backoff) before giving up — anything
 //     else (bad API key, blocked content, etc.) still fails immediately
 //     since retrying wouldn't help.
+// FIX — 25s was too tight once materials (uploaded docx/pptx, sent as raw
+// extracted text on every call, not cached like the textbook) got added to
+// the context: a longer prompt takes the model longer to start answering,
+// so real, in-progress responses were being cut off as "timed out" instead
+// of given a fair chance to finish. Raised to 45s. Also capped how much
+// extracted text from a single material gets sent (see MAX_MATERIAL_CHARS
+// below) so an unusually long PPT/DOCX doesn't blow the prompt up in the
+// first place.
 const RETRYABLE_STATUS = new Set([429, 503]);
-const CALL_TIMEOUT_MS = 25000;
+const CALL_TIMEOUT_MS = 45000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function fetchGeminiOnce(body, timeoutMs = CALL_TIMEOUT_MS) {
@@ -388,6 +396,12 @@ export const generateWithMaterialsJSON = (prompt, materialParts = [], textbookBa
 // NEW — turns Materials-library rows into Gemini `parts`. PDFs/images are
 // downloaded from Supabase Storage and inlined; docx/pptx/xlsx use their
 // pre-extracted `extracted_text` column (no download needed).
+// FIX — an uploaded PPT or lesson-plan doc with no length limit could balloon
+// the prompt sent on every single generation call (lesson plan, questions,
+// activities, rubric — all four, every time), which was very likely why
+// generation was timing out. A few thousand characters is already far more
+// context than the AI needs from any one file.
+const MAX_MATERIAL_CHARS = 6000;
 export const buildMaterialParts = async (materials, downloadFn) => {
   const parts = [];
   for (const m of materials || []) {
@@ -398,7 +412,9 @@ export const buildMaterialParts = async (materials, downloadFn) => {
         const mime = m.file_type === "pdf" ? "application/pdf" : (blob.type || "image/jpeg");
         parts.push({ inline_data: { mime_type: mime, data: b64 } });
       } else if (m.extracted_text) {
-        parts.push({ text: `[फाइल: ${m.name}]\n${m.extracted_text}` });
+        const truncated = m.extracted_text.length > MAX_MATERIAL_CHARS;
+        const text = truncated ? m.extracted_text.slice(0, MAX_MATERIAL_CHARS) + "\n[...बाँकी भाग छोटो पारियो...]" : m.extracted_text;
+        parts.push({ text: `[फाइल: ${m.name}]\n${text}` });
       }
     } catch (e) {
       console.warn(`Material "${m.name}" skipped (couldn't load):`, e.message);
