@@ -12,7 +12,15 @@ const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 // https://ai.google.dev/gemini-api/docs/pricing and pick whichever current
 // Flash-generation model shows "Free of charge" under Standard AND does
 // NOT say "Preview" in its name, then swap its exact model id in here.
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${GEMINI_API_KEY}`;
+const PRIMARY_MODEL = "gemini-3.6-flash";
+// NEW — a "Flash-Lite" model gets its own separate free-tier quota from the
+// regular Flash model (Google tracks quota per model, not shared across a
+// project) and Flash-Lite tiers are consistently the most generous on
+// requests-per-day. If the primary model is still rate-limited after its
+// own retries, one attempt goes to this instead of failing outright — a
+// heavy day of testing/use on one model doesn't have to stop everything.
+const FALLBACK_MODEL = "gemini-2.5-flash-lite";
+const geminiUrl = (model) => `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
 
 // ─── IndexedDB storage for large PDF files (no size limit issues) ─────────────
 const DB_NAME = "sikshya_sathi";
@@ -249,7 +257,7 @@ export const blobToBase64 = (blob) =>
 //     the UI stuck on its loading spinner and no way to know if it was
 //     ever coming back. Every call now gives up after 25s with a clear
 //     Nepali message instead of hanging indefinitely.
-//  2. No retry — the comment above GEMINI_URL already documents this app
+//  2. No retry — the comment above PRIMARY_MODEL already documents this app
 //     hitting the free-tier rate limit before. A 429 (rate limited) or 503
 //     (temporarily overloaded) response is often transient and succeeds a
 //     few seconds later, but the old code surfaced it as a hard failure on
@@ -269,11 +277,11 @@ const RETRYABLE_STATUS = new Set([429, 503]);
 const CALL_TIMEOUT_MS = 45000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function fetchGeminiOnce(body, timeoutMs = CALL_TIMEOUT_MS) {
+async function fetchGeminiOnce(body, model, timeoutMs = CALL_TIMEOUT_MS) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(GEMINI_URL, {
+    return await fetch(geminiUrl(model), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -296,9 +304,10 @@ async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, tim
 
   let res;
   let lastError;
+  let usedFallback = false;
   for (let attempt = 0; attempt <= 2; attempt++) {
     try {
-      res = await fetchGeminiOnce(body, timeoutMs);
+      res = await fetchGeminiOnce(body, PRIMARY_MODEL, timeoutMs);
     } catch (e) {
       lastError = e;
       // Network/timeout failures: also worth a retry, same backoff as a
@@ -315,6 +324,15 @@ async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, tim
     }
     break;
   }
+  // NEW — the primary model used up its own retries and is still
+  // rate-limited (429): one last attempt on the fallback model, which has
+  // its own separate free-tier daily allowance, before giving up entirely.
+  if (res && res.status === 429) {
+    try {
+      const fallbackRes = await fetchGeminiOnce(body, FALLBACK_MODEL, timeoutMs);
+      if (fallbackRes.status !== 429) { res = fallbackRes; usedFallback = true; }
+    } catch { /* keep the original 429 response/error below */ }
+  }
   if (!res) throw lastError || new Error("Gemini सर्भरसम्म पुग्न सकिएन।");
 
   let data;
@@ -325,11 +343,12 @@ async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, tim
   }
 
   if (data.error) {
-    // FIX — a 429 that survives all retries used to show the same generic
-    // "Gemini API त्रुटि" as every other error, giving no hint that it's a
-    // temporary capacity issue rather than something broken. Now says so
-    // explicitly, since that's actionable ("try again shortly") in a way
-    // a raw error code isn't for a teacher mid-class.
+    // FIX — a 429 that survives all retries (and the fallback-model
+    // attempt above) used to show the same generic "Gemini API त्रुटि" as
+    // every other error, giving no hint that it's a temporary capacity
+    // issue rather than something broken. Now says so explicitly, since
+    // that's actionable ("try again shortly") in a way a raw error code
+    // isn't for a teacher mid-class.
     if (res.status === 429) throw new Error("Gemini अहिले धेरै व्यस्त छ (rate limit) — केही मिनेट पछि फेरि प्रयास गर्नुहोस्। धेरैचोटि यस्तै आउँछ भने, दिनको सीमा सकिएको हुन सक्छ — भोलि फेरि प्रयास गर्नुहोस्।");
     if (res.status === 503) throw new Error("Gemini अहिले अस्थायी रूपमा उपलब्ध छैन — केही सेकेन्ड पछि फेरि प्रयास गर्नुहोस्।");
     throw new Error(`Gemini API त्रुटि (${data.error.code || res.status}): ${data.error.message}`);
