@@ -466,7 +466,7 @@ function MaterialsHint({ count, chapterTitle }) {
 // widget. Used by Planner, Question Bank, Activities and Assessment so none
 // of them require a separate trip to the Materials tab just to give the AI
 // something to read from.
-function MaterialAttach({ chapterTitle, classLabel }) {
+function MaterialAttach({ chapterTitle, lessonId, classLabel }) {
   const [attaching,setAttaching]=useState(false);
   const [attachedNames,setAttachedNames]=useState([]);
   const [attachError,setAttachError]=useState("");
@@ -490,7 +490,7 @@ function MaterialAttach({ chapterTitle, classLabel }) {
     const chapterId=await db.getOrCreateChapterId(chapterTitle.trim(),classLabel);
     const{path,error:upErr}=await db.uploadMaterialFile(file,user.id);
     if(upErr){setAttachError(upErr.message);setAttaching(false);return;}
-    await db.insertMaterial({name:file.name,storage_path:path,file_type:fileType,size_bytes:file.size,tags:[],chapter_id:chapterId,category:"other",extracted_text,extraction_status,class_label:classLabel});
+    await db.insertMaterial({name:file.name,storage_path:path,file_type:fileType,size_bytes:file.size,tags:[],chapter_id:chapterId,lesson_id:lessonId||null,category:"other",extracted_text,extraction_status,class_label:classLabel});
     setAttachedNames((prev)=>[...prev,file.name]);
     setAttaching(false);e.target.value="";
   };
@@ -548,6 +548,55 @@ function ChapterPicker({ value, onChange, chapters, onAddChapter, placeholder })
       {showAdd&&(
         <div style={{display:"flex",gap:8,marginTop:8}}>
           <input autoFocus value={newTitle} onChange={(e)=>setNewTitle(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&submitNew()} placeholder="नयाँ अध्यायको नाम लेख्नुहोस्" className="ss-field" style={{flex:1,minWidth:0,borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+          <button className="ss-btn" onClick={submitNew} disabled={adding||!newTitle.trim()} style={{background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:SHADOW.accent}}>{adding?"...":"थप्नुहोस्"}</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// NEW — companion to ChapterPicker: choose (or create) which पाठ (Path)
+// inside the already-selected अध्याय a material belongs to. Materials could
+// previously only ever be tagged to the whole Adhyaya, with no way to say
+// which specific Path actually uses a given file.
+function PathPicker({ value, onChange, chapterTitle, lessons, onLessonsChanged, classLabel }) {
+  const [showAdd,setShowAdd]=useState(false);
+  const [newTitle,setNewTitle]=useState("");
+  const [adding,setAdding]=useState(false);
+  const chapterPaths=(lessons||[]).filter((l)=>(l.chapters?.title||l.chapter_title)===chapterTitle);
+
+  const submitNew=async()=>{
+    if(!newTitle.trim()||!chapterTitle)return;
+    setAdding(true);
+    try{
+      const chapter_id=await db.getOrCreateChapterId(chapterTitle,classLabel);
+      const{data}=await db.upsertLesson({title:newTitle.trim(),chapter_id,status:"missing",class_label:classLabel});
+      if(data){onChange(data.id);await onLessonsChanged?.();}
+      setShowAdd(false);setNewTitle("");
+    }finally{setAdding(false);}
+  };
+
+  if(!chapterTitle||!chapterTitle.trim()){
+    return <div style={{fontSize:14.5,color:INK_SOFT,padding:"9px 2px"}}>पहिले माथि अध्याय छान्नुहोस्।</div>;
+  }
+
+  return(
+    <div>
+      <select
+        value={chapterPaths.some((l)=>l.id===value)?value:""}
+        onChange={(e)=>{
+          if(e.target.value==="__new__"){setShowAdd(true);}
+          else{onChange(e.target.value||null);setShowAdd(false);}
+        }}
+        className="ss-field"
+        style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,color:value?INK:INK_SOFT}}>
+        <option value="">— पाठ नतोकिएको (सम्पूर्ण अध्यायमा लागू) —</option>
+        {chapterPaths.map((l)=><option key={l.id} value={l.id}>{l.title}</option>)}
+        <option value="__new__">+ नयाँ पाठ थप्नुहोस्</option>
+      </select>
+      {showAdd&&(
+        <div style={{display:"flex",gap:8,marginTop:8}}>
+          <input autoFocus value={newTitle} onChange={(e)=>setNewTitle(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&submitNew()} placeholder="नयाँ पाठको नाम लेख्नुहोस्" className="ss-field" style={{flex:1,minWidth:0,borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
           <button className="ss-btn" onClick={submitNew} disabled={adding||!newTitle.trim()} style={{background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:SHADOW.accent}}>{adding?"...":"थप्नुहोस्"}</button>
         </div>
       )}
@@ -1765,7 +1814,7 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
             <div>
               <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:700,marginBottom:4}}>३. सामग्री (वैकल्पिक)</div>
               <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title}/>
-              <MaterialAttach chapterTitle={form.chapter_title} classLabel={classLabel}/>
+              <MaterialAttach chapterTitle={form.chapter_title} lessonId={form.id} classLabel={classLabel}/>
             </div>
 
             <div>
@@ -1876,6 +1925,12 @@ function CategoryPicker({ value, onChange }) {
 
 function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
   const [materials,setMaterials]=useState([]);
+  const [lessons,setLessons]=useState([]);
+  const loadLessonsForPicker=useCallback(async()=>{
+    const{data}=await db.getLessons(null,classLabel);
+    setLessons(data||[]);
+  },[classLabel]);
+  useEffect(()=>{loadLessonsForPicker();},[loadLessonsForPicker]);
   const [loading,setLoading]=useState(true);
   const [uploading,setUploading]=useState(false);
   const [query,setQuery]=useState("");
@@ -1993,6 +2048,7 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
         categoryAuto:!!detectedCategory,
         chapterTitle:guessedChapter?.title||uploadChapter||"",
         chapterAuto:!!guessedChapter,
+        pathId:null,
         unitLessonHint:unitLesson?`U${unitLesson.unit}L${unitLesson.lesson}`:null,
       };
     });
@@ -2032,7 +2088,7 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
       if(upErr){failedNames.push(`${file.name} (${upErr.message})`);continue;}
       const chapterTitle=row.chapterTitle.trim();
       if(!(chapterTitle in chapterIdCache)) chapterIdCache[chapterTitle]=await db.getOrCreateChapterId(chapterTitle,classLabel);
-      await db.insertMaterial({name:file.name,storage_path:path,file_type:fileType,size_bytes:file.size,tags:[],chapter_id:chapterIdCache[chapterTitle],category:row.category,extracted_text,extraction_status,class_label:classLabel});
+      await db.insertMaterial({name:file.name,storage_path:path,file_type:fileType,size_bytes:file.size,tags:[],chapter_id:chapterIdCache[chapterTitle],lesson_id:row.pathId||null,category:row.category,extracted_text,extraction_status,class_label:classLabel});
     }
     if(failedNames.length)setError(failedNames.join(" · "));
     setUploading(false);setUploadProgress(null);setPendingFiles(null);load();onChaptersChanged?.();
@@ -2082,8 +2138,9 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
   // NEW: tag (or re-tag) an already-uploaded material's chapter + category.
   // If it's a docx/pptx/xlsx uploaded before this feature existed and has
   // no extracted_text yet, re-download it and extract now.
+  const [tagPathId,setTagPathId]=useState(null);
   const openTagEditor=(mat)=>{
-    setTagging(mat);setTagValue(mat.chapters?.title||"");setTagCategory(mat.category||"other");setTagError("");
+    setTagging(mat);setTagValue(mat.chapters?.title||"");setTagCategory(mat.category||"other");setTagPathId(mat.lesson_id||null);setTagError("");
   };
 
   const [tagError,setTagError]=useState("");
@@ -2092,7 +2149,7 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
     setRetagging(true);setTagError("");
     try{
       const chapterId=await db.getOrCreateChapterId(tagValue.trim(),classLabel);
-      let patch={chapter_id:chapterId, category:tagCategory, class_label:classLabel};
+      let patch={chapter_id:chapterId, lesson_id:tagPathId||null, category:tagCategory, class_label:classLabel};
       const ext=tagging.name.split(".").pop().toLowerCase();
       if(!tagging.extracted_text && ["docx","pptx","xlsx","xls","csv"].includes(ext)){
         try{
@@ -2187,7 +2244,11 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
                   </div>
                   <div>
                     <div style={{fontSize:12.5,fontWeight:700,color:INK_SOFT,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.03em",display:"flex",alignItems:"center",gap:4}}>अध्याय{row.chapterAuto&&<Sparkles size={11} color={ACCENT}/>}</div>
-                    <ChapterPicker value={row.chapterTitle} onChange={(v)=>updatePendingRow(row._key,{chapterTitle:v,chapterAuto:false})} chapters={chapters||[]} onAddChapter={addChapterAndRefresh} placeholder="अध्याय छान्नुहोस् *"/>
+                    <ChapterPicker value={row.chapterTitle} onChange={(v)=>updatePendingRow(row._key,{chapterTitle:v,chapterAuto:false,pathId:null})} chapters={chapters||[]} onAddChapter={addChapterAndRefresh} placeholder="अध्याय छान्नुहोस् *"/>
+                  </div>
+                  <div style={{marginTop:8}}>
+                    <div style={{fontSize:12.5,fontWeight:700,color:INK_SOFT,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.03em"}}>पाठ (वैकल्पिक)</div>
+                    <PathPicker value={row.pathId} onChange={(v)=>updatePendingRow(row._key,{pathId:v})} chapterTitle={row.chapterTitle} lessons={lessons} onLessonsChanged={loadLessonsForPicker} classLabel={classLabel}/>
                   </div>
                 </div>
               ))}
@@ -2299,6 +2360,9 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
                   ):(
                     <span style={{fontSize:13.5,background:WARN_BG,color:WARN,padding:"3px 8px",borderRadius:999,fontWeight:700,display:"inline-block"}}>अध्याय छैन</span>
                   )}
+                  {f.lessons?.title&&(
+                    <span style={{fontSize:13.5,background:SURFACE_2,color:INK_SOFT,padding:"3px 8px",borderRadius:999,fontWeight:700,display:"inline-block",maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",verticalAlign:"bottom",marginLeft:4,marginTop:4}}>📍{f.lessons.title}</span>
+                  )}
                   {needsExtraction&&f.extraction_status==="done"&&<div style={{fontSize:13.5,color:ACCENT,marginTop:5,fontWeight:700}}>✓ AI तयार</div>}
                   {needsExtraction&&f.extraction_status==="failed"&&<div style={{fontSize:13.5,color:DANGER,marginTop:5,fontWeight:700}}>⚠ टेक्स्ट निकाल्न सकिएन</div>}
                 </div>
@@ -2352,7 +2416,10 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, classLabel }) {
             <CategoryPicker value={tagCategory} onChange={setTagCategory}/>
             <div style={{height:14}}/>
             <div style={{fontSize:14.5,fontWeight:700,color:INK_SOFT,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.03em"}}>अध्याय</div>
-            <ChapterPicker value={tagValue} onChange={setTagValue} chapters={chapters||[]} onAddChapter={addChapterAndRefresh} placeholder="— अध्याय छान्नुहोस् —"/>
+            <ChapterPicker value={tagValue} onChange={(v)=>{setTagValue(v);setTagPathId(null);}} chapters={chapters||[]} onAddChapter={addChapterAndRefresh} placeholder="— अध्याय छान्नुहोस् —"/>
+            <div style={{height:14}}/>
+            <div style={{fontSize:14.5,fontWeight:700,color:INK_SOFT,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.03em"}}>पाठ (वैकल्पिक)</div>
+            <PathPicker value={tagPathId} onChange={setTagPathId} chapterTitle={tagValue} lessons={lessons} onLessonsChanged={loadLessonsForPicker} classLabel={classLabel}/>
             <div style={{height:16}}/>
             <Button variant="primary" onClick={saveTag} disabled={retagging} style={{width:"100%"}}>{retagging?"प्रशोधन गर्दै...":"सुरक्षित गर्नुहोस्"}</Button>
           </div>

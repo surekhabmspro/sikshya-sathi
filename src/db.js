@@ -182,7 +182,7 @@ export const deleteLesson = async (id) => {
 // NEW — scoped to class_label, same reasoning as chapters: a Class 5 file
 // shouldn't clutter the list once you've moved on to teaching Class 6.
 export const getMaterials = async (classLabel = null) => {
-  let query = supabase.from("materials").select("*, chapters(title)").order("created_at", { ascending: false });
+  let query = supabase.from("materials").select("*, chapters(title), lessons(title)").order("created_at", { ascending: false });
   if (classLabel) query = query.eq("class_label", classLabel);
   const { data, error } = await query;
   return { data, error };
