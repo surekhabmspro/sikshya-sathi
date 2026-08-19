@@ -1666,18 +1666,35 @@ function lessonToForm(l){
 // lesson under its chapter_id (falling back to a title match for any old
 // rows saved before chapter_id was reliably set).
 function groupLessonsByChapter(chapters, lessons) {
+  const norm=(s)=>(s||"").trim().toLowerCase().replace(/\s+/g," ");
   const byId=new Map();
   const byTitle=new Map();
+  const matchedIds=new Set();
   for(const l of lessons){
     const cid=l.chapter_id||null;
-    const ctitle=l.chapters?.title||l.chapter_title||"";
+    const ctitle=norm(l.chapters?.title||l.chapter_title||"");
     if(cid){ if(!byId.has(cid))byId.set(cid,[]); byId.get(cid).push(l); }
     else if(ctitle){ if(!byTitle.has(ctitle))byTitle.set(ctitle,[]); byTitle.get(ctitle).push(l); }
   }
-  return (chapters||[]).map((c)=>({
-    chapter:c,
-    paths:[...(byId.get(c.id)||[]), ...(byTitle.get(c.title)||[])],
-  }));
+  const groups=(chapters||[]).map((c)=>{
+    const idMatches=byId.get(c.id)||[];
+    const titleMatches=byTitle.get(norm(c.title))||[];
+    idMatches.forEach((l)=>matchedIds.add(l.id));
+    titleMatches.forEach((l)=>matchedIds.add(l.id));
+    return{ chapter:c, paths:[...idMatches, ...titleMatches] };
+  });
+  // FIX — a lesson whose chapter_id points at nothing (or nothing that
+  // matched by title either) used to just silently vanish from this whole
+  // screen: not in any chapter's group, no error, nothing. It still counted
+  // toward Home's "तयार पाठ" total (which doesn't group by chapter at all),
+  // so a teacher would see "2 तयार पाठ" on the dashboard and "0 पाठ" inside
+  // the one chapter they have — with no way to find the missing 2 anywhere
+  // in Planner. Surfacing them in their own "अध्याय नतोकिएको" bucket makes
+  // orphaned Paths visible and clickable (open → re-save with a chapter
+  // picked → they get a real chapter_id and move into the right group).
+  const orphans=lessons.filter((l)=>!matchedIds.has(l.id));
+  if(orphans.length) groups.push({chapter:{id:"__unassigned__",title:"अध्याय नतोकिएको"},paths:orphans,unassigned:true});
+  return groups;
 }
 
 function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters, onAddChapter, onChaptersChanged, materials, onMaterialsChanged, classContext, classLabel, editLessonId, onEditConsumed, prefillChapter, onPrefillConsumed }) {
@@ -1697,6 +1714,23 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
   const [chapterBusy,setChapterBusy]=useState(null);
   const isEditing=!!form.id;
   const groups=groupLessonsByChapter(chapters,lessons);
+
+  // FIX — nothing stopped the same पाठ name being saved twice under the
+  // same अध्याय: "AI ले यो पाठ बनाओस्" (and the manual save button) always
+  // inserted a fresh row whenever form.id was empty, even if a Path with
+  // that exact title already existed here. Checked before either creation
+  // path runs, so a teacher who re-types a title they already made gets
+  // routed to the existing Path instead of a silent duplicate.
+  const norm=(s)=>(s||"").trim().toLowerCase().replace(/\s+/g," ");
+  const findDuplicatePath=(chapterTitle,pathTitle)=>{
+    const ct=norm(chapterTitle),pt=norm(pathTitle);
+    if(!ct||!pt)return null;
+    return lessons.find((l)=>{
+      if(form.id&&l.id===form.id)return false;
+      const lct=norm(l.chapters?.title||l.chapter_title||"");
+      return lct===ct&&norm(l.title)===pt;
+    })||null;
+  };
 
   // NEW — अध्याय (Unit) rename/delete, right from Planner where units are
   // now actually created and managed. Deleting a chapter that still has
@@ -1788,6 +1822,11 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
   const ensurePath=async()=>{
     if(form.id)return form.id;
     if(!form.chapter_title.trim()||!form.title.trim())return null;
+    // FIX — reuse an existing Path with the same title in the same अध्याय
+    // instead of silently inserting a duplicate the moment a file gets
+    // dropped on the form before "सुरक्षित" is ever tapped.
+    const dup=findDuplicatePath(form.chapter_title,form.title);
+    if(dup){setForm((f)=>({...f,id:dup.id}));return dup.id;}
     const chapter_id=await resolveChapterId(form.chapter_title,classLabel);
     const{data}=await db.upsertLesson({title:form.title,chapter_id,status:"missing",class_label:classLabel,section_id:section?.id||null});
     if(data){
@@ -1822,6 +1861,15 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
     const chapter=form.chapter_title;
     if(!chapter.trim()){setError("पहिले अध्याय छान्नुहोस्।");return;}
     if(!form.title.trim()){setError("पहिले पाठको नाम लेख्नुहोस्।");return;}
+    if(!isEditing){
+      const dup=findDuplicatePath(chapter,form.title);
+      if(dup){
+        if(confirm(`"${dup.title}" नामको पाठ यो अध्यायमा पहिले नै छ। त्यही खोल्ने हो?`)){
+          setForm(lessonToForm(dup));setShowDetails(true);setShowMaterials(true);setChangingChapter(false);
+        }else setError("यो नामको पाठ पहिले नै अवस्थित छ — फरक नाम प्रयोग गर्नुहोस्।");
+        return;
+      }
+    }
     setGenerating(true);setError("");setStepState({plan:{state:"loading"},questions:{state:"idle"},activities:{state:"idle"},assessment:{state:"idle"}});
     try{
       const {lesson,questionsCount,activitiesCount,gotRubric}=await preparePath({
@@ -1846,6 +1894,15 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
 
   const save=async()=>{
     if(!form.title.trim()){setError("पाठको नाम आवश्यक छ।");return;}
+    if(!isEditing){
+      const dup=findDuplicatePath(form.chapter_title,form.title);
+      if(dup){
+        if(confirm(`"${dup.title}" नामको पाठ यो अध्यायमा पहिले नै छ। त्यही खोल्ने हो?`)){
+          setForm(lessonToForm(dup));setShowDetails(true);setShowMaterials(true);setChangingChapter(false);
+        }else setError("यो नामको पाठ पहिले नै अवस्थित छ — फरक नाम प्रयोग गर्नुहोस्।");
+        return;
+      }
+    }
     setSaving(true);setError("");
     // FIX — resolve the real chapter_id (not just the typed title) before
     // saving, so this lesson is actually linked to its chapter everywhere
@@ -2014,10 +2071,10 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
 
       {loading?<Spinner/>:groups.length===0?<EmptyState icon={ClipboardList} text="अझै कुनै अध्याय छैन।" actionLabel="पहिलो अध्याय थप्नुहोस्" onAction={()=>setAddingChapter(true)}/>:(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {groups.map(({chapter,paths})=>{
+          {groups.map(({chapter,paths,unassigned})=>{
             const isOpen=expanded.has(chapter.id);
             return(
-              <Card key={chapter.id} style={{padding:0,overflow:"hidden"}}>
+              <Card key={chapter.id} style={unassigned?{padding:0,overflow:"hidden",border:`1.5px dashed ${DANGER}`}:{padding:0,overflow:"hidden"}}>
                 <div onClick={()=>editingChapterId!==chapter.id&&toggleExpand(chapter.id)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"14px 16px",cursor:"pointer"}}>
                   {editingChapterId===chapter.id?(
                     <div style={{display:"flex",gap:6,flex:1,minWidth:0}} onClick={(e)=>e.stopPropagation()}>
@@ -2033,14 +2090,15 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
                       </div>
                       <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
                         <span style={{fontSize:13.5,background:paths.length?ACCENT_LIGHT:SURFACE_2,color:paths.length?ACCENT:INK_SOFT,padding:"3px 9px",borderRadius:999,fontWeight:700}}>{paths.length} पाठ</span>
-                        <button className="ss-icon-btn" onClick={(e)=>{e.stopPropagation();setEditingChapterId(chapter.id);setChapterEditValue(chapter.title);}} title="नाम बदल्नुहोस्" style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,padding:4}}><PenSquare size={15}/></button>
-                        <button className="ss-icon-btn" onClick={(e)=>deleteChapterInPlanner(chapter,e)} disabled={chapterBusy===chapter.id} title="मेटाउनुहोस्" style={{background:"none",border:"none",cursor:"pointer",color:DANGER,padding:4}}><Trash2 size={15}/></button>
+                        {!unassigned&&<button className="ss-icon-btn" onClick={(e)=>{e.stopPropagation();setEditingChapterId(chapter.id);setChapterEditValue(chapter.title);}} title="नाम बदल्नुहोस्" style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,padding:4}}><PenSquare size={15}/></button>}
+                        {!unassigned&&<button className="ss-icon-btn" onClick={(e)=>deleteChapterInPlanner(chapter,e)} disabled={chapterBusy===chapter.id} title="मेटाउनुहोस्" style={{background:"none",border:"none",cursor:"pointer",color:DANGER,padding:4}}><Trash2 size={15}/></button>}
                       </div>
                     </>
                   )}
                 </div>
                 {isOpen&&(
                   <div style={{padding:"0 16px 16px",display:"flex",flexDirection:"column",gap:8}}>
+                    {unassigned&&<div style={{fontSize:13.5,color:DANGER,background:"color-mix(in srgb, "+DANGER+" 12%, transparent)",borderRadius:8,padding:"8px 10px"}}>यी पाठहरू कुनै अध्यायसँग जोडिएका छैनन् (पुरानो डाटा)। प्रत्येक खोलेर सम्पादन गर्नुहोस् र सही अध्याय छान्नुहोस्, अनि सुरक्षित गर्नुहोस् — त्यसपछि यो माथिको ठीक अध्याय समूहमा सर्नेछ।</div>}
                     {paths.length===0&&<div style={{fontSize:14.5,color:INK_SOFT,padding:"4px 0 8px"}}>यो अध्यायमा अझै कुनै पाठ छैन।</div>}
                     {paths.map((l)=>(
                       <div key={l.id} onClick={()=>onOpenLesson(l)} style={{display:"flex",alignItems:"center",gap:8,background:SURFACE_2,borderRadius:10,padding:"10px 12px",cursor:"pointer"}}>
@@ -2051,7 +2109,7 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
                         <button className="ss-icon-btn" onClick={(e)=>deleteLesson(l.id,e)} title="मेटाउनुहोस्" style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,padding:4}}><Trash2 size={15}/></button>
                       </div>
                     ))}
-                    <button className="ss-btn" onClick={()=>startNew(chapter.title)} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:"none",border:`1.5px dashed ${BORDER}`,color:ACCENT,borderRadius:10,padding:"10px",fontWeight:700,fontSize:15,cursor:"pointer"}}><Plus size={14}/>नयाँ पाठ थप्नुहोस्</button>
+                    {!unassigned&&<button className="ss-btn" onClick={()=>startNew(chapter.title)} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:"none",border:`1.5px dashed ${BORDER}`,color:ACCENT,borderRadius:10,padding:"10px",fontWeight:700,fontSize:15,cursor:"pointer"}}><Plus size={14}/>नयाँ पाठ थप्नुहोस्</button>}
                   </div>
                 )}
               </Card>
