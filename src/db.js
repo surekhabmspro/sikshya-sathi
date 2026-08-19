@@ -443,7 +443,14 @@ export const repairDuplicateChapters = async (onProgress) => {
     (groups[key] ||= []).push(c);
   }
 
-  const tables = ["materials", "lessons", "questions", "activities"];
+  // FIX — assessments link to a chapter via chapter_id too (see the FIX
+  // comment on getAssessments/AssessmentBuilder's save() — it switched
+  // from lesson_id to chapter_id), but was missing from this list. Any
+  // assessment tagged to a chapter that turned out to be a duplicate
+  // would get silently orphaned the moment the duplicate was deleted
+  // below — its chapter_id pointing at a row that no longer exists,
+  // making it fall out of "यो अध्यायसँग जोडिएको" counts everywhere.
+  const tables = ["materials", "lessons", "questions", "activities", "assessments"];
   let merged = 0, rowsUpdated = 0;
 
   for (const key in groups) {
@@ -469,11 +476,22 @@ export const repairDuplicateChapters = async (onProgress) => {
 };
 
 // ─── QUESTIONS ───────────────────────────────────────────────────────────────
-export const getQuestions = async () => {
-  const { data, error } = await supabase
+// FIX — this never filtered by class at all: every question ever created,
+// across every class the teacher has ever taught, showed up mixed together
+// in Question Bank, Document Search, and AI generation's "already have
+// materials for this chapter" checks. The `class_label` column already
+// exists on this table (repairChapterTagging above has always read it) —
+// upsertQuestion just never set it and this never filtered on it. Uses the
+// same "null = applies everywhere" convention as calendar_events, so
+// existing rows saved before this fix (class_label still null) stay
+// visible instead of silently disappearing.
+export const getQuestions = async (classLabel = null) => {
+  let query = supabase
     .from("questions")
     .select("*, chapters(title)")
     .order("created_at", { ascending: false });
+  if (classLabel) query = query.or(`class_label.eq.${classLabel},class_label.is.null`);
+  const { data, error } = await query;
   return { data, error };
 };
 
@@ -520,12 +538,24 @@ export const deleteQuestionSet = async (id) => {
 };
 
 // ─── ASSESSMENTS ─────────────────────────────────────────────────────────────
-export const getAssessments = async () => {
+// FIX — two bugs at once. (1) The join here was still `lessons(title)`,
+// left over from before Assessment Builder switched to saving chapter_id
+// instead of lesson_id (see the FIX comment on AssessmentBuilder's save()
+// in App.jsx) — so this embed matched nothing an assessment actually has,
+// and was silently unused. (2) No class filtering at all: every
+// assessment ever created, from every class, showed up together here and
+// bled into the शिक्षा साथी calendar's exam-date markers too. Filtered via
+// the chapter's own class_label (assessments has no class_label column of
+// its own) — an assessment with no chapter attached still shows
+// everywhere, same "unlinked = visible always" rule used across the app.
+export const getAssessments = async (classLabel = null) => {
   const { data, error } = await supabase
     .from("assessments")
-    .select("*, lessons(title)")
+    .select("*, chapters(title, class_label)")
     .order("created_at", { ascending: false });
-  return { data, error };
+  if (error || !classLabel) return { data, error };
+  const filtered = (data || []).filter((a) => !a.chapters || a.chapters.class_label === classLabel);
+  return { data: filtered, error: null };
 };
 
 export const upsertAssessment = async (assessment) => {
@@ -538,13 +568,38 @@ export const upsertAssessment = async (assessment) => {
   return { data, error };
 };
 
+// FIX — the actual root cause behind LessonMode's "मूल्याङ्कन" tab always
+// showing empty: the lesson row has its own `rubric` column, but nothing
+// in the app has ever written to it — preparePath() (the main "AI ले यो
+// पाठ बनाओस्" flow) generates a rubric and saves it, but only into the
+// separate `assessments` table (tagged with this lesson's id), never back
+// onto lesson.rubric. So a teacher could generate a full bundle,
+// including a rubric, and LessonMode would still say "मूल्याङ्कन मापदण्ड
+// थपिएको छैन" — the rubric existed the whole time, just in a different
+// table LessonMode never looked at. This fetches it from where it
+// actually lives.
+export const getAssessmentsByLesson = async (lessonId) => {
+  if (!lessonId) return { data: [], error: null };
+  const { data, error } = await supabase
+    .from("assessments")
+    .select("*")
+    .eq("lesson_id", lessonId)
+    .order("created_at", { ascending: false });
+  return { data, error };
+};
+
 // ─── HOMEWORK ─────────────────────────────────────────────────────────────────
-export const getHomework = async (sectionId = null) => {
+// FIX — no class scoping at all (only section_id, and sections aren't tied
+// to a class). Requires the migration in add_class_scoping_homework_resources.sql
+// to be run first — see that file for why. Same "null = every class"
+// convention as calendar_events/questions/activities.
+export const getHomework = async (sectionId = null, classLabel = null) => {
   let query = supabase
     .from("homework")
     .select("*, lessons(title)")
     .order("assigned_date", { ascending: false });
   if (sectionId) query = query.eq("section_id", sectionId);
+  if (classLabel) query = query.or(`class_label.eq.${classLabel},class_label.is.null`);
   const { data, error } = await query;
   return { data, error };
 };
@@ -560,12 +615,19 @@ export const upsertHomework = async (hw) => {
 };
 
 // ─── JOURNAL ─────────────────────────────────────────────────────────────────
-export const getJournalEntries = async () => {
+// FIX — no class filtering: डायरी entries from every class a teacher has
+// ever taught piled up together forever, with the oldest ones never aging
+// out even after moving to a new class. Filtered via the linked lesson's
+// class_label; an entry with no lesson attached (the "आजको पाठ" field is
+// optional) still shows everywhere, same rule as elsewhere in the app.
+export const getJournalEntries = async (classLabel = null) => {
   const { data, error } = await supabase
     .from("journal_entries")
-    .select("*, lessons(title)")
+    .select("*, lessons(title, class_label)")
     .order("entry_date", { ascending: false });
-  return { data, error };
+  if (error || !classLabel) return { data, error };
+  const filtered = (data || []).filter((e) => !e.lessons || e.lessons.class_label === classLabel);
+  return { data: filtered, error: null };
 };
 
 export const upsertJournalEntry = async (entry) => {
@@ -579,11 +641,16 @@ export const upsertJournalEntry = async (entry) => {
 };
 
 // ─── ACTIVITIES ──────────────────────────────────────────────────────────────
-export const getActivities = async () => {
-  const { data, error } = await supabase
+// FIX — same class-leak as questions above: class_label already exists on
+// this table (repairChapterTagging has always read it) but nothing wrote
+// or filtered on it, so क्रियाकलाप from every class showed up together.
+export const getActivities = async (classLabel = null) => {
+  let query = supabase
     .from("activities")
     .select("*, chapters(title)")
     .order("created_at", { ascending: false });
+  if (classLabel) query = query.or(`class_label.eq.${classLabel},class_label.is.null`);
+  const { data, error } = await query;
   return { data, error };
 };
 
@@ -653,11 +720,15 @@ export const saveAIMessage = async (lessonId, role, content) => {
 // NEW — persists AI-generated resources (worksheets, flashcards, revision
 // pages, etc. from the Resource Creator) so they survive navigating away
 // instead of only living in local component state.
-export const getSavedResources = async () => {
-  const { data, error } = await supabase
+// FIX — no class scoping at all. Requires the migration in
+// add_class_scoping_homework_resources.sql to be run first.
+export const getSavedResources = async (classLabel = null) => {
+  let query = supabase
     .from("saved_resources")
     .select("*")
     .order("created_at", { ascending: false });
+  if (classLabel) query = query.or(`class_label.eq.${classLabel},class_label.is.null`);
+  const { data, error } = await query;
   return { data, error };
 };
 

@@ -248,14 +248,21 @@ async function resolveChapterId(title, classLabel = null) {
 // chapter, fetched together. Powers the "यो अध्यायसँग जोडिएको" strip in the
 // Planner form — the cross-screen interconnection the app was missing,
 // only reliable now that chapter_id is always set correctly (see above).
+// NEW — live counts (materials / questions / activities / assessments)
+// tagged to one chapter, fetched together. Powers the "यो अध्यायसँग
+// जोडिएको" strip in the Planner form — the cross-screen interconnection
+// the app was missing, only reliable now that chapter_id is always set
+// correctly (see above). Also reused by Materials' delete-chapter warning
+// (assessments added there — FIX below).
 async function getChapterLinkedCounts(chapterId) {
-  if (!chapterId) return { materials: 0, questions: 0, activities: 0 };
-  const [mats, qs, acts] = await Promise.all([
+  if (!chapterId) return { materials: 0, questions: 0, activities: 0, assessments: 0 };
+  const [mats, qs, acts, asmts] = await Promise.all([
     supabase.from("materials").select("id", { count: "exact", head: true }).eq("chapter_id", chapterId),
     supabase.from("questions").select("id", { count: "exact", head: true }).eq("chapter_id", chapterId),
     supabase.from("activities").select("id", { count: "exact", head: true }).eq("chapter_id", chapterId),
+    supabase.from("assessments").select("id", { count: "exact", head: true }).eq("chapter_id", chapterId),
   ]);
-  return { materials: mats.count || 0, questions: qs.count || 0, activities: acts.count || 0 };
+  return { materials: mats.count || 0, questions: qs.count || 0, activities: acts.count || 0, assessments: asmts.count || 0 };
 }
 
 // NEW — THE single door. Every place in the app that used to build its own
@@ -323,7 +330,11 @@ async function preparePath({ chapterTitle, chapterId, pathTitle, lessonId, secti
   let questionsCount = 0;
   const qs = await runStep("questions", () => gemini.generateQuestions(chapterTitle, ctx, classContext, pathTitle));
   if (qs?.length) {
-    for (const q of qs) await db.upsertQuestion({ text: q.text, type: q.type || "छोटो उत्तर", difficulty: q.difficulty || "सजिलो", bloom_level: q.bloom || "सम्झना", chapter_id: cId, lesson_id: lid, options: q.options || [], correct_option: q.correct_option ?? null });
+    // FIX — class_label was never set here (only the lesson itself got
+    // it, on line 284 above) — every question generated through this
+    // main "AI ले यो पाठ बनाओस्" flow was invisible to class-scoped
+    // filtering in Question Bank/Document Search until this fix.
+    for (const q of qs) await db.upsertQuestion({ text: q.text, type: q.type || "छोटो उत्तर", difficulty: q.difficulty || "सजिलो", bloom_level: q.bloom || "सम्झना", chapter_id: cId, lesson_id: lid, options: q.options || [], correct_option: q.correct_option ?? null, class_label: classLabel });
     questionsCount = qs.length;
     emit("questions", "done");
   } else if (qs !== null) emit("questions", "error", "AI ले प्रश्न बनाउन सकेन।");
@@ -331,7 +342,7 @@ async function preparePath({ chapterTitle, chapterId, pathTitle, lessonId, secti
   let activitiesCount = 0;
   const acts = await runStep("activities", () => gemini.generateActivities(chapterTitle, ctx, classContext, pathTitle));
   if (acts?.length) {
-    for (const a of acts) await db.upsertActivity({ title: a.title, type: a.type || "game", duration: a.duration, competency: a.competency, description: a.description, chapter_id: cId, lesson_id: lid });
+    for (const a of acts) await db.upsertActivity({ title: a.title, type: a.type || "game", duration: a.duration, competency: a.competency, description: a.description, chapter_id: cId, lesson_id: lid, class_label: classLabel });
     activitiesCount = acts.length;
     emit("activities", "done");
   } else if (acts !== null) emit("activities", "error", "AI ले क्रियाकलाप बनाउन सकेन।");
@@ -648,6 +659,15 @@ function PathPicker({ value, onChange, chapterTitle, lessons, onLessonsChanged, 
     if(!newTitle.trim()||!chapterTitle)return;
     setAdding(true);
     try{
+      // FIX — this used to insert a brand-new lesson unconditionally, the
+      // exact same duplicate-creation bug fixed in Planner (see
+      // findDuplicatePath there) — but reimplemented separately here for
+      // tagging a material, so Planner's guard never covered this path.
+      // Typing a Path title that already exists under this chapter now
+      // reuses it instead of creating a second one with the same name.
+      const norm=(s)=>(s||"").trim().toLowerCase().replace(/\s+/g," ");
+      const dup=chapterPaths.find((l)=>norm(l.title)===norm(newTitle));
+      if(dup){onChange(dup.id);setShowAdd(false);setNewTitle("");return;}
       const chapter_id=await db.getOrCreateChapterId(chapterTitle,classLabel);
       const{data}=await db.upsertLesson({title:newTitle.trim(),chapter_id,status:"missing",class_label:classLabel});
       if(data){onChange(data.id);await onLessonsChanged?.();}
@@ -1090,7 +1110,22 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
   };
 
   const activities=lesson.activities||[];
-  const rubric=lesson.rubric||[];
+  // FIX — was lesson.rubric, a column nothing in the app ever writes to.
+  // The real rubric lives in the assessments table, tied to this lesson
+  // via lesson_id (see getAssessmentsByLesson in db.js). Falls back to
+  // lesson.rubric only for any legacy row that might still have it set,
+  // so nothing that did work before stops working.
+  const [linkedRubric,setLinkedRubric]=useState(lesson.rubric||[]);
+  useEffect(()=>{
+    let cancelled=false;
+    db.getAssessmentsByLesson(lesson.id).then(({data})=>{
+      if(cancelled)return;
+      const latest=(data||[]).find((a)=>a.rubric?.length>0);
+      setLinkedRubric(latest?.rubric||lesson.rubric||[]);
+    });
+    return()=>{cancelled=true;};
+  },[lesson.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const rubric=linkedRubric;
   const chapterTitle=lesson.chapters?.title||lesson.chapter_title||"";
 
   // NEW — "प्रिन्ट" from the Planner list opens this lesson and prints it
@@ -1747,9 +1782,25 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
   };
   const deleteChapterInPlanner=async(chapter,e)=>{
     e.stopPropagation();
-    const count=(groups.find((g)=>g.chapter.id===chapter.id)?.paths||[]).length;
-    const msg=count>0
-      ?`"${chapter.title}" मेटाउने? यसभित्रका ${count} पाठ मेटिने छैनन्, तर तिनको अध्याय-ट्याग हट्नेछ।`
+    // FIX — this only ever counted and warned about पाठ (this screen's
+    // own data), the exact inverse of the gap in Materials' deleteChapter
+    // (which only counted materials). Two separate implementations of the
+    // same action, each blind to what the other screen owns. Now both
+    // warn about the full picture — materials/questions/activities/
+    // assessments too — and both refresh every affected screen's list,
+    // not just their own.
+    const pathsCount=(groups.find((g)=>g.chapter.id===chapter.id)?.paths||[]).length;
+    const materialsCount=(materials||[]).filter((m)=>m.chapter_id===chapter.id).length;
+    let extra={questions:0,activities:0,assessments:0};
+    try{ extra=await getChapterLinkedCounts(chapter.id); }catch{}
+    const parts=[];
+    if(pathsCount>0)parts.push(`${pathsCount} पाठ`);
+    if(materialsCount>0)parts.push(`${materialsCount} सामग्री फाइल`);
+    if(extra.questions>0)parts.push(`${extra.questions} प्रश्न`);
+    if(extra.activities>0)parts.push(`${extra.activities} क्रियाकलाप`);
+    if(extra.assessments>0)parts.push(`${extra.assessments} मूल्याङ्कन`);
+    const msg=parts.length>0
+      ?`"${chapter.title}" मेटाउने? यसमा जोडिएका ${parts.join(", ")} मेटिने छैनन्, तर तिनको अध्याय-ट्याग हट्नेछ।`
       :`"${chapter.title}" मेटाउने?`;
     if(!confirm(msg))return;
     setChapterBusy(chapter.id);
@@ -1757,6 +1808,7 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
     setChapterBusy(null);
     onChaptersChanged?.();
     onRefresh();
+    onMaterialsChanged?.();
   };
 
   // NEW — opening a lesson for editing can be triggered from outside this
@@ -2231,16 +2283,32 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, lessons, onLesso
   };
 
   const deleteChapter=async(chapter)=>{
-    const count=materials.filter((m)=>m.chapter_id===chapter.id).length;
-    const msg=count>0
-      ?`"${chapter.title}" मेटाउने? यसमा ट्याग गरिएका ${count} सामग्री फाइल अब कुनै अध्यायमा तोकिने छैनन्।`
+    // FIX — this only ever counted (and warned about) materials, but
+    // deleting a chapter also unlinks every पाठ/प्रश्न/क्रियाकलाप/
+    // मूल्याङ्कन tagged to it (the database clears their chapter_id
+    // automatically — safe, nothing is deleted — but the teacher was
+    // never told any of that was about to happen, only materials). Now
+    // counts everything actually affected before asking.
+    const materialsCount=materials.filter((m)=>m.chapter_id===chapter.id).length;
+    const lessonsCount=(lessons||[]).filter((l)=>l.chapter_id===chapter.id).length;
+    let extra={questions:0,activities:0,assessments:0};
+    try{ extra=await getChapterLinkedCounts(chapter.id); }catch{}
+    const parts=[];
+    if(materialsCount>0)parts.push(`${materialsCount} सामग्री फाइल`);
+    if(lessonsCount>0)parts.push(`${lessonsCount} पाठ`);
+    if(extra.questions>0)parts.push(`${extra.questions} प्रश्न`);
+    if(extra.activities>0)parts.push(`${extra.activities} क्रियाकलाप`);
+    if(extra.assessments>0)parts.push(`${extra.assessments} मूल्याङ्कन`);
+    const msg=parts.length>0
+      ?`"${chapter.title}" मेटाउने? यसमा जोडिएका ${parts.join(", ")} अब कुनै अध्यायमा तोकिने छैनन् (मेटिने छैनन्, केवल अध्यायबाट अलग हुनेछन्)।`
       :`"${chapter.title}" मेटाउने?`;
     if(!confirm(msg))return;
     setChapterBusy(chapter.id);
-    if(count>0) await supabase.from("materials").update({chapter_id:null}).eq("chapter_id",chapter.id);
+    if(materialsCount>0) await supabase.from("materials").update({chapter_id:null}).eq("chapter_id",chapter.id);
     await supabase.from("chapters").delete().eq("id",chapter.id);
     setChapterBusy(null);
     if(onChaptersChanged) onChaptersChanged();
+    if(onLessonsChanged) onLessonsChanged();
     load();
   };
 
@@ -2655,13 +2723,15 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, lessons, onLesso
   );
 }
 
-function HomeworkManager({ section, loading, homework, onRefresh }) {
+function HomeworkManager({ section, loading, homework, onRefresh, classLabel }) {
   const [showForm,setShowForm]=useState(false);
   const [form,setForm]=useState({title:"",total_students:30,remark:""});
   const [saving,setSaving]=useState(false);
   const save=async()=>{
     if(!form.title.trim())return;setSaving(true);
-    await db.upsertHomework({...form,section_id:section?.id||null,checked_count:0});
+    // FIX — class_label was never set here, so every गृहकार्य saved
+    // regardless of which class you were viewing when you added it.
+    await db.upsertHomework({...form,section_id:section?.id||null,checked_count:0,class_label:classLabel});
     setSaving(false);setShowForm(false);setForm({title:"",total_students:30,remark:""});onRefresh();
   };
   const bump=async(hw,delta)=>{
@@ -2723,13 +2793,15 @@ function HomeworkManager({ section, loading, homework, onRefresh }) {
   );
 }
 
-function TeachingJournal({ lessons }) {
+function TeachingJournal({ lessons, classLabel }) {
   const [entries,setEntries]=useState([]);
   const [loading,setLoading]=useState(true);
   const [showForm,setShowForm]=useState(false);
   const [form,setForm]=useState({lesson_id:"",taught:"",difficulty:"",idea:"",mood:"good"});
   const [saving,setSaving]=useState(false);
-  const load=useCallback(async()=>{setLoading(true);const{data}=await db.getJournalEntries();setEntries(data||[]);setLoading(false);},[]);
+  // FIX — db.getJournalEntries() took no class argument: डायरी entries
+  // from every class piled up together forever with no way to separate them.
+  const load=useCallback(async()=>{setLoading(true);const{data}=await db.getJournalEntries(classLabel);setEntries(data||[]);setLoading(false);},[classLabel]);
   useEffect(()=>{load();},[load]);
   const save=async()=>{
     if(!form.taught.trim()&&!form.difficulty.trim()&&!form.idea.trim())return;
@@ -2806,6 +2878,18 @@ function AIAssistant({ lessons, classContext, classLabel }) {
   // the assistant could silently be answering about the wrong chapter with
   // no indication why. A visible picker replaces the blind guess.
   const [lessonId,setLessonId]=useState(lessons[0]?.id||"");
+  // FIX — that initial useState only ever ran once, on mount. If lessons
+  // was still loading at that point (empty array), lessonId got stuck at
+  // "" forever — the dropdown would visually default to showing the
+  // first lesson once the list arrived (a bare browser <select> falls
+  // back to its first <option> when the controlled value matches
+  // nothing), while the chat underneath still silently treated it as "no
+  // lesson selected". Also covers the currently-picked lesson being
+  // deleted from Planner while this tab is open.
+  useEffect(()=>{
+    if(!lessons.length){ if(lessonId) setLessonId(""); return; }
+    if(!lessons.some((l)=>l.id===lessonId)) setLessonId(lessons[0].id);
+  },[lessons]);
   const lesson=lessons.find((l)=>l.id===lessonId)||null;
   const chapterTitle=lesson?.chapters?.title||lesson?.chapter_title||"";
   const [messages,setMessages]=useState([{role:"ai",text:lesson?`नमस्ते! म "${lesson.title}" पाठ, ट्याग गरिएका सामग्री, र पाठ्यपुस्तकबाट उत्तर दिन्छु। तलका छिटो प्रश्न थिच्नुहोस्।`:"नमस्ते! पहिले पाठ योजनामा एउटा पाठ थप्नुहोस्।"}]);
@@ -2958,7 +3042,10 @@ function QuestionBank({ chapters, onAddChapter, onMaterialsChanged, classContext
   const [matchedCount,setMatchedCount]=useState(0);
   const TYPES=["छोटो उत्तर","बहुविकल्पीय","सत्य/असत्य","खाली ठाउँ","विश्लेषणात्मक","परिदृश्य आधारित"];
   const DIFFS=["सबै","सजिलो","मध्यम","कठिन"];
-  const load=useCallback(async()=>{setLoading(true);const{data}=await db.getQuestions();setQuestions(data||[]);setLoading(false);},[]);
+  // FIX — was db.getQuestions() with no argument at all: every question
+  // from every class the teacher has ever taught came back mixed
+  // together, with no way to tell which class a question belonged to.
+  const load=useCallback(async()=>{setLoading(true);const{data}=await db.getQuestions(classLabel);setQuestions(data||[]);setLoading(false);},[classLabel]);
   useEffect(()=>{load();},[load]);
 
   const autoGenerate=async()=>{
@@ -2972,9 +3059,11 @@ function QuestionBank({ chapters, onAddChapter, onMaterialsChanged, classContext
         // FIX — resolve the real chapter_id once, before the loop, and save
         // it on every generated question. Previously only chapter_title
         // (free text) was saved, so these never actually showed up as
-        // "linked" to the chapter anywhere else in the app.
+        // "linked" to the chapter anywhere else in the app. class_label is
+        // now saved too (see getQuestions FIX in db.js) so these questions
+        // stay scoped to the class they were generated for.
         const chapter_id=await resolveChapterId(form.chapter_title,classLabel);
-        for(const q of results)await db.upsertQuestion({text:q.text,type:q.type||"छोटो उत्तर",difficulty:q.difficulty||"सजिलो",bloom_level:q.bloom||"सम्झना",chapter_id,options:q.options||[],correct_option:q.correct_option??null});
+        for(const q of results)await db.upsertQuestion({text:q.text,type:q.type||"छोटो उत्तर",difficulty:q.difficulty||"सजिलो",bloom_level:q.bloom||"सम्झना",chapter_id,options:q.options||[],correct_option:q.correct_option??null,class_label:classLabel});
         load();setShowForm(false);
       }else setError("प्रश्न बनाउन सकिएन।");
     }catch(e){setError("AI त्रुटि: "+e.message);}
@@ -2985,7 +3074,7 @@ function QuestionBank({ chapters, onAddChapter, onMaterialsChanged, classContext
     if(!form.text.trim()){setError("प्रश्न लेख्नुहोस्।");return;}
     setSaving(true);
     const chapter_id=await resolveChapterId(form.chapter_title,classLabel);
-    await db.upsertQuestion({text:form.text,type:form.type,difficulty:form.difficulty,bloom_level:form.bloom,chapter_id,options:form.options?form.options.split("\n").filter(Boolean):[],correct_option:form.answer?parseInt(form.answer)-1:null});
+    await db.upsertQuestion({text:form.text,type:form.type,difficulty:form.difficulty,bloom_level:form.bloom,chapter_id,options:form.options?form.options.split("\n").filter(Boolean):[],correct_option:form.answer?parseInt(form.answer)-1:null,class_label:classLabel});
     setSaving(false);setShowForm(false);setForm({text:"",type:"छोटो उत्तर",difficulty:"सजिलो",bloom:"सम्झना",chapter_title:"",options:"",answer:""});load();
   };
 
@@ -3040,7 +3129,12 @@ function QuestionBank({ chapters, onAddChapter, onMaterialsChanged, classContext
                 <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:5}}>
                   <span style={{fontSize:14,background:ACCENT_LIGHT,color:ACCENT,padding:"2px 7px",borderRadius:5,fontWeight:700}}>{q.type}</span>
                   <span style={{fontSize:14,background:WARN_BG,color:MARIGOLD_DARK,padding:"2px 7px",borderRadius:5,fontWeight:600}}>{q.difficulty}</span>
-                  {q.chapter_title&&<span style={{fontSize:14,color:INK_SOFT,fontWeight:600}}>{q.chapter_title}</span>}
+                  {/* FIX — this read q.chapter_title, a field that has
+                      never existed on the returned row (the join gives
+                      q.chapters.title) — so the chapter tag silently never
+                      rendered on any question card, even for properly
+                      chapter-linked questions. */}
+                  {q.chapters?.title&&<span style={{fontSize:14,color:INK_SOFT,fontWeight:600}}>{q.chapters.title}</span>}
                 </div>
                 <div style={{fontSize:16.5,color:INK,lineHeight:1.5}}>{q.text}</div>
                 {q.options?.length>0&&<div style={{marginTop:6}}>{q.options.map((o,i)=><div key={i} style={{fontSize:16,color:i===q.correct_option?ACCENT:INK_SOFT,fontWeight:i===q.correct_option?700:400}}>{i+1}) {o}</div>)}</div>}
@@ -3088,7 +3182,10 @@ function AssessmentBuilder({ chapters, onAddChapter, onMaterialsChanged, classCo
   const [matchedCount,setMatchedCount]=useState(0);
   const [printing,setPrinting]=useState(null);
   const TYPES=[{id:"observation",label:"अवलोकन",icon:ClipboardList},{id:"oral",label:"मौखिक",icon:MessageSquare},{id:"practical",label:"व्यावहारिक",icon:NotebookPen},{id:"project",label:"प्रोजेक्ट",icon:FolderKanban},{id:"activity",label:"क्रियाकलाप",icon:Gamepad2},{id:"portfolio",label:"पोर्टफोलियो",icon:BookOpen}];
-  const load=useCallback(async()=>{setLoading(true);const{data}=await db.getAssessments();setAssessments(data||[]);setLoading(false);},[]);
+  // FIX — db.getAssessments() took no class argument at all: मूल्याङ्कन
+  // from every class showed up together here, and their due-dates leaked
+  // into the calendar as exam markers for the wrong class too.
+  const load=useCallback(async()=>{setLoading(true);const{data}=await db.getAssessments(classLabel);setAssessments(data||[]);setLoading(false);},[classLabel]);
   useEffect(()=>{load();},[load]);
 
   const autoGenerate=async()=>{
@@ -3200,7 +3297,9 @@ function ActivitiesLibrary({ chapters, onAddChapter, onMaterialsChanged, classCo
   const [error,setError]=useState("");
   const [matchedCount,setMatchedCount]=useState(0);
   const TYPES=[{id:"game",label:"खेल",icon:Gamepad2},{id:"roleplay",label:"भूमिका अभिनय",icon:Users},{id:"project",label:"प्रोजेक्ट",icon:FolderKanban},{id:"map",label:"नक्सा",icon:MapIcon},{id:"debate",label:"बहस",icon:MessageSquare},{id:"presentation",label:"प्रस्तुति",icon:Presentation}];
-  const load=useCallback(async()=>{setLoading(true);const{data}=await db.getActivities();setActivities(data||[]);setLoading(false);},[]);
+  // FIX — was db.getActivities() with no argument: every क्रियाकलाप from
+  // every class showed up together, same class-leak as Question Bank.
+  const load=useCallback(async()=>{setLoading(true);const{data}=await db.getActivities(classLabel);setActivities(data||[]);setLoading(false);},[classLabel]);
   useEffect(()=>{load();},[load]);
 
   const autoGenerate=async()=>{
@@ -3212,7 +3311,7 @@ function ActivitiesLibrary({ chapters, onAddChapter, onMaterialsChanged, classCo
       const results=await gemini.generateActivities(form.chapter_title,ctx,classContext);
       if(results?.length){
         const chapter_id=await resolveChapterId(form.chapter_title,classLabel);
-        for(const a of results)await db.upsertActivity({title:a.title,type:a.type||"game",duration:a.duration,competency:a.competency,description:a.description,chapter_id});
+        for(const a of results)await db.upsertActivity({title:a.title,type:a.type||"game",duration:a.duration,competency:a.competency,description:a.description,chapter_id,class_label:classLabel});
         load();setShowForm(false);
       }
       else setError("क्रियाकलाप बनाउन सकिएन।");
@@ -3224,7 +3323,7 @@ function ActivitiesLibrary({ chapters, onAddChapter, onMaterialsChanged, classCo
     if(!form.title.trim())return;setSaving(true);
     const chapter_id=await resolveChapterId(form.chapter_title,classLabel);
     const{chapter_title,...rest}=form;
-    await db.upsertActivity({...rest,chapter_id});
+    await db.upsertActivity({...rest,chapter_id,class_label:classLabel});
     setSaving(false);setShowForm(false);setForm({title:"",type:"game",competency:"",duration:"",description:"",chapter_title:""});load();
   };
   const filtered=typeFilter==="सबै"?activities:activities.filter((a)=>a.type===typeFilter);
@@ -3280,7 +3379,9 @@ function ActivitiesLibrary({ chapters, onAddChapter, onMaterialsChanged, classCo
                   <div style={{display:"flex",justifyContent:"space-between",gap:8}}><div style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:700,fontSize:16.5,color:INK}}>{a.title}</div>{a.duration&&<span style={{fontSize:15,color:INK_SOFT,flexShrink:0}}>{a.duration}</span>}</div>
                   {a.description&&<div style={{fontSize:16,color:INK_SOFT,lineHeight:1.5,marginTop:4}}>{a.description}</div>}
                   <div style={{display:"flex",gap:5,marginTop:6,flexWrap:"wrap",alignItems:"center"}}>
-                    {a.chapter_title&&<span style={{fontSize:14,background:WARN_BG,color:MARIGOLD_DARK,padding:"2px 7px",borderRadius:5,fontWeight:600}}>{a.chapter_title}</span>}
+                    {/* FIX — same dead-field bug as Question Bank: a.chapter_title
+                        never existed on the row; the real value is a.chapters.title. */}
+                    {a.chapters?.title&&<span style={{fontSize:14,background:WARN_BG,color:MARIGOLD_DARK,padding:"2px 7px",borderRadius:5,fontWeight:600}}>{a.chapters.title}</span>}
                     {a.competency&&<span style={{fontSize:14,background:ACCENT_LIGHT,color:ACCENT,padding:"2px 7px",borderRadius:5,fontWeight:600}}>{a.competency}</span>}
                     <button className="ss-icon-btn" onClick={(e)=>{e.stopPropagation();setPrinting(a);}} style={{marginLeft:"auto",background:"none",border:`1px solid ${BORDER}`,borderRadius:8,padding:"4px 8px",display:"flex",alignItems:"center",gap:4,color:INK_SOFT,fontSize:13.5,fontWeight:600,cursor:"pointer"}}><Printer size={12}/>प्रिन्ट</button>
                   </div>
@@ -3292,7 +3393,7 @@ function ActivitiesLibrary({ chapters, onAddChapter, onMaterialsChanged, classCo
       )}
     </div>
     {printing&&(
-      <PrintableSheet title={printing.title} subtitle={TYPES.find((t)=>t.id===printing.type)?.label} chip={printing.chapter_title} chipColor={PALETTE[Math.max(TYPES.findIndex((t)=>t.id===printing.type),0)%PALETTE.length]} onClose={()=>setPrinting(null)}>
+      <PrintableSheet title={printing.title} subtitle={TYPES.find((t)=>t.id===printing.type)?.label} chip={printing.chapters?.title} chipColor={PALETTE[Math.max(TYPES.findIndex((t)=>t.id===printing.type),0)%PALETTE.length]} onClose={()=>setPrinting(null)}>
         {printing.competency&&<div style={{marginBottom:10,fontSize:16,color:INK_SOFT}}><strong style={{color:INK}}>क्षमता:</strong> {printing.competency}</div>}
         {printing.duration&&<div style={{marginBottom:14,fontSize:16,color:INK_SOFT}}><strong style={{color:INK}}>समय:</strong> {printing.duration}</div>}
         <div style={{fontSize:17,color:INK,lineHeight:1.7,whiteSpace:"pre-wrap"}}>{printing.description||"विवरण थपिएको छैन।"}</div>
@@ -3375,7 +3476,9 @@ function MoreHub({
   // (like Homework already can via the props App() already passes down)
   // without opening the full journal just to see if there's anything in it.
   const [journalCount,setJournalCount]=useState(null);
-  useEffect(()=>{db.getJournalEntries().then(({data})=>setJournalCount((data||[]).length));},[openPanel]);
+  // FIX — no classLabel here either: the count on the डायरी summary card
+  // used to include entries from every class, not just the current one.
+  useEffect(()=>{db.getJournalEntries(classLabel).then(({data})=>setJournalCount((data||[]).length));},[openPanel,classLabel]);
   const pendingHomework=homework.filter((h)=>h.checked_count<h.total_students).length;
 
   return(
@@ -3388,8 +3491,8 @@ function MoreHub({
           subtitle={journalCount===null?"लोड हुँदै...":journalCount===0?"कुनै प्रविष्टि छैन":`${journalCount} प्रविष्टि`}/>
       </div>
       <CalendarView classLabel={classLabel} active={active}/>
-      {openPanel==="homework"&&<ManagerPopup title="गृहकार्य" onClose={()=>setOpenPanel(null)}><HomeworkManager section={section} loading={hwLoading} homework={homework} onRefresh={onRefreshHomework}/></ManagerPopup>}
-      {openPanel==="journal"&&<ManagerPopup title="डायरी" onClose={()=>setOpenPanel(null)}><TeachingJournal lessons={lessons}/></ManagerPopup>}
+      {openPanel==="homework"&&<ManagerPopup title="गृहकार्य" onClose={()=>setOpenPanel(null)}><HomeworkManager section={section} loading={hwLoading} homework={homework} onRefresh={onRefreshHomework} classLabel={classLabel}/></ManagerPopup>}
+      {openPanel==="journal"&&<ManagerPopup title="डायरी" onClose={()=>setOpenPanel(null)}><TeachingJournal lessons={lessons} classLabel={classLabel}/></ManagerPopup>}
     </div>
   );
 }
@@ -3444,7 +3547,7 @@ function AITools({ lessons, chapters, onAddChapter, onMaterialsChanged, classCon
       {tab==="activities"&&<ActivitiesLibrary chapters={chapters} onAddChapter={onAddChapter} onMaterialsChanged={onMaterialsChanged} classContext={classContext} classLabel={classLabel}/>}
       {tab==="assessment"&&<AssessmentBuilder chapters={chapters} onAddChapter={onAddChapter} onMaterialsChanged={onMaterialsChanged} classContext={classContext} classLabel={classLabel}/>}
       {tab==="resources"&&<ResourceCreator lessons={lessons} classContext={classContext} classLabel={classLabel}/>}
-      {tab==="saved"&&<SavedResources/>}
+      {tab==="saved"&&<SavedResources classLabel={classLabel}/>}
     </div>
   );
 }
@@ -3456,9 +3559,25 @@ function ResourceCreator({ lessons, classContext, classLabel }) {
   const [matchedCount,setMatchedCount]=useState(0);
   const [saving,setSaving]=useState(false);
   const [saved,setSaved]=useState(false);
-  const lesson=lessons[0];
+  // FIX — this used to hard-pick lessons[0] with no way to change it, same
+  // bug AI च्याट had (see the FIX comment on AIAssistant above) — a
+  // teacher generating a worksheet had no way to tell, or change, which
+  // पाठ it was actually being generated for. Same picker, same behavior:
+  // defaults to the first लesson, but stays in sync if the list changes
+  // (e.g. that lesson gets deleted from Planner while this tab is open)
+  // and lets the teacher pick a different one.
+  const [lessonId,setLessonId]=useState(lessons[0]?.id||"");
+  useEffect(()=>{
+    if(!lessons.length){ if(lessonId) setLessonId(""); return; }
+    if(!lessons.some((l)=>l.id===lessonId)) setLessonId(lessons[0].id);
+  },[lessons]);
+  const lesson=lessons.find((l)=>l.id===lessonId)||null;
   const chapterTitle=lesson?.chapters?.title||lesson?.chapter_title||"";
-
+  // NEW — switching lessons clears whatever was generated for the
+  // previous one, same reasoning as AIAssistant resetting its chat on
+  // lesson switch: a worksheet left on screen after picking a different
+  // lesson looks current but is actually about the wrong पाठ.
+  useEffect(()=>{setActive(null);setGeneratedText("");setSaved(false);},[lessonId]);
   const generate=async(template)=>{
     setActive(template);setGenerating(true);setGeneratedText("");setSaved(false);
     try{
@@ -3476,7 +3595,9 @@ function ResourceCreator({ lessons, classContext, classLabel }) {
     if(!active||!generatedText)return;
     setSaving(true);
     const title=lesson?`${active.title} — ${lesson.title}`:active.title;
-    const{error}=await db.saveResource({title,template_id:active.id,chapter_title:chapterTitle||null,content:generatedText});
+    // FIX — class_label was never set on saved resources, so every one
+    // you generate shows up under सुरक्षित स्रोत regardless of class.
+    const{error}=await db.saveResource({title,template_id:active.id,chapter_title:chapterTitle||null,content:generatedText,class_label:classLabel});
     setSaving(false);
     if(!error)setSaved(true);
   };
@@ -3512,7 +3633,7 @@ function ResourceCreator({ lessons, classContext, classLabel }) {
 // NEW — the library of previously-saved AI resources (worksheets, flashcards,
 // mindmaps, etc.) so a generated document survives navigating away instead
 // of vanishing. Decorated the same corkboard-pin way as the Materials library.
-function SavedResources() {
+function SavedResources({ classLabel }) {
   const [items,setItems]=useState([]);
   const [loading,setLoading]=useState(true);
   const [viewing,setViewing]=useState(null);
@@ -3523,12 +3644,14 @@ function SavedResources() {
   // list (even just visually) means re-generating from scratch. Now a
   // failed refresh keeps whatever's already showing and says so.
   const [loadError,setLoadError]=useState("");
+  // FIX — no classLabel: saved resources from every class showed up
+  // together here regardless of which class you're currently viewing.
   const load=useCallback(async()=>{
     setLoading(true);
-    const{data,error}=await db.getSavedResources();
+    const{data,error}=await db.getSavedResources(classLabel);
     if(error){setLoadError("सुरक्षित स्रोतहरू लोड गर्न सकिएन — देखिएको सूची पुरानो हुन सक्छ।");setLoading(false);return;}
     setLoadError("");setItems(data||[]);setLoading(false);
-  },[]);
+  },[classLabel]);
   useEffect(()=>{load();},[load]);
 
   const remove=async(id,e)=>{
@@ -3576,8 +3699,11 @@ function DocumentSearch({ lessons, homework, classLabel, onOpenLesson, onGoMater
   const [allActivities,setAllActivities]=useState([]);
   const [allMaterials,setAllMaterials]=useState([]);
   useEffect(()=>{
-    db.getQuestions().then(({data})=>setAllQuestions(data||[]));
-    db.getActivities().then(({data})=>setAllActivities(data||[]));
+    // FIX — getQuestions/getActivities were called with no classLabel, so
+    // सबैतिर खोज searched (and could jump you to) content from every
+    // class, not just the one you're currently in.
+    db.getQuestions(classLabel).then(({data})=>setAllQuestions(data||[]));
+    db.getActivities(classLabel).then(({data})=>setAllActivities(data||[]));
     db.getMaterials(classLabel).then(({data})=>setAllMaterials(data||[]));
   },[classLabel]);
   // FIX — results were pure display, tapping one did nothing. Each result
@@ -3588,7 +3714,7 @@ function DocumentSearch({ lessons, homework, classLabel, onOpenLesson, onGoMater
       ...lessons.filter((l)=>l.title?.toLowerCase().includes(q)||(l.objectives||[]).some((o)=>o.toLowerCase().includes(q))).map((l)=>({kind:"पाठ",title:l.title,sub:l.chapters?.title||l.chapter_title||"",icon:ClipboardList,color:ACCENT,onClick:()=>onOpenLesson?.(l)})),
       ...allMaterials.filter((m)=>m.name?.toLowerCase().includes(q)||m.chapters?.title?.toLowerCase().includes(q)).map((m)=>({kind:"सामग्री",title:m.name,sub:(m.chapters?.title?m.chapters.title+" · ":"")+(m.file_type?.toUpperCase()||""),icon:FileText,color:DANGER,onClick:onGoMaterials})),
       ...allQuestions.filter((qq)=>qq.text?.toLowerCase().includes(q)).map((qq)=>({kind:"प्रश्न",title:qq.text,sub:qq.type+" · "+qq.difficulty,icon:HelpCircle,color:VIOLET,onClick:()=>onGoAITools?.("questions")})),
-      ...allActivities.filter((a)=>a.title?.toLowerCase().includes(q)||a.description?.toLowerCase().includes(q)).map((a)=>({kind:"क्रियाकलाप",title:a.title,sub:a.chapter_title||"",icon:Gamepad2,color:TEAL,onClick:()=>onGoAITools?.("activities")})),
+      ...allActivities.filter((a)=>a.title?.toLowerCase().includes(q)||a.description?.toLowerCase().includes(q)).map((a)=>({kind:"क्रियाकलाप",title:a.title,sub:a.chapters?.title||"",icon:Gamepad2,color:TEAL,onClick:()=>onGoAITools?.("activities")})),
       ...homework.filter((h)=>h.title?.toLowerCase().includes(q)).map((h)=>({kind:"गृहकार्य",title:h.title,sub:`${h.checked_count}/${h.total_students}`,icon:ListChecks,color:WARN,onClick:onGoHomework})),
     ];
   },[query,lessons,allMaterials,allQuestions,allActivities,homework,onOpenLesson,onGoMaterials,onGoAITools,onGoHomework]);
@@ -3649,7 +3775,10 @@ function CalendarView({ classLabel, active }) {
 
   const load=useCallback(async()=>{
     setLoading(true);
-    const [{data:ev},{data:as}]=await Promise.all([db.getCalendarEvents(classLabel),db.getAssessments()]);
+    // FIX — db.getAssessments() was called with no classLabel, so exam
+    // due-dates from every class showed up as markers on this calendar
+    // regardless of which class was selected.
+    const [{data:ev},{data:as}]=await Promise.all([db.getCalendarEvents(classLabel),db.getAssessments(classLabel)]);
     setEvents(ev||[]);
     setAssessments((as||[]).filter((a)=>a.due_date));
     setLoading(false);
@@ -4494,10 +4623,14 @@ export default function App() {
 
   const loadHomework=useCallback(async()=>{
     setHwLoading(true);
-    const{data,error}=await db.getHomework(currentSection?.id||null);
+    // FIX — no classLabel here: गृहकार्य from every class showed up
+    // together. Requires add_class_scoping_homework_resources.sql to be
+    // run first (see that file) — the class_label column doesn't exist
+    // until then.
+    const{data,error}=await db.getHomework(currentSection?.id||null,classLabel);
     if(error){setSyncError("गृहकार्य लोड गर्न सकिएन — इन्टरनेट जाँच्नुहोस्।");setHwLoading(false);return;}
     setHomework(data||[]);setHwLoading(false);
-  },[currentSection]);
+  },[currentSection,classLabel]);
 
   // FIX — materials used to be fetched independently in three places
   // (Materials tab's own list, Home's material count, and every "attach a
