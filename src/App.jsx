@@ -1706,7 +1706,7 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, on
         <div style={{width:38,height:38,borderRadius:11,background:`linear-gradient(160deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:SHADOW.accent}}><Wand2 size={18} color="#fff"/></div>
         <div style={{flex:1,minWidth:0}}>
           <div style={{fontWeight:700,fontSize:16.5,color:INK}}>पाठ योजना बनाउनुहोस्</div>
-          <div style={{fontSize:14.5,color:INK_SOFT}}>अध्याय (Unit) छान्नुहोस्, त्यसभित्र पाठ (Path) थप्नुहोस् — AI ले एकैचोटि सबै तयार गर्छ</div>
+          <div style={{fontSize:14.5,color:INK_SOFT}}>अध्याय छान्नुहोस्, त्यसभित्र पाठ थप्नुहोस् — AI ले एकैचोटि सबै तयार गर्छ</div>
         </div>
         <ChevronRight size={18} color={INK_SOFT} style={{flexShrink:0}}/>
       </Card>
@@ -2024,11 +2024,11 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
           every अध्याय below can hold several पाठ, expanded/collapsed like
           a folder, instead of one flat list where the two kept blurring
           together. */}
-      <div style={{fontSize:14.5,color:INK_SOFT,marginBottom:14,lineHeight:1.5}}>पहिले अध्याय (Unit) छान्नुहोस् वा खोल्नुहोस्, त्यसपछि त्यो भित्र पाठ (Path) थप्नुहोस्। हरेक पाठको आफ्नै छुट्टै योजना, प्रश्न, क्रियाकलाप र मूल्याङ्कन हुन्छ।</div>
+      <div style={{fontSize:14.5,color:INK_SOFT,marginBottom:14,lineHeight:1.5}}>पहिले अध्याय छान्नुहोस् वा खोल्नुहोस्, त्यसपछि त्यो भित्र पाठ थप्नुहोस्। हरेक पाठको आफ्नै छुट्टै योजना, प्रश्न, क्रियाकलाप र मूल्याङ्कन हुन्छ।</div>
 
       {addingChapter&&(
         <Card style={{marginBottom:14}}>
-          <div style={{fontWeight:700,fontSize:16.5,marginBottom:8}}>नयाँ अध्याय (Unit)</div>
+          <div style={{fontWeight:700,fontSize:16.5,marginBottom:8}}>नयाँ अध्याय</div>
           <div style={{display:"flex",gap:8}}>
             <input autoFocus value={newChapterTitle} onChange={(e)=>setNewChapterTitle(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&submitNewChapter()} placeholder="अध्यायको नाम लेख्नुहोस्" className="ss-field" style={{flex:1,minWidth:0,borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
             <button className="ss-btn" onClick={submitNewChapter} disabled={!newChapterTitle.trim()} style={{background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:SHADOW.accent}}>थप्नुहोस्</button>
@@ -2349,7 +2349,7 @@ function Materials({ classLabel }) {
     // chapter" option, which is what made AI context matching hochpotch
     // (a file for Path 2 was bleeding into Path 1's generation).
     if(pendingFiles.some((r)=>!r.pathId)){
-      setPendingError("हरेक फाइलको लागि पाठ (Path) पनि छान्नुहोस् वा नयाँ बनाउनुहोस् — केही फाइलमा अझै छानिएको छैन।");
+      setPendingError("हरेक फाइलको लागि पाठ पनि छान्नुहोस् वा नयाँ बनाउनुहोस् — केही फाइलमा अझै छानिएको छैन।");
       return;
     }
     setUploading(true);setError("");setPendingError("");
@@ -2425,7 +2425,7 @@ function Materials({ classLabel }) {
     // FIX — same "must belong to a पाठ, not the whole अध्याय" rule as new
     // uploads: re-tagging can't leave a file chapter-wide either, or it
     // silently falls back to bleeding into every Path's AI context again.
-    if(!tagPathId){setTagError("पाठ (Path) पनि छान्नुहोस् वा नयाँ बनाउनुहोस्।");return;}
+    if(!tagPathId){setTagError("पाठ पनि छान्नुहोस् वा नयाँ बनाउनुहोस्।");return;}
     setRetagging(true);setTagError("");
     try{
       const{error:err}=await retagMaterialCtx({material:tagging,chapterTitle:tagValue.trim(),lessonId:tagPathId,category:tagCategory});
@@ -2527,7 +2527,7 @@ function Materials({ classLabel }) {
                     )}
                   </div>
                   <div style={{marginTop:8}}>
-                    <div style={{fontSize:12.5,fontWeight:700,color:INK_SOFT,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.03em"}}>पाठ (Path) *</div>
+                    <div style={{fontSize:12.5,fontWeight:700,color:INK_SOFT,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.03em"}}>पाठ *</div>
                     <PathPicker value={row.pathId} onChange={(v)=>updatePendingRow(row._key,{pathId:v})} chapterTitle={row.chapterTitle}/>
                   </div>
                 </div>
@@ -2704,7 +2704,7 @@ function Materials({ classLabel }) {
             <div style={{fontSize:14.5,fontWeight:700,color:INK_SOFT,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.03em"}}>अध्याय</div>
             <ChapterPicker value={tagValue} onChange={(v)=>{setTagValue(v);setTagPathId(null);}} placeholder="— अध्याय छान्नुहोस् —"/>
             <div style={{height:14}}/>
-            <div style={{fontSize:14.5,fontWeight:700,color:INK_SOFT,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.03em"}}>पाठ (Path) *</div>
+            <div style={{fontSize:14.5,fontWeight:700,color:INK_SOFT,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.03em"}}>पाठ *</div>
             <PathPicker value={tagPathId} onChange={setTagPathId} chapterTitle={tagValue}/>
             <div style={{height:16}}/>
             <Button variant="primary" onClick={saveTag} disabled={retagging} style={{width:"100%"}}>{retagging?"प्रशोधन गर्दै...":"सुरक्षित गर्नुहोस्"}</Button>
@@ -4098,8 +4098,6 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
   const [sectionMsg,setSectionMsg]=useState("");
   const [uploading,setUploading]=useState(false);
   const [pdfLoaded,setPdfLoaded]=useState(false);
-  const [repairBusy,setRepairBusy]=useState(null);
-  const [repairMsg,setRepairMsg]=useState({});
   const [exportBusy,setExportBusy]=useState(false);
   const [exportMsg,setExportMsg]=useState("");
 
@@ -4135,22 +4133,14 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
     }
   };
 
-  const runRepair=async(key,fn)=>{
-    setRepairBusy(key);setRepairMsg((m)=>({...m,[key]:""}));
-    try{
-      const res=await fn((p)=>setRepairMsg((m)=>({...m,[key]:p.current?`...${p.current}`:"चलिरहेको..."})));
-      if(res?.error) throw res.error;
-      const parts=[];
-      if("merged" in res) parts.push(`${res.merged} अध्याय गाभियो`,`${res.rowsUpdated} रेकर्ड सारियो`);
-      if("fixed" in res) parts.push(`${res.fixed} मिलाइयो`,res.failed?`${res.failed} असफल`:null);
-      if("repaired" in res) parts.push(`${res.repaired} मिलाइयो`);
-      setRepairMsg((m)=>({...m,[key]:`✓ सम्पन्न — ${parts.filter(Boolean).join(", ")||"केही मिलाउन पर्ने भेटिएन"}`}));
-    }catch(e){
-      setRepairMsg((m)=>({...m,[key]:`त्रुटि: ${e.message||"असफल भयो"}`}));
-    }finally{
-      setRepairBusy(null);
-    }
-  };
+  // NEW — the "मर्मत उपकरण" (repair tools) panel that used to live here
+  // (merge duplicate chapters / reconnect orphaned tags / fix file content
+  // types) was a one-off cleanup tool for data problems from before the
+  // DataContext rewrite. Now that chapters/lessons/materials all go through
+  // one shared door (see src/context/DataContext.jsx) those problems can't
+  // recur, so the panel was removed — the underlying db.js functions
+  // (repairDuplicateChapters etc.) are left in place, unused, in case a
+  // one-time cleanup is ever needed again.
 
   useEffect(()=>{
     gemini.getTextbookPart(classLabel).then((part)=>setPdfLoaded(!!part));
@@ -4348,38 +4338,9 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
         {sectionMsg&&<div style={{marginTop:8,fontSize:15,color:sectionMsg.startsWith("त्रुटि")||sectionMsg.includes("पहिल्यै")?DANGER:ACCENT,fontWeight:600}}>{sectionMsg}</div>}
       </Card>
 
-      {/* NEW — Phase 5: repairChapterTagging and repairMaterialContentTypes
-          already existed in db.js but were never wired into any screen —
-          a teacher had no way to actually run them. repairDuplicateChapters
-          is the fix for the tagging bug itself: chapters that got
-          accidentally duplicated by a race condition (same title, two
-          different ids) get merged back into one, and every material/
-          lesson/question/activity pointed at a duplicate gets reassigned
-          to the surviving chapter. */}
-      <Card style={{marginBottom:14}}>
-        <SectionLabel icon={Wand2} color={VIOLET}>मर्मत उपकरण</SectionLabel>
-        <div style={{fontSize:15,color:INK_SOFT,marginBottom:12,lineHeight:1.5}}>
-          ट्याग गर्दा/अध्याय देखाउँदा समस्या आएमा यहाँबाट मर्मत गर्नुहोस्। यसले पुराना डाटा मात्र मिलाउँछ, केही मेटाउँदैन।
-        </div>
-        {[
-          {key:"dupChapters",label:"दोहोरिएका अध्याय मिलाउनुहोस्",desc:"एउटै नामका दोहोरिएका अध्यायलाई एउटैमा गाभ्छ र सबै फाइल/पाठ/प्रश्न सोहीमा सार्छ।",fn:db.repairDuplicateChapters},
-          {key:"chapterTag",label:"पुराना ट्याग मिलाउनुहोस्",desc:"पुरानो नामबाट मात्र बचेका पाठ/प्रश्न/क्रियाकलापलाई सही अध्यायसँग जोड्छ।",fn:db.repairChapterTagging},
-          {key:"materialType",label:"फाइल प्रकार मिलाउनुहोस्",desc:"पुराना फाइलहरूको प्रकार (content type) मर्मत गर्छ।",fn:db.repairMaterialContentTypes},
-        ].map((tool)=>(
-          <div key={tool.key} style={{padding:"10px 0",borderBottom:`1px solid ${BORDER}`}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
-              <div style={{flex:1,minWidth:180}}>
-                <div style={{fontSize:16,fontWeight:700,color:INK}}>{tool.label}</div>
-                <div style={{fontSize:14,color:INK_SOFT}}>{tool.desc}</div>
-              </div>
-              <button className="ss-btn" disabled={repairBusy===tool.key} onClick={()=>runRepair(tool.key,tool.fn)} style={{background:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"9px 14px",fontWeight:700,fontSize:15,cursor:"pointer",color:INK,flexShrink:0,boxShadow:SHADOW.sm}}>
-                {repairBusy===tool.key?"चलिरहेको...":"चलाउनुहोस्"}
-              </button>
-            </div>
-            {repairMsg[tool.key]&&<div style={{fontSize:14.5,color:ACCENT,fontWeight:600,marginTop:6}}>{repairMsg[tool.key]}</div>}
-          </div>
-        ))}
-      </Card>
+      {/* NEW — दोहोरिएका अध्याय मिलाउनुहोस्/पुराना ट्याग मिलाउनुहोस्/फाइल
+          प्रकार मिलाउनुहोस् (the repair-tools panel) was removed from
+          here — see the note above runRepair's old location for why. */}
 
       {/* NEW — there was no way to get your data out of the app at all.
           Everything lives in one Supabase project with no export button
