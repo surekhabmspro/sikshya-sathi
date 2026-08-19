@@ -1052,7 +1052,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
       // so it was gone again on the next reload. Now it's awaited and a
       // failure is shown immediately instead of only being discovered
       // later.
-      const{error}=await db.upsertLesson({id:lesson.id,key_questions:next.map((it)=>it.a?`${it.q}||${it.a}`:it.q)});
+      const{error}=await db.updateLesson(lesson.id,{key_questions:next.map((it)=>it.a?`${it.q}||${it.a}`:it.q)});
       if(error){setQErrors((prev)=>({...prev,[i]:"उत्तर देखियो तर सुरक्षित हुन सकेन — फेरि प्रयास गर्नुहोस्।"}));return;}
       setQState(next);
     }catch{
@@ -1074,7 +1074,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
   const [qEditText,setQEditText]=useState("");
   const persistQuestions=async(next)=>{
     setQState(next);
-    const{error}=await db.upsertLesson({id:lesson.id,key_questions:next.map((it)=>it.a?`${it.q}||${it.a}`:it.q)});
+    const{error}=await db.updateLesson(lesson.id,{key_questions:next.map((it)=>it.a?`${it.q}||${it.a}`:it.q)});
     if(error)alert("सुरक्षित हुन सकेन: "+(error.message||"कृपया फेरि प्रयास गर्नुहोस्।"));
   };
   const startEditAnswer=(i,e)=>{e.stopPropagation();setQEditingIdx(i);setQEditText(qState[i].a||"");};
@@ -3305,7 +3305,7 @@ function ManagerPopup({ title, onClose, children }) {
 function MoreHub({
   initialPanel,onInitialPanelConsumed,
   section,homework,hwLoading,onRefreshHomework,
-  lessons,classLabel,
+  lessons,classLabel,active,
 }) {
   const [openPanel,setOpenPanel]=useState(null); // null | "homework" | "journal"
   useEffect(()=>{
@@ -3329,7 +3329,7 @@ function MoreHub({
         <SummaryPanel icon={Heart} color={ROSE} title="डायरी" onOpen={()=>setOpenPanel("journal")}
           subtitle={journalCount===null?"लोड हुँदै...":journalCount===0?"कुनै प्रविष्टि छैन":`${journalCount} प्रविष्टि`}/>
       </div>
-      <CalendarView classLabel={classLabel}/>
+      <CalendarView classLabel={classLabel} active={active}/>
       {openPanel==="homework"&&<ManagerPopup title="गृहकार्य" onClose={()=>setOpenPanel(null)}><HomeworkManager section={section} loading={hwLoading} homework={homework} onRefresh={onRefreshHomework}/></ManagerPopup>}
       {openPanel==="journal"&&<ManagerPopup title="डायरी" onClose={()=>setOpenPanel(null)}><TeachingJournal lessons={lessons}/></ManagerPopup>}
     </div>
@@ -3556,7 +3556,7 @@ function DocumentSearch({ lessons, homework, classLabel, onOpenLesson, onGoMater
 const fmtDate=(d)=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 const parseDate=(s)=>{const[y,m,d]=s.split("-").map(Number);return new Date(y,m-1,d);};
 
-function CalendarView({ classLabel }) {
+function CalendarView({ classLabel, active }) {
   const today=new Date();
   const [year,setYear]=useState(today.getFullYear());
   const [month,setMonth]=useState(today.getMonth());
@@ -3596,7 +3596,13 @@ function CalendarView({ classLabel }) {
     setAssessments((as||[]).filter((a)=>a.due_date));
     setLoading(false);
   },[classLabel]);
-  useEffect(()=>{load();},[load]);
+  // FIX — this only ever loaded once (on mount), but Calendar stays alive
+  // in the background once visited (like every other tab). An assessment
+  // created elsewhere (Assessment Builder, or generated as part of a Path)
+  // while Calendar wasn't the active tab used to never show up here until
+  // a full app reload. Now it reloads every time this tab becomes active
+  // again, not just the first time.
+  useEffect(()=>{ if(active) load(); },[active,load]);
 
   // NEW — teacher-added events and existing assessment due-dates (already
   // real dates in the database) merged into one shape, so "परीक्षा
@@ -4705,7 +4711,7 @@ export default function App() {
         {visitedScreens.has("more")&&<div style={{display:screen==="more"?undefined:"none"}}>
           <MoreHub initialPanel={moreTab} onInitialPanelConsumed={()=>setMoreTab(null)}
             section={currentSection} homework={homework} hwLoading={hwLoading} onRefreshHomework={loadHomework}
-            lessons={lessons} classLabel={classLabel}
+            lessons={lessons} classLabel={classLabel} active={screen==="more"}
           />
         </div>}
         {visitedScreens.has("aitools")&&<div style={{display:screen==="aitools"?undefined:"none"}}>

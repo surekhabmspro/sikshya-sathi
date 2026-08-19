@@ -173,6 +173,23 @@ export const upsertLesson = async (lesson) => {
   return { data, error };
 };
 
+// NEW — for patching just one or two fields on an EXISTING lesson (e.g.
+// saving a single class-discussion answer). upsertLesson always does a
+// full-row upsert, which requires every NOT NULL column (title, etc.) to
+// be present in the payload — passing only {id, key_questions} to it was
+// silently failing with a "null value in column title" constraint error
+// every time, surfaced to the teacher as "उत्तर देखियो तर सुरक्षित हुन
+// सकेन". A plain .update() only ever touches the columns you give it.
+export const updateLesson = async (id, patch) => {
+  const { data, error } = await supabase
+    .from("lessons")
+    .update(patch)
+    .eq("id", id)
+    .select()
+    .single();
+  return { data, error };
+};
+
 export const deleteLesson = async (id) => {
   const { error } = await supabase.from("lessons").delete().eq("id", id);
   return { error };
