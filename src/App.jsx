@@ -15,6 +15,7 @@ import { supabase } from "./lib/supabase";
 import * as db from "./db";
 import * as gemini from "./gemini";
 import { extractTextFromFile } from "./lib/extract";
+import { DataProvider, useData } from "./context/DataContext";
 
 // NEW — every color below is a CSS custom property, not a hardcoded hex.
 // That's what makes dark/light mode possible without rewriting every
@@ -263,6 +264,59 @@ async function getChapterLinkedCounts(chapterId) {
     supabase.from("assessments").select("id", { count: "exact", head: true }).eq("chapter_id", chapterId),
   ]);
   return { materials: mats.count || 0, questions: qs.count || 0, activities: acts.count || 0, assessments: asmts.count || 0 };
+}
+
+// NEW — THE single normalization + lookup used everywhere a पाठ (Path) name
+// needs to be matched against existing lessons under a chapter, so "same
+// title, same chapter" means the same thing everywhere instead of every
+// screen doing its own ad-hoc compare. This used to be reimplemented
+// separately inside PathPicker (tagging a material) and inside Planner as
+// findDuplicatePath (creating/editing a lesson plan) — those two copies
+// could and did drift, which is how a Path made from one screen sometimes
+// failed to be recognized as "already exists" from the other.
+function normTitle(s) { return (s || "").trim().toLowerCase().replace(/\s+/g, " "); }
+function findExistingLesson(lessons, chapterTitle, pathTitle, excludeId = null) {
+  const ct = normTitle(chapterTitle), pt = normTitle(pathTitle);
+  if (!ct || !pt) return null;
+  return (lessons || []).find((l) => {
+    if (excludeId && l.id === excludeId) return false;
+    const lct = normTitle(l.chapters?.title || l.chapter_title || "");
+    return lct === ct && normTitle(l.title) === pt;
+  }) || null;
+}
+
+// NEW — THE single door for "give me the id of this पाठ, creating it under
+// this अध्याय if it doesn't exist yet". Reuses findExistingLesson above so a
+// teacher re-typing a Path title they already made is always routed to the
+// existing one instead of a silent duplicate — no matter which screen
+// (Materials' tag dialog, Planner's material-attach-before-save) triggers it.
+async function getOrCreateLesson({ lessons, chapterTitle, pathTitle, classLabel, sectionId = null, excludeId = null }) {
+  if (!chapterTitle || !chapterTitle.trim() || !pathTitle || !pathTitle.trim()) return null;
+  const existing = findExistingLesson(lessons, chapterTitle, pathTitle, excludeId);
+  if (existing) return existing;
+  const chapter_id = await resolveChapterId(chapterTitle, classLabel);
+  const { data } = await db.upsertLesson({ title: pathTitle.trim(), chapter_id, status: "missing", class_label: classLabel, section_id: sectionId });
+  return data || null;
+}
+
+// NEW — THE single door for describing what deleting an अध्याय will affect,
+// used by every screen that offers the delete (Materials, Planner). Before
+// this, Materials' delete only ever counted materials and Planner's only
+// ever counted पाठ — each blind to what the other screen owned, so the
+// warning a teacher saw depended on which screen they happened to delete
+// from. Now both show the exact same full picture every time.
+async function describeChapterDeletion(chapter, lessons) {
+  const pathsCount = (lessons || []).filter((l) => l.chapter_id === chapter.id).length;
+  const extra = await getChapterLinkedCounts(chapter.id).catch(() => ({ materials: 0, questions: 0, activities: 0, assessments: 0 }));
+  const parts = [];
+  if (pathsCount > 0) parts.push(`${pathsCount} पाठ`);
+  if (extra.materials > 0) parts.push(`${extra.materials} सामग्री फाइल`);
+  if (extra.questions > 0) parts.push(`${extra.questions} प्रश्न`);
+  if (extra.activities > 0) parts.push(`${extra.activities} क्रियाकलाप`);
+  if (extra.assessments > 0) parts.push(`${extra.assessments} मूल्याङ्कन`);
+  return parts.length > 0
+    ? `"${chapter.title}" मेटाउने? यसमा जोडिएका ${parts.join(", ")} अब कुनै अध्यायमा तोकिने छैनन् (मेटिने छैनन्, केवल अध्याय-ट्याग हट्नेछ)।`
+    : `"${chapter.title}" मेटाउने?`;
 }
 
 // NEW — THE single door. Every place in the app that used to build its own
@@ -556,7 +610,8 @@ function MaterialsHint({ count, chapterTitle, pathTitle }) {
 // widget. Used by Planner, Question Bank, Activities and Assessment so none
 // of them require a separate trip to the Materials tab just to give the AI
 // something to read from.
-function MaterialAttach({ chapterTitle, lessonId, onEnsureLessonId, onUploaded, classLabel }) {
+function MaterialAttach({ chapterTitle, lessonId, onEnsureLessonId }) {
+  const { uploadMaterial } = useData();
   const [attaching,setAttaching]=useState(false);
   const [attachedNames,setAttachedNames]=useState([]);
   const [attachError,setAttachError]=useState("");
@@ -576,12 +631,11 @@ function MaterialAttach({ chapterTitle, lessonId, onEnsureLessonId, onUploaded, 
       if(!lid){setAttachError("पहिले माथि पाठको नाम लेख्नुहोस्।");e.target.value="";return;}
     }
     setAttaching(true);setAttachError("");
-    const{data,error,warning}=await uploadOneMaterial({file,chapterTitle:chapterTitle.trim(),lessonId:lid,category:"other",classLabel});
+    const{data,error,warning}=await uploadMaterial({file,chapterTitle:chapterTitle.trim(),lessonId:lid,category:"other"});
     if(error){setAttachError(warning||error.message);setAttaching(false);e.target.value="";return;}
     if(warning)setAttachError(warning);
     setAttachedNames((prev)=>[...prev,file.name]);
     setAttaching(false);e.target.value="";
-    onUploaded?.();
   };
 
   const ready=!!chapterTitle?.trim();
@@ -601,12 +655,13 @@ function MaterialAttach({ chapterTitle, lessonId, onEnsureLessonId, onUploaded, 
   );
 }
 
-// NEW — one shared chapter picker used everywhere a chapter needs to be
-// chosen (Materials, Planner, Question Bank, Activities, Assessment).
-// Replaces free-typed chapter names with a dropdown of real chapters, so
-// there's no more risk of "Nepalko Naksha" vs "नेपालको नक्सा" mismatches —
-// pick once, reuse everywhere, exactly the same value every time.
-function ChapterPicker({ value, onChange, chapters, onAddChapter, placeholder }) {
+// THE single door for choosing (or creating) an अध्याय, used everywhere a
+// chapter needs to be picked (Materials, Planner, Question Bank, Activities,
+// Assessment). Reads the one shared chapters list straight from context —
+// callers just pass value/onChange, nothing else, so there's no way for one
+// screen's copy of "the chapters" to drift from another's.
+function ChapterPicker({ value, onChange, placeholder }) {
+  const { chapters, addChapter } = useData();
   const [showAdd,setShowAdd]=useState(false);
   const [newTitle,setNewTitle]=useState("");
   const [adding,setAdding]=useState(false);
@@ -615,7 +670,7 @@ function ChapterPicker({ value, onChange, chapters, onAddChapter, placeholder })
     if(!newTitle.trim())return;
     setAdding(true);
     try{
-      await onAddChapter(newTitle.trim());
+      await addChapter(newTitle.trim());
       onChange(newTitle.trim());
       setShowAdd(false);setNewTitle("");
     }finally{setAdding(false);}
@@ -645,11 +700,13 @@ function ChapterPicker({ value, onChange, chapters, onAddChapter, placeholder })
   );
 }
 
-// NEW — companion to ChapterPicker: choose (or create) which पाठ (Path)
-// inside the already-selected अध्याय a material belongs to. Materials could
-// previously only ever be tagged to the whole Adhyaya, with no way to say
-// which specific Path actually uses a given file.
-function PathPicker({ value, onChange, chapterTitle, lessons, onLessonsChanged, classLabel }) {
+// THE single door — companion to ChapterPicker — for choosing (or creating)
+// which पाठ (Path) inside the already-selected अध्याय a material belongs to.
+// Reads the one shared lessons list from context and creates new Paths
+// through the same getOrCreateLesson() door Planner uses, so a Path can
+// never be created twice under two different code paths again.
+function PathPicker({ value, onChange, chapterTitle }) {
+  const { lessons, addLesson } = useData();
   const [showAdd,setShowAdd]=useState(false);
   const [newTitle,setNewTitle]=useState("");
   const [adding,setAdding]=useState(false);
@@ -659,18 +716,8 @@ function PathPicker({ value, onChange, chapterTitle, lessons, onLessonsChanged, 
     if(!newTitle.trim()||!chapterTitle)return;
     setAdding(true);
     try{
-      // FIX — this used to insert a brand-new lesson unconditionally, the
-      // exact same duplicate-creation bug fixed in Planner (see
-      // findDuplicatePath there) — but reimplemented separately here for
-      // tagging a material, so Planner's guard never covered this path.
-      // Typing a Path title that already exists under this chapter now
-      // reuses it instead of creating a second one with the same name.
-      const norm=(s)=>(s||"").trim().toLowerCase().replace(/\s+/g," ");
-      const dup=chapterPaths.find((l)=>norm(l.title)===norm(newTitle));
-      if(dup){onChange(dup.id);setShowAdd(false);setNewTitle("");return;}
-      const chapter_id=await db.getOrCreateChapterId(chapterTitle,classLabel);
-      const{data}=await db.upsertLesson({title:newTitle.trim(),chapter_id,status:"missing",class_label:classLabel});
-      if(data){onChange(data.id);await onLessonsChanged?.();}
+      const lesson=await addLesson(chapterTitle,newTitle.trim());
+      if(lesson){onChange(lesson.id);}
       setShowAdd(false);setNewTitle("");
     }finally{setAdding(false);}
   };
@@ -913,7 +960,7 @@ function PrintableSheet({ title, subtitle, chip, chipColor, onClose, children })
 // same edit form, but mountable as a popup from anywhere — closes right
 // back to wherever you opened it from, the way LessonMode itself already
 // works as an always-available overlay instead of a screen route.
-function LessonEditModal({ lesson, chapters, onAddChapter, classContext, classLabel, onClose, onSaved }) {
+function LessonEditModal({ lesson, classContext, classLabel, onClose, onSaved }) {
   const [form,setForm]=useState(()=>lessonToForm(lesson));
   const [saving,setSaving]=useState(false);
   const [deleting,setDeleting]=useState(false);
@@ -982,7 +1029,7 @@ function LessonEditModal({ lesson, chapters, onAddChapter, classContext, classLa
           </div>
           <div>
             <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:700,marginBottom:4}}>अध्याय</div>
-            <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} chapters={chapters||[]} onAddChapter={onAddChapter} placeholder="— अध्याय छान्नुहोस् —"/>
+            <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} placeholder="— अध्याय छान्नुहोस् —"/>
           </div>
           <div>
             <AIButton label={generating?"बनाउँदै...":"AI बाट पुनः पूर्ण तयार गर्नुहोस् (योजना+प्रश्न+क्रियाकलाप+मूल्याङ्कन)"} onClick={autoGenerate} loading={generating} style={{width:"100%",justifyContent:"center"}}/>
@@ -1568,7 +1615,8 @@ function ChapterMaterialsList({ materials, onGoMaterials }) {
 // own uploaded lesson plan/PPT and the textbook as its source, never
 // replacing them. This is meant to be the only screen a teacher needs to
 // touch on a normal day.
-function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, onGoAITools, onGoSettings, section, lessons, homework, loading, chapters, materials, teacherName, onAddChapter, classContext, classLabel }) {
+function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, onGoAITools, onGoSettings, section, homework, loading, teacherName, classContext, classLabel }) {
+  const { chapters, lessons, materials } = useData();
   // FIX — "today's lesson" was permanently whichever lesson happened to be
   // first "ready" (or just lessons[0]), with no way to change it — so once
   // you'd taught it, the card kept pointing at the same chapter forever.
@@ -1732,7 +1780,8 @@ function groupLessonsByChapter(chapters, lessons) {
   return groups;
 }
 
-function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters, onAddChapter, onChaptersChanged, materials, onMaterialsChanged, classContext, classLabel, editLessonId, onEditConsumed, prefillChapter, onPrefillConsumed }) {
+function Planner({ onOpenLesson, section, loading, onRefresh, classContext, classLabel, editLessonId, onEditConsumed, prefillChapter, onPrefillConsumed }) {
+  const { chapters, lessons, materials, addChapter, renameChapter: renameChapterCtx, deleteChapter: deleteChapterCtx } = useData();
   const [showForm,setShowForm]=useState(false);
   const [form,setForm]=useState(EMPTY_LESSON_FORM);
   const [saving,setSaving]=useState(false);
@@ -1750,65 +1799,32 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
   const isEditing=!!form.id;
   const groups=groupLessonsByChapter(chapters,lessons);
 
-  // FIX — nothing stopped the same पाठ name being saved twice under the
+  // FIX — nothing used to stop the same पाठ name being saved twice under the
   // same अध्याय: "AI ले यो पाठ बनाओस्" (and the manual save button) always
   // inserted a fresh row whenever form.id was empty, even if a Path with
-  // that exact title already existed here. Checked before either creation
-  // path runs, so a teacher who re-types a title they already made gets
-  // routed to the existing Path instead of a silent duplicate.
-  const norm=(s)=>(s||"").trim().toLowerCase().replace(/\s+/g," ");
-  const findDuplicatePath=(chapterTitle,pathTitle)=>{
-    const ct=norm(chapterTitle),pt=norm(pathTitle);
-    if(!ct||!pt)return null;
-    return lessons.find((l)=>{
-      if(form.id&&l.id===form.id)return false;
-      const lct=norm(l.chapters?.title||l.chapter_title||"");
-      return lct===ct&&norm(l.title)===pt;
-    })||null;
-  };
+  // that exact title already existed here. This now goes through the same
+  // findExistingLesson() door PathPicker uses (see App.jsx module scope),
+  // so the two can never disagree about what counts as a duplicate.
+  const findDuplicatePath=(chapterTitle,pathTitle)=>findExistingLesson(lessons,chapterTitle,pathTitle,form.id||null);
 
   // NEW — अध्याय (Unit) rename/delete, right from Planner where units are
-  // now actually created and managed. Deleting a chapter that still has
-  // पाठ (Path) entries under it doesn't delete those paths — the database
-  // just clears their chapter tag (they'd show as "अध्याय नतोकिएको" until
-  // reassigned) — so nothing a teacher already generated gets lost.
+  // now actually created and managed. Both now go through the same single
+  // door (useData().renameChapter/deleteChapter) that Materials uses, so
+  // there's exactly one implementation of "what happens when a chapter is
+  // renamed/deleted" — not two that can quietly drift apart — and both
+  // screens' lists refresh together, automatically, every time.
   const renameChapter=async(chapter)=>{
     const title=chapterEditValue.trim();
     if(!title||title===chapter.title){setEditingChapterId(null);return;}
     setChapterBusy(chapter.id);
-    await supabase.from("chapters").update({title}).eq("id",chapter.id);
+    await renameChapterCtx(chapter,title);
     setChapterBusy(null);setEditingChapterId(null);
-    onChaptersChanged?.();
   };
   const deleteChapterInPlanner=async(chapter,e)=>{
     e.stopPropagation();
-    // FIX — this only ever counted and warned about पाठ (this screen's
-    // own data), the exact inverse of the gap in Materials' deleteChapter
-    // (which only counted materials). Two separate implementations of the
-    // same action, each blind to what the other screen owns. Now both
-    // warn about the full picture — materials/questions/activities/
-    // assessments too — and both refresh every affected screen's list,
-    // not just their own.
-    const pathsCount=(groups.find((g)=>g.chapter.id===chapter.id)?.paths||[]).length;
-    const materialsCount=(materials||[]).filter((m)=>m.chapter_id===chapter.id).length;
-    let extra={questions:0,activities:0,assessments:0};
-    try{ extra=await getChapterLinkedCounts(chapter.id); }catch{}
-    const parts=[];
-    if(pathsCount>0)parts.push(`${pathsCount} पाठ`);
-    if(materialsCount>0)parts.push(`${materialsCount} सामग्री फाइल`);
-    if(extra.questions>0)parts.push(`${extra.questions} प्रश्न`);
-    if(extra.activities>0)parts.push(`${extra.activities} क्रियाकलाप`);
-    if(extra.assessments>0)parts.push(`${extra.assessments} मूल्याङ्कन`);
-    const msg=parts.length>0
-      ?`"${chapter.title}" मेटाउने? यसमा जोडिएका ${parts.join(", ")} मेटिने छैनन्, तर तिनको अध्याय-ट्याग हट्नेछ।`
-      :`"${chapter.title}" मेटाउने?`;
-    if(!confirm(msg))return;
     setChapterBusy(chapter.id);
-    await supabase.from("chapters").delete().eq("id",chapter.id);
+    await deleteChapterCtx(chapter);
     setChapterBusy(null);
-    onChaptersChanged?.();
-    onRefresh();
-    onMaterialsChanged?.();
   };
 
   // NEW — opening a lesson for editing can be triggered from outside this
@@ -1874,22 +1890,20 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
   const ensurePath=async()=>{
     if(form.id)return form.id;
     if(!form.chapter_title.trim()||!form.title.trim())return null;
-    // FIX — reuse an existing Path with the same title in the same अध्याय
-    // instead of silently inserting a duplicate the moment a file gets
-    // dropped on the form before "सुरक्षित" is ever tapped.
-    const dup=findDuplicatePath(form.chapter_title,form.title);
-    if(dup){setForm((f)=>({...f,id:dup.id}));return dup.id;}
-    const chapter_id=await resolveChapterId(form.chapter_title,classLabel);
-    const{data}=await db.upsertLesson({title:form.title,chapter_id,status:"missing",class_label:classLabel,section_id:section?.id||null});
-    if(data){
-      setForm((f)=>({...f,id:data.id}));
-      // FIX — this created the Path row in the database but never told
-      // Planner's own shared lessons list to refresh, so a Path created
-      // just by attaching a file (without ever tapping "AI ले यो पाठ
-      // बनाओस्") stayed invisible in both this screen's अध्याय list AND
-      // समग्री's Path picker until an unrelated refresh happened to fire.
+    // FIX — now goes through the same getOrCreateLesson() door PathPicker
+    // uses to tag a material, instead of its own separate dup-check +
+    // insert. One implementation, so it can't drift from the other again.
+    const lesson=await getOrCreateLesson({lessons,chapterTitle:form.chapter_title,pathTitle:form.title,classLabel,sectionId:section?.id||null});
+    if(lesson){
+      setForm((f)=>({...f,id:lesson.id}));
+      // FIX — this created the Path row in the database but used to never
+      // tell Planner's own shared lessons list to refresh, so a Path
+      // created just by attaching a file (without ever tapping "AI ले यो
+      // पाठ बनाओस्") stayed invisible in both this screen's अध्याय list
+      // AND समग्री's Path picker until an unrelated refresh happened to
+      // fire.
       onRefresh?.();
-      return data.id;
+      return lesson.id;
     }
     return null;
   };
@@ -1994,7 +2008,7 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
   const submitNewChapter=async()=>{
     if(!newChapterTitle.trim())return;
     const title=newChapterTitle.trim();
-    await onAddChapter(title);
+    await addChapter(title);
     setAddingChapter(false);setNewChapterTitle("");
     onRefresh();
   };
@@ -2049,7 +2063,7 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
               ):(
                 <>
                   <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:700,marginBottom:4}}>यो पाठ कुन अध्यायमा पर्छ?</div>
-                  <ChapterPicker value={form.chapter_title} onChange={(v)=>{setForm({...form,chapter_title:v});setChangingChapter(false);}} chapters={chapters||[]} onAddChapter={onAddChapter} placeholder="— अध्याय छान्नुहोस् —"/>
+                  <ChapterPicker value={form.chapter_title} onChange={(v)=>{setForm({...form,chapter_title:v});setChangingChapter(false);}} placeholder="— अध्याय छान्नुहोस् —"/>
                 </>
               )}
             </div>
@@ -2080,7 +2094,7 @@ function Planner({ onOpenLesson, section, lessons, loading, onRefresh, chapters,
             {showMaterials&&(
               <div>
                 <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title} pathTitle={form.title}/>
-                <MaterialAttach chapterTitle={form.chapter_title} lessonId={form.id} onEnsureLessonId={ensurePath} onUploaded={onMaterialsChanged} classLabel={classLabel}/>
+                <MaterialAttach chapterTitle={form.chapter_title} lessonId={form.id} onEnsureLessonId={ensurePath}/>
                 {linkedCounts&&(
                   <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:4}}>
                     <span style={{fontSize:13.5,background:SURFACE_2,color:INK_SOFT,padding:"4px 9px",borderRadius:999,fontWeight:700}}>❓ यो अध्यायमा {linkedCounts.questions} प्रश्न</span>
@@ -2203,7 +2217,8 @@ function CategoryPicker({ value, onChange }) {
 // until the app fully reloaded. Materials now receives BOTH as shared
 // state from App(), same source of truth every other screen reads from —
 // no separate copies left anywhere to fall out of sync.
-function Materials({ chapters, onAddChapter, onChaptersChanged, lessons, onLessonsChanged, materials, materialsLoading, onMaterialsChanged, classLabel }) {
+function Materials({ classLabel }) {
+  const { chapters, lessons, materials, materialsLoading, renameChapter: renameChapterCtx, deleteChapter: deleteChapterCtx, refreshMaterials, uploadMaterial, retagMaterial: retagMaterialCtx, deleteMaterial } = useData();
   const [uploading,setUploading]=useState(false);
   const [query,setQuery]=useState("");
   const [preview,setPreview]=useState(null);
@@ -2246,7 +2261,7 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, lessons, onLesso
   const [uploadProgress,setUploadProgress]=useState(null);
 
   const loading=materialsLoading;
-  const load=onMaterialsChanged;
+  const load=refreshMaterials;
   const sync=async()=>{setSyncing(true);await load();setSyncing(false);};
 
 
@@ -2262,54 +2277,31 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, lessons, onLesso
     return()=>{cancelled=true;};
   },[showChapterManage,chapters]);
 
-  const addChapterAndRefresh=async(title)=>{
-    await onAddChapter(title);
-    if(onChaptersChanged) onChaptersChanged();
-  };
-
-  // NEW — rename/delete an existing chapter. Chapters were previously
-  // add-only (no way to fix a typo or remove a duplicate); this lets a
-  // teacher edit the title in place or delete it entirely. Deleting a
-  // chapter that still has materials tagged to it clears their tag rather
-  // than silently orphaning them, and warns the teacher first.
+  // NEW — chapters are now created in exactly one place (the shared
+  // addChapter() from context, used by ChapterPicker wherever it appears);
+  // this screen no longer needs its own copy of that logic.
+  // NEW — rename/delete an existing chapter, through the exact same single
+  // door Planner uses (useData().renameChapter/deleteChapter) — see
+  // App.jsx's describeChapterDeletion/deleteChapterEverywhere. Chapters
+  // were previously add-only (no way to fix a typo or remove a duplicate);
+  // this lets a teacher edit the title in place or delete it entirely.
+  // Deleting a chapter that still has materials tagged to it clears their
+  // tag rather than silently orphaning them, and warns the teacher first —
+  // and, since this is the same function Planner calls, the warning always
+  // covers everything affected (materials/paths/questions/activities/
+  // assessments), not just whichever this screen happened to track itself.
   const renameChapter=async(chapter)=>{
     const title=chapterEditValue.trim();
     if(!title||title===chapter.title){setEditingChapterId(null);return;}
     setChapterBusy(chapter.id);
-    await supabase.from("chapters").update({title}).eq("id",chapter.id);
+    await renameChapterCtx(chapter,title);
     setChapterBusy(null);setEditingChapterId(null);
-    if(onChaptersChanged) onChaptersChanged();
-    load();
   };
 
   const deleteChapter=async(chapter)=>{
-    // FIX — this only ever counted (and warned about) materials, but
-    // deleting a chapter also unlinks every पाठ/प्रश्न/क्रियाकलाप/
-    // मूल्याङ्कन tagged to it (the database clears their chapter_id
-    // automatically — safe, nothing is deleted — but the teacher was
-    // never told any of that was about to happen, only materials). Now
-    // counts everything actually affected before asking.
-    const materialsCount=materials.filter((m)=>m.chapter_id===chapter.id).length;
-    const lessonsCount=(lessons||[]).filter((l)=>l.chapter_id===chapter.id).length;
-    let extra={questions:0,activities:0,assessments:0};
-    try{ extra=await getChapterLinkedCounts(chapter.id); }catch{}
-    const parts=[];
-    if(materialsCount>0)parts.push(`${materialsCount} सामग्री फाइल`);
-    if(lessonsCount>0)parts.push(`${lessonsCount} पाठ`);
-    if(extra.questions>0)parts.push(`${extra.questions} प्रश्न`);
-    if(extra.activities>0)parts.push(`${extra.activities} क्रियाकलाप`);
-    if(extra.assessments>0)parts.push(`${extra.assessments} मूल्याङ्कन`);
-    const msg=parts.length>0
-      ?`"${chapter.title}" मेटाउने? यसमा जोडिएका ${parts.join(", ")} अब कुनै अध्यायमा तोकिने छैनन् (मेटिने छैनन्, केवल अध्यायबाट अलग हुनेछन्)।`
-      :`"${chapter.title}" मेटाउने?`;
-    if(!confirm(msg))return;
     setChapterBusy(chapter.id);
-    if(materialsCount>0) await supabase.from("materials").update({chapter_id:null}).eq("chapter_id",chapter.id);
-    await supabase.from("chapters").delete().eq("id",chapter.id);
+    await deleteChapterCtx(chapter);
     setChapterBusy(null);
-    if(onChaptersChanged) onChaptersChanged();
-    if(onLessonsChanged) onLessonsChanged();
-    load();
   };
 
   // NEW — file selection no longer uploads immediately. It builds one
@@ -2363,24 +2355,24 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, lessons, onLesso
     setUploading(true);setError("");setPendingError("");
     // FIX — this loop used to duplicate MaterialAttach's upload logic
     // (extraction, chapter resolution, storage upload) almost line for
-    // line, with the two slowly drifting apart. Both now call the same
-    // uploadOneMaterial() door.
+    // line, with the two slowly drifting apart. Both now call the exact
+    // same useData().uploadMaterial() door.
     let failedNames=[];
     for(let i=0;i<pendingFiles.length;i++){
       const row=pendingFiles[i];
       const file=row.file;
       setUploadProgress(pendingFiles.length>1?{current:i+1,total:pendingFiles.length,name:file.name}:null);
-      const{error:err,warning}=await uploadOneMaterial({file,chapterTitle:row.chapterTitle.trim(),lessonId:row.pathId,category:row.category,classLabel});
+      const{error:err,warning}=await uploadMaterial({file,chapterTitle:row.chapterTitle.trim(),lessonId:row.pathId,category:row.category});
       if(err){failedNames.push(warning||`${file.name} (${err.message})`);continue;}
       if(warning)failedNames.push(warning);
     }
     if(failedNames.length)setError(failedNames.join(" · "));
-    setUploading(false);setUploadProgress(null);setPendingFiles(null);load();onChaptersChanged?.();
+    setUploading(false);setUploadProgress(null);setPendingFiles(null);
   };
 
   const deleteMat=async(mat)=>{
     if(!confirm(`"${mat.name}" मेटाउने?`))return;
-    await db.deleteMaterial(mat.id,mat.storage_path);load();
+    await deleteMaterial(mat);
   };
 
   // NEW — PDFs/docs/sheets now skip the in-app iframe/Google-viewer preview
@@ -2436,9 +2428,9 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, lessons, onLesso
     if(!tagPathId){setTagError("पाठ (Path) पनि छान्नुहोस् वा नयाँ बनाउनुहोस्।");return;}
     setRetagging(true);setTagError("");
     try{
-      const{error:err}=await retagMaterial({material:tagging,chapterTitle:tagValue.trim(),lessonId:tagPathId,category:tagCategory,classLabel});
+      const{error:err}=await retagMaterialCtx({material:tagging,chapterTitle:tagValue.trim(),lessonId:tagPathId,category:tagCategory});
       if(err)throw err;
-      setRetagging(false);setTagging(null);load();
+      setRetagging(false);setTagging(null);
     }catch(e){
       // FIX — this used to have no error handling at all: if anything
       // above threw, retagging stayed stuck at "true" forever (button
@@ -2531,12 +2523,12 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, lessons, onLesso
                         <span style={{fontSize:13.5,color:ACCENT,fontWeight:700,flexShrink:0}}>बदल्नुहोस्</span>
                       </div>
                     ):(
-                      <ChapterPicker value={row.chapterTitle} onChange={(v)=>updatePendingRow(row._key,{chapterTitle:v,chapterAuto:false,chapterEditing:false,pathId:null})} chapters={chapters||[]} onAddChapter={addChapterAndRefresh} placeholder="अध्याय छान्नुहोस् *"/>
+                      <ChapterPicker value={row.chapterTitle} onChange={(v)=>updatePendingRow(row._key,{chapterTitle:v,chapterAuto:false,chapterEditing:false,pathId:null})} placeholder="अध्याय छान्नुहोस् *"/>
                     )}
                   </div>
                   <div style={{marginTop:8}}>
                     <div style={{fontSize:12.5,fontWeight:700,color:INK_SOFT,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.03em"}}>पाठ (Path) *</div>
-                    <PathPicker value={row.pathId} onChange={(v)=>updatePendingRow(row._key,{pathId:v})} chapterTitle={row.chapterTitle} lessons={lessons} onLessonsChanged={onLessonsChanged} classLabel={classLabel}/>
+                    <PathPicker value={row.pathId} onChange={(v)=>updatePendingRow(row._key,{pathId:v})} chapterTitle={row.chapterTitle}/>
                   </div>
                 </div>
               ))}
@@ -2710,10 +2702,10 @@ function Materials({ chapters, onAddChapter, onChaptersChanged, lessons, onLesso
             <CategoryPicker value={tagCategory} onChange={setTagCategory}/>
             <div style={{height:14}}/>
             <div style={{fontSize:14.5,fontWeight:700,color:INK_SOFT,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.03em"}}>अध्याय</div>
-            <ChapterPicker value={tagValue} onChange={(v)=>{setTagValue(v);setTagPathId(null);}} chapters={chapters||[]} onAddChapter={addChapterAndRefresh} placeholder="— अध्याय छान्नुहोस् —"/>
+            <ChapterPicker value={tagValue} onChange={(v)=>{setTagValue(v);setTagPathId(null);}} placeholder="— अध्याय छान्नुहोस् —"/>
             <div style={{height:14}}/>
             <div style={{fontSize:14.5,fontWeight:700,color:INK_SOFT,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.03em"}}>पाठ (Path) *</div>
-            <PathPicker value={tagPathId} onChange={setTagPathId} chapterTitle={tagValue} lessons={lessons} onLessonsChanged={onLessonsChanged} classLabel={classLabel}/>
+            <PathPicker value={tagPathId} onChange={setTagPathId} chapterTitle={tagValue}/>
             <div style={{height:16}}/>
             <Button variant="primary" onClick={saveTag} disabled={retagging} style={{width:"100%"}}>{retagging?"प्रशोधन गर्दै...":"सुरक्षित गर्नुहोस्"}</Button>
           </div>
@@ -3027,7 +3019,7 @@ function AIAssistant({ lessons, classContext, classLabel }) {
   );
 }
 
-function QuestionBank({ chapters, onAddChapter, onMaterialsChanged, classContext, classLabel }) {
+function QuestionBank({ classContext, classLabel }) {
   const [questions,setQuestions]=useState([]);
   const [loading,setLoading]=useState(true);
   const [showForm,setShowForm]=useState(false);
@@ -3098,8 +3090,8 @@ function QuestionBank({ chapters, onAddChapter, onMaterialsChanged, classContext
           {error&&<ErrorMsg msg={error}/>}
           <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title}/>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} chapters={chapters||[]} onAddChapter={onAddChapter} placeholder="— अध्याय छान्नुहोस् (AI का लागि अनिवार्य) —"/>
-            <MaterialAttach chapterTitle={form.chapter_title} onUploaded={onMaterialsChanged} classLabel={classLabel}/>
+            <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} placeholder="— अध्याय छान्नुहोस् (AI का लागि अनिवार्य) —"/>
+            <MaterialAttach chapterTitle={form.chapter_title}/>
             <textarea placeholder="प्रश्न (म्यानुअल)" value={form.text} onChange={(e)=>setForm({...form,text:e.target.value})} rows={3} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
             <div style={{display:"flex",gap:8}}>
               <select value={form.type} onChange={(e)=>setForm({...form,type:e.target.value})} className="ss-field" style={{flex:1,borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}>{TYPES.map((t)=><option key={t}>{t}</option>)}</select>
@@ -3171,7 +3163,7 @@ function QuestionBank({ chapters, onAddChapter, onMaterialsChanged, classContext
   );
 }
 
-function AssessmentBuilder({ chapters, onAddChapter, onMaterialsChanged, classContext, classLabel }) {
+function AssessmentBuilder({ classContext, classLabel }) {
   const [assessments,setAssessments]=useState([]);
   const [loading,setLoading]=useState(true);
   const [showForm,setShowForm]=useState(false);
@@ -3231,8 +3223,8 @@ function AssessmentBuilder({ chapters, onAddChapter, onMaterialsChanged, classCo
           <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title}/>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             <input placeholder="शीर्षक *" value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
-            <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} chapters={chapters||[]} onAddChapter={onAddChapter} placeholder="— अध्याय छान्नुहोस् (AI का लागि) —"/>
-            <MaterialAttach chapterTitle={form.chapter_title} onUploaded={onMaterialsChanged} classLabel={classLabel}/>
+            <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} placeholder="— अध्याय छान्नुहोस् (AI का लागि) —"/>
+            <MaterialAttach chapterTitle={form.chapter_title}/>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7}}>
               {TYPES.map((t,i)=>{const Icon=t.icon;const c=PALETTE[i%PALETTE.length];const active=form.type===t.id;return(
                 <button key={t.id} onClick={()=>setForm({...form,type:t.id})} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6,padding:"11px 6px",borderRadius:12,border:`1.5px solid ${active?c:`color-mix(in srgb, ${c} 25%, ${BORDER})`}`,background:active?`color-mix(in srgb, ${c} 14%, ${SURFACE})`:SURFACE,color:active?c:INK,fontWeight:600,fontSize:14.5,cursor:"pointer",boxShadow:active?`0 6px 14px color-mix(in srgb, ${c} 30%, transparent)`:SHADOW.sm}}>
@@ -3285,7 +3277,7 @@ function AssessmentBuilder({ chapters, onAddChapter, onMaterialsChanged, classCo
   );
 }
 
-function ActivitiesLibrary({ chapters, onAddChapter, onMaterialsChanged, classContext, classLabel }) {
+function ActivitiesLibrary({ classContext, classLabel }) {
   const [activities,setActivities]=useState([]);
   const [loading,setLoading]=useState(true);
   const [showForm,setShowForm]=useState(false);
@@ -3343,8 +3335,8 @@ function ActivitiesLibrary({ chapters, onAddChapter, onMaterialsChanged, classCo
           {error&&<ErrorMsg msg={error}/>}
           <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title}/>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} chapters={chapters||[]} onAddChapter={onAddChapter} placeholder="— अध्याय छान्नुहोस् (AI का लागि अनिवार्य) —"/>
-            <MaterialAttach chapterTitle={form.chapter_title} onUploaded={onMaterialsChanged} classLabel={classLabel}/>
+            <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} placeholder="— अध्याय छान्नुहोस् (AI का लागि अनिवार्य) —"/>
+            <MaterialAttach chapterTitle={form.chapter_title}/>
             <input placeholder="क्रियाकलापको नाम" value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
             <input placeholder="क्षमता" value={form.competency} onChange={(e)=>setForm({...form,competency:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
             <input placeholder="समय" value={form.duration} onChange={(e)=>setForm({...form,duration:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
@@ -3497,7 +3489,7 @@ function MoreHub({
   );
 }
 
-function AITools({ lessons, chapters, onAddChapter, onMaterialsChanged, classContext, classLabel, initialTab, onInitialTabConsumed }) {
+function AITools({ lessons, classContext, classLabel, initialTab, onInitialTabConsumed }) {
   // FIX — "AI च्याट" used to be its own top-level screen, separate from
   // every other AI feature (question bank/activities/assessment/
   // resources), even though it draws on the exact same lesson/material
@@ -3543,9 +3535,9 @@ function AITools({ lessons, chapters, onAddChapter, onMaterialsChanged, classCon
         .ai-tools-tabs{-webkit-mask-image:linear-gradient(to right, transparent 0, black 14px, black calc(100% - 14px), transparent 100%);mask-image:linear-gradient(to right, transparent 0, black 14px, black calc(100% - 14px), transparent 100%);}
       `}</style>
       {tab==="chat"&&<AIAssistant lessons={lessons} classContext={classContext} classLabel={classLabel}/>}
-      {tab==="questions"&&<QuestionBank chapters={chapters} onAddChapter={onAddChapter} onMaterialsChanged={onMaterialsChanged} classContext={classContext} classLabel={classLabel}/>}
-      {tab==="activities"&&<ActivitiesLibrary chapters={chapters} onAddChapter={onAddChapter} onMaterialsChanged={onMaterialsChanged} classContext={classContext} classLabel={classLabel}/>}
-      {tab==="assessment"&&<AssessmentBuilder chapters={chapters} onAddChapter={onAddChapter} onMaterialsChanged={onMaterialsChanged} classContext={classContext} classLabel={classLabel}/>}
+      {tab==="questions"&&<QuestionBank classContext={classContext} classLabel={classLabel}/>}
+      {tab==="activities"&&<ActivitiesLibrary classContext={classContext} classLabel={classLabel}/>}
+      {tab==="assessment"&&<AssessmentBuilder classContext={classContext} classLabel={classLabel}/>}
       {tab==="resources"&&<ResourceCreator lessons={lessons} classContext={classContext} classLabel={classLabel}/>}
       {tab==="saved"&&<SavedResources classLabel={classLabel}/>}
     </div>
@@ -4649,6 +4641,67 @@ export default function App() {
   },[classLabel]);
   useEffect(()=>{ if(session) loadMaterials(); },[session,loadMaterials]);
 
+  // ─── THE single data layer for अध्याय/पाठ/सामग्री ────────────────────────
+  // Everything below wraps the loaders/mutators above into one object handed
+  // to <DataProvider>. Every screen (Home, Planner, Materials, Question
+  // Bank, Activities, Assessment, and the LessonEditModal/ChapterPicker/
+  // PathPicker/MaterialAttach pieces they're built from) reads and mutates
+  // chapters/lessons/materials through this ONE object via useData() —
+  // never through props, never through a locally-passed refresh callback.
+  // That's what makes "created/uploaded/tagged in one place, shows up
+  // everywhere" actually guaranteed instead of something each screen has to
+  // remember to wire up correctly on its own.
+  const addLesson=useCallback(async(chapterTitle,pathTitle,excludeId=null)=>{
+    const lesson=await getOrCreateLesson({lessons,chapterTitle,pathTitle,classLabel,sectionId:currentSection?.id||null,excludeId});
+    if(lesson)await loadLessons();
+    return lesson;
+  },[lessons,classLabel,currentSection,loadLessons]);
+
+  const renameChapterCtx=useCallback(async(chapter,title)=>{
+    await db.renameChapter(chapter.id,title);
+    await loadChapters();
+  },[loadChapters]);
+
+  // THE single delete confirmation + implementation, shared by Materials
+  // and Planner — see describeChapterDeletion above for why this always
+  // shows the full picture (materials + paths + questions + activities +
+  // assessments) no matter which screen the delete was started from.
+  const deleteChapterCtx=useCallback(async(chapter)=>{
+    const msg=await describeChapterDeletion(chapter,lessons);
+    if(!window.confirm(msg))return false;
+    await db.deleteChapter(chapter.id);
+    await Promise.all([loadChapters(),loadLessons(),loadMaterials()]);
+    return true;
+  },[lessons,loadChapters,loadLessons,loadMaterials]);
+
+  // Uploading a file can implicitly create a brand-new chapter (typed/
+  // detected chapter name that doesn't exist yet) via resolveChapterId, so
+  // this refreshes both chapters and materials — not materials alone.
+  const uploadMaterialCtx=useCallback(async(args)=>{
+    const res=await uploadOneMaterial({...args,classLabel});
+    if(res.data)await Promise.all([loadChapters(),loadMaterials()]);
+    return res;
+  },[classLabel,loadChapters,loadMaterials]);
+
+  const retagMaterialCtx=useCallback(async(args)=>{
+    const res=await retagMaterial({...args,classLabel});
+    await Promise.all([loadChapters(),loadMaterials()]);
+    return res;
+  },[classLabel,loadChapters,loadMaterials]);
+
+  const deleteMaterialCtx=useCallback(async(material)=>{
+    await db.deleteMaterial(material.id,material.storage_path);
+    await loadMaterials();
+  },[loadMaterials]);
+
+  const dataValue=useMemo(()=>({
+    chapters,lessons,materials,lessonsLoading,materialsLoading,classLabel,
+    addChapter,addLesson,
+    renameChapter:renameChapterCtx,deleteChapter:deleteChapterCtx,
+    refreshChapters:loadChapters,refreshLessons:loadLessons,refreshMaterials:loadMaterials,
+    uploadMaterial:uploadMaterialCtx,retagMaterial:retagMaterialCtx,deleteMaterial:deleteMaterialCtx,
+  }),[chapters,lessons,materials,lessonsLoading,materialsLoading,classLabel,addChapter,addLesson,renameChapterCtx,deleteChapterCtx,loadChapters,loadLessons,loadMaterials,uploadMaterialCtx,retagMaterialCtx,deleteMaterialCtx]);
+
   useEffect(()=>{if(session){loadLessons();loadHomework();}},[session,loadLessons,loadHomework]);
 
   // FIX — UI/nav overhaul: "AI च्याट" (chat) and "AI उपकरण" (question
@@ -4674,6 +4727,7 @@ export default function App() {
   if(!session)return<LoginScreen onLogin={setSession}/>;
 
   return(
+    <DataProvider value={dataValue}>
     <div data-theme={theme} style={{fontFamily:"'Inter','Noto Sans Devanagari',sans-serif",background:PAPER,minHeight:"100vh",color:INK,fontSize:17,transition:"background .2s ease, color .2s ease"}}>
       <style>{`
         *{box-sizing:border-box;}body{margin:0;-webkit-font-smoothing:antialiased;}
@@ -4891,13 +4945,13 @@ export default function App() {
 
       <div className="main-content">
         {visitedScreens.has("dashboard")&&<div style={{display:screen==="dashboard"?undefined:"none"}}>
-          <HomeScreen onOpenLesson={openLesson} onGoPlanner={goPlanner} onGoHomework={()=>goMore("homework")} onGoMaterials={()=>setScreen("materials")} onGoAITools={goAITools} onGoSettings={()=>setSettingsOpen(true)} section={currentSection} lessons={lessons} homework={homework} loading={lessonsLoading} chapters={chapters} materials={materials} teacherName={teacherName} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel}/>
+          <HomeScreen onOpenLesson={openLesson} onGoPlanner={goPlanner} onGoHomework={()=>goMore("homework")} onGoMaterials={()=>setScreen("materials")} onGoAITools={goAITools} onGoSettings={()=>setSettingsOpen(true)} section={currentSection} homework={homework} loading={lessonsLoading} teacherName={teacherName} classContext={classContext} classLabel={classLabel}/>
         </div>}
         {visitedScreens.has("planner")&&<div style={{display:screen==="planner"?undefined:"none"}}>
-          <Planner onOpenLesson={openLesson} section={currentSection} lessons={lessons} loading={lessonsLoading} onRefresh={loadLessons} chapters={chapters} onAddChapter={addChapter} onChaptersChanged={loadChapters} materials={materials} onMaterialsChanged={loadMaterials} classContext={classContext} classLabel={classLabel} editLessonId={editLessonId} onEditConsumed={()=>setEditLessonId(null)} prefillChapter={prefillChapter} onPrefillConsumed={()=>setPrefillChapter(null)}/>
+          <Planner onOpenLesson={openLesson} section={currentSection} loading={lessonsLoading} onRefresh={loadLessons} classContext={classContext} classLabel={classLabel} editLessonId={editLessonId} onEditConsumed={()=>setEditLessonId(null)} prefillChapter={prefillChapter} onPrefillConsumed={()=>setPrefillChapter(null)}/>
         </div>}
         {visitedScreens.has("materials")&&<div style={{display:screen==="materials"?undefined:"none"}}>
-          <Materials chapters={chapters} onAddChapter={addChapter} onChaptersChanged={loadChapters} lessons={lessons} onLessonsChanged={loadLessons} materials={materials} materialsLoading={materialsLoading} onMaterialsChanged={loadMaterials} classLabel={classLabel}/>
+          <Materials classLabel={classLabel}/>
         </div>}
         {visitedScreens.has("more")&&<div style={{display:screen==="more"?undefined:"none"}}>
           <MoreHub initialPanel={moreTab} onInitialPanelConsumed={()=>setMoreTab(null)}
@@ -4906,7 +4960,7 @@ export default function App() {
           />
         </div>}
         {visitedScreens.has("aitools")&&<div style={{display:screen==="aitools"?undefined:"none"}}>
-          <AITools lessons={lessons} chapters={chapters} onAddChapter={addChapter} onMaterialsChanged={loadMaterials} classContext={classContext} classLabel={classLabel} initialTab={aiToolsTab} onInitialTabConsumed={()=>setAiToolsTab(null)}/>
+          <AITools lessons={lessons} classContext={classContext} classLabel={classLabel} initialTab={aiToolsTab} onInitialTabConsumed={()=>setAiToolsTab(null)}/>
         </div>}
       </div>
 
@@ -4965,7 +5019,7 @@ export default function App() {
       </div>
 
       {activeLesson&&<LessonMode lesson={activeLesson} onClose={()=>{setActiveLesson(null);setActiveLessonAutoPrint(false);}} onEdit={editLessonFromViewer} autoPrint={activeLessonAutoPrint} classLabel={classLabel} classContext={classContext} teacherName={teacherName}/>}
-      {editingLessonPopup&&<LessonEditModal lesson={editingLessonPopup} chapters={chapters} onAddChapter={addChapter} classContext={classContext} classLabel={classLabel}
+      {editingLessonPopup&&<LessonEditModal lesson={editingLessonPopup} classContext={classContext} classLabel={classLabel}
         onClose={()=>setEditingLessonPopup(null)}
         onSaved={(updated,deleted)=>{
           loadLessons();
@@ -4974,5 +5028,6 @@ export default function App() {
         }}
       />}
     </div>
+    </DataProvider>
   );
 }

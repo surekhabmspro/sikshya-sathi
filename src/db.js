@@ -121,6 +121,27 @@ export const getOrCreateChapterId = async (title, classLabel = null) => {
   return data.id;
 };
 
+// NEW — rename/delete, THE single door for both. Previously Planner and
+// Materials each had their own copy of this (raw supabase calls straight in
+// the component, two slightly different implementations that could drift).
+// Every screen that lets a teacher rename or delete an अध्याय now calls these
+// two functions — nothing else touches the chapters table directly.
+export const renameChapter = async (id, title) => {
+  const clean = normalizeChapterTitle(title);
+  const { data, error } = await supabase.from("chapters").update({ title: clean }).eq("id", id).select().single();
+  return { data, error };
+};
+
+// Deleting a chapter never deletes what's tagged to it — lessons/questions/
+// activities/assessments all have ON DELETE SET NULL on chapter_id at the
+// database level, so those un-tag themselves automatically. materials does
+// not have that constraint, so it's cleared explicitly here first.
+export const deleteChapter = async (id) => {
+  await supabase.from("materials").update({ chapter_id: null }).eq("chapter_id", id);
+  const { error } = await supabase.from("chapters").delete().eq("id", id);
+  return { error };
+};
+
 // NEW — the textbook-token-savings cache: once a chapter's plain text has
 // been pulled out of the textbook PDF, it's kept here (keyed by chapter_id,
 // so no title-matching fuzziness) and reused on every later AI call for
