@@ -1254,9 +1254,6 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
 
       <div className="no-print lesson-shell">
         <div className="lesson-rail">
-          <div className="lesson-tabs">
-            {tabs.map((t)=>{const Icon=t.icon;const active=tab===t.id;return<button key={t.id} onClick={()=>setTab(t.id)} className={`lesson-tab-btn${active?" active":""}`} style={{color:active?ACCENT:INK_SOFT,borderBottomColor:active?ACCENT:"transparent"}}><Icon size={15}/>{t.label}</button>;})}
-          </div>
           {(objectives.length>0||vocabulary.length>0)&&(<>
             <div className="lesson-obj-mobile" style={{padding:"10px 16px 12px",borderBottom:`1px solid ${BORDER}`}}>
               {/* NEW — collapsible: a teacher who already knows today's
@@ -1284,13 +1281,16 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
               </>)}
             </div>
             {/* NEW — desktop: instead of objectives permanently taking up
-                rail space, a slim trigger opens them in a popup. Keeps the
-                rail down to just the tab list, and the objectives are one
-                tap away whenever actually needed. */}
-            <button className="lesson-obj-trigger ss-btn" onClick={()=>setObjPopup(true)} style={{alignItems:"center",gap:8,margin:"4px 10px 10px",padding:"11px 13px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE_2,cursor:"pointer",color:INK,fontWeight:700,fontSize:15}}>
+                rail space, a slim trigger opens them in a popup. Sits
+                above the tab list now (see it first, then teach) rather
+                than below, where it read like an afterthought. */}
+            <button className="lesson-obj-trigger ss-btn" onClick={()=>setObjPopup(true)} style={{alignItems:"center",gap:8,margin:"10px 10px 4px",padding:"11px 13px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE_2,cursor:"pointer",color:INK,fontWeight:700,fontSize:15}}>
               <ClipboardList size={15} color={ACCENT}/>आजको उद्देश्य हेर्नुहोस्
             </button>
           </>)}
+          <div className="lesson-tabs">
+            {tabs.map((t)=>{const Icon=t.icon;const active=tab===t.id;return<button key={t.id} onClick={()=>setTab(t.id)} className={`lesson-tab-btn${active?" active":""}`} style={{color:active?ACCENT:INK_SOFT,borderBottomColor:active?ACCENT:"transparent"}}><Icon size={15}/>{t.label}</button>;})}
+          </div>
         </div>
         <div className="lesson-content">
         {tab==="sequence"&&(<div><SectionLabel icon={ClipboardList}>पढाउने क्रम</SectionLabel>{sequence.length===0?<div style={{color:INK_SOFT}}>पढाउने क्रम थपिएको छैन।</div>:(<ol style={{margin:0,paddingLeft:0,listStyle:"none",display:"flex",flexDirection:"column",gap:14}}>{sequence.map((s,i)=>(<li key={i} style={{display:"flex",gap:14,padding:"15px 16px",background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12}}><div style={{width:32,height:32,borderRadius:"50%",background:`linear-gradient(160deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,fontSize:17,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:SHADOW.accent}}>{i+1}</div><div style={{fontSize:20,color:INK,lineHeight:1.55,paddingTop:3}}>{s}</div></li>))}</ol>)}{lesson.notes&&<div style={{marginTop:14,background:WARN_BG,borderRadius:10,padding:12}}><div style={{fontSize:15,fontWeight:700,color:WARN,marginBottom:3}}>नोट</div><div style={{fontSize:16.5,color:INK}}>{lesson.notes}</div></div>}</div>)}
@@ -3089,149 +3089,6 @@ function AIAssistant({ lessons, classContext, classLabel }) {
   );
 }
 
-function QuestionBank({ classContext, classLabel }) {
-  const [questions,setQuestions]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const [showForm,setShowForm]=useState(false);
-  const [generating,setGenerating]=useState(false);
-  const [selected,setSelected]=useState([]);
-  const [showSet,setShowSet]=useState(false);
-  const [saving,setSaving]=useState(false);
-  const [query,setQuery]=useState("");
-  const [diffFilter,setDiffFilter]=useState("सबै");
-  const [form,setForm]=useState({text:"",type:"छोटो उत्तर",difficulty:"सजिलो",bloom:"सम्झना",chapter_title:"",options:"",answer:""});
-  const [error,setError]=useState("");
-  const [matchedCount,setMatchedCount]=useState(0);
-  const TYPES=["छोटो उत्तर","बहुविकल्पीय","सत्य/असत्य","खाली ठाउँ","विश्लेषणात्मक","परिदृश्य आधारित"];
-  const DIFFS=["सबै","सजिलो","मध्यम","कठिन"];
-  // FIX — was db.getQuestions() with no argument at all: every question
-  // from every class the teacher has ever taught came back mixed
-  // together, with no way to tell which class a question belonged to.
-  const load=useCallback(async()=>{setLoading(true);const{data}=await db.getQuestions(classLabel);setQuestions(data||[]);setLoading(false);},[classLabel]);
-  useEffect(()=>{load();},[load]);
-
-  const autoGenerate=async()=>{
-    if(!form.chapter_title.trim()){setError("अध्यायको नाम लेख्नुहोस्।");return;}
-    setGenerating(true);setError("");
-    try{
-      const ctx=await getMaterialContext(form.chapter_title,classLabel);
-      setMatchedCount(ctx.matchedCount||0);
-      const results=await gemini.generateQuestions(form.chapter_title,ctx,classContext);
-      if(results?.length){
-        // FIX — resolve the real chapter_id once, before the loop, and save
-        // it on every generated question. Previously only chapter_title
-        // (free text) was saved, so these never actually showed up as
-        // "linked" to the chapter anywhere else in the app. class_label is
-        // now saved too (see getQuestions FIX in db.js) so these questions
-        // stay scoped to the class they were generated for.
-        const chapter_id=await resolveChapterId(form.chapter_title,classLabel);
-        for(const q of results)await db.upsertQuestion({text:q.text,type:q.type||"छोटो उत्तर",difficulty:q.difficulty||"सजिलो",bloom_level:q.bloom||"सम्झना",chapter_id,options:q.options||[],correct_option:q.correct_option??null,class_label:classLabel});
-        load();setShowForm(false);
-      }else setError("प्रश्न बनाउन सकिएन।");
-    }catch(e){setError("AI त्रुटि: "+e.message);}
-    setGenerating(false);
-  };
-
-  const save=async()=>{
-    if(!form.text.trim()){setError("प्रश्न लेख्नुहोस्।");return;}
-    setSaving(true);
-    const chapter_id=await resolveChapterId(form.chapter_title,classLabel);
-    await db.upsertQuestion({text:form.text,type:form.type,difficulty:form.difficulty,bloom_level:form.bloom,chapter_id,options:form.options?form.options.split("\n").filter(Boolean):[],correct_option:form.answer?parseInt(form.answer)-1:null,class_label:classLabel});
-    setSaving(false);setShowForm(false);setForm({text:"",type:"छोटो उत्तर",difficulty:"सजिलो",bloom:"सम्झना",chapter_title:"",options:"",answer:""});load();
-  };
-
-  const deleteQ=async(id,e)=>{e.stopPropagation();if(!confirm("प्रश्न मेटाउने?"))return;await db.deleteQuestion(id);load();};
-  const toggle=(id)=>setSelected((prev)=>prev.includes(id)?prev.filter((x)=>x!==id):[...prev,id]);
-  const filtered=useMemo(()=>questions.filter((q)=>(diffFilter==="सबै"||q.difficulty===diffFilter)&&(!query.trim()||q.text.toLowerCase().includes(query.toLowerCase()))),[questions,query,diffFilter]);
-  const selectedQs=questions.filter((q)=>selected.includes(q.id));
-
-  return(<>
-    <div className={`${showSet?"no-print":""} ss-page`} style={{padding:"20px 20px 150px",maxWidth:1040,margin:"0 auto"}}>
-      <PageHeader icon={HelpCircle} title="प्रश्न बैंक" color={VIOLET} action={
-        <Button size="sm" icon={Plus} onClick={()=>setShowForm(!showForm)} style={{background:`linear-gradient(160deg, ${VIOLET} 0%, color-mix(in srgb, ${VIOLET} 72%, black) 100%)`}}>नयाँ</Button>
-      }/>
-      {showForm&&(
-        <Card style={{marginBottom:14}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-            <div style={{fontWeight:700,fontSize:16.5}}>प्रश्न थप्नुहोस्</div>
-            <AIButton label={generating?"बनाउँदै...":"AI बाट प्रश्न बनाउनुहोस्"} onClick={autoGenerate} loading={generating}/>
-          </div>
-          {error&&<ErrorMsg msg={error}/>}
-          <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title}/>
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} placeholder="— अध्याय छान्नुहोस् (AI का लागि अनिवार्य) —"/>
-            <MaterialAttach chapterTitle={form.chapter_title}/>
-            <textarea placeholder="प्रश्न (म्यानुअल)" value={form.text} onChange={(e)=>setForm({...form,text:e.target.value})} rows={3} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
-            <div style={{display:"flex",gap:8}}>
-              <select value={form.type} onChange={(e)=>setForm({...form,type:e.target.value})} className="ss-field" style={{flex:1,borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}>{TYPES.map((t)=><option key={t}>{t}</option>)}</select>
-              <select value={form.difficulty} onChange={(e)=>setForm({...form,difficulty:e.target.value})} className="ss-field" style={{flex:1,borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}>{"सजिलो,मध्यम,कठिन".split(",").map((d)=><option key={d}>{d}</option>)}</select>
-            </div>
-            <div style={{display:"flex",gap:8}}>
-              <button onClick={()=>setShowForm(false)} className="ss-btn" style={{flex:1,padding:"10px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer",boxShadow:SHADOW.sm}}>रद्द</button>
-              <button className="ss-btn" onClick={save} disabled={saving} style={{flex:1,padding:"10px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}>{saving?"...":"सुरक्षित"}</button>
-            </div>
-          </div>
-        </Card>
-      )}
-      <div style={{display:"flex",alignItems:"center",gap:8,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"10px 14px",marginBottom:10}}>
-        <Search size={16} color={INK_SOFT}/>
-        <input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="प्रश्न खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:16.5,flex:1,minWidth:0,background:"transparent",color:INK,caretColor:ACCENT,fontFamily:"'Hind','Baloo 2',sans-serif"}}/>
-      </div>
-      <div style={{display:"flex",gap:7,overflowX:"auto",marginBottom:14}}>
-        {DIFFS.map((d)=><button key={d} onClick={()=>setDiffFilter(d)} style={{padding:"6px 12px",borderRadius:999,background:diffFilter===d?ACCENT:SURFACE,color:diffFilter===d?"#fff":INK,fontWeight:600,fontSize:15.5,whiteSpace:"nowrap",cursor:"pointer",border:"1px solid "+(diffFilter===d?ACCENT:BORDER)}}>{d}</button>)}
-      </div>
-      {loading?<Spinner/>:filtered.length===0?<EmptyState icon={HelpCircle} text="कुनै प्रश्न छैन।"/>:(
-        <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          {filtered.map((q)=>{const isSel=selected.includes(q.id);const diffColor=q.difficulty==="सजिलो"?TEAL:q.difficulty==="कठिन"?ROSE:MARIGOLD_DARK;return(
-            <Card key={q.id} onClick={()=>toggle(q.id)} accentColor={diffColor} style={{display:"flex",gap:10,paddingTop:24,position:"relative",overflow:"visible"}}>
-              <PinBadge color={diffColor}/>
-              <div style={{marginTop:2,flexShrink:0,color:isSel?ACCENT:INK_SOFT}}>{isSel?<CheckSquare size={18}/>:<Square size={18}/>}</div>
-              <div style={{flex:1}}>
-                <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:5}}>
-                  <span style={{fontSize:14,background:ACCENT_LIGHT,color:ACCENT,padding:"2px 7px",borderRadius:5,fontWeight:700}}>{q.type}</span>
-                  <span style={{fontSize:14,background:WARN_BG,color:MARIGOLD_DARK,padding:"2px 7px",borderRadius:5,fontWeight:600}}>{q.difficulty}</span>
-                  {/* FIX — this read q.chapter_title, a field that has
-                      never existed on the returned row (the join gives
-                      q.chapters.title) — so the chapter tag silently never
-                      rendered on any question card, even for properly
-                      chapter-linked questions. */}
-                  {q.chapters?.title&&<span style={{fontSize:14,color:INK_SOFT,fontWeight:600}}>{q.chapters.title}</span>}
-                </div>
-                <div style={{fontSize:16.5,color:INK,lineHeight:1.5}}>{q.text}</div>
-                {q.options?.length>0&&<div style={{marginTop:6}}>{q.options.map((o,i)=><div key={i} style={{fontSize:16,color:i===q.correct_option?ACCENT:INK_SOFT,fontWeight:i===q.correct_option?700:400}}>{i+1}) {o}</div>)}</div>}
-              </div>
-              <button className="ss-icon-btn" onClick={(e)=>deleteQ(q.id,e)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,flexShrink:0}}><Trash2 size={14}/></button>
-            </Card>
-          );})}
-        </div>
-      )}
-      {selected.length>0&&(
-        <div className="no-print" style={{position:"fixed",bottom:64,left:0,right:0,display:"flex",justifyContent:"center",padding:"0 16px",zIndex:20}}>
-          <button className="ss-btn" onClick={()=>setShowSet(true)} style={{background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:999,padding:"12px 20px",fontWeight:700,fontSize:16.5,display:"flex",alignItems:"center",gap:8,cursor:"pointer",boxShadow:SHADOW.accent}}><Shuffle size={16}/>{selected.length} प्रश्न — सेट बनाउनुहोस्</button>
-        </div>
-      )}
-    </div>
-    {showSet&&(
-      <div className="print-area" style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.55)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)",zIndex:60,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={()=>setShowSet(false)}>
-        <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:"18px 18px 0 0",padding:22,maxWidth:600,width:"100%",maxHeight:"80vh",overflowY:"auto"}}>
-          <div className="no-print" style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
-            <div style={{fontSize:18,fontWeight:700}}>प्रश्न सेट ({selected.length})</div>
-            <button className="ss-icon-btn" onClick={()=>setShowSet(false)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><X size={20}/></button>
-          </div>
-          <ol style={{paddingLeft:18,margin:0,display:"flex",flexDirection:"column",gap:10}}>
-            {selectedQs.map((q)=><li key={q.id} style={{fontSize:16.5,color:INK,lineHeight:1.5}}>{q.text}</li>)}
-          </ol>
-          <div className="no-print" style={{display:"flex",gap:8,marginTop:18}}>
-            <button className="ss-btn" onClick={async()=>{await db.upsertQuestionSet({title:`सेट — ${new Date().toLocaleDateString("ne-NP")}`,question_ids:selected});setSelected([]);setShowSet(false);}} style={{flex:1,background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:12,padding:"12px",fontWeight:700,fontSize:16.5,cursor:"pointer",boxShadow:SHADOW.accent}}>💾 सुरक्षित</button>
-            <button className="ss-btn" onClick={()=>window.print()} style={{flex:1,background:`linear-gradient(180deg, #DDB054 0%, ${MARIGOLD} 100%)`,color:"#2A1E07",border:"none",borderRadius:12,padding:"12px",fontWeight:700,fontSize:16.5,display:"flex",alignItems:"center",justifyContent:"center",gap:6,cursor:"pointer",boxShadow:SHADOW.marigold}}><Printer size={16}/>प्रिन्ट</button>
-          </div>
-        </div>
-      </div>
-    )}
-    </>
-  );
-}
-
 function AssessmentBuilder({ classContext, classLabel }) {
   const [assessments,setAssessments]=useState([]);
   const [loading,setLoading]=useState(true);
@@ -3345,168 +3202,6 @@ function AssessmentBuilder({ classContext, classLabel }) {
   );
 }
 
-function ActivitiesLibrary({ classContext, classLabel }) {
-  const [activities,setActivities]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const [showForm,setShowForm]=useState(false);
-  const [saving,setSaving]=useState(false);
-  const [generating,setGenerating]=useState(false);
-  const [typeFilter,setTypeFilter]=useState("सबै");
-  const [printing,setPrinting]=useState(null);
-  const [form,setForm]=useState({title:"",type:"game",competency:"",duration:"",description:"",chapter_title:""});
-  const [error,setError]=useState("");
-  const [matchedCount,setMatchedCount]=useState(0);
-  const TYPES=[{id:"game",label:"खेल",icon:Gamepad2},{id:"roleplay",label:"भूमिका अभिनय",icon:Users},{id:"project",label:"प्रोजेक्ट",icon:FolderKanban},{id:"map",label:"नक्सा",icon:MapIcon},{id:"debate",label:"बहस",icon:MessageSquare},{id:"presentation",label:"प्रस्तुति",icon:Presentation}];
-  // FIX — was db.getActivities() with no argument: every क्रियाकलाप from
-  // every class showed up together, same class-leak as Question Bank.
-  const load=useCallback(async()=>{setLoading(true);const{data}=await db.getActivities(classLabel);setActivities(data||[]);setLoading(false);},[classLabel]);
-  useEffect(()=>{load();},[load]);
-
-  const autoGenerate=async()=>{
-    if(!form.chapter_title.trim()){setError("अध्यायको नाम लेख्नुहोस्।");return;}
-    setGenerating(true);setError("");
-    try{
-      const ctx=await getMaterialContext(form.chapter_title,classLabel);
-      setMatchedCount(ctx.matchedCount||0);
-      const results=await gemini.generateActivities(form.chapter_title,ctx,classContext);
-      if(results?.length){
-        const chapter_id=await resolveChapterId(form.chapter_title,classLabel);
-        for(const a of results)await db.upsertActivity({title:a.title,type:a.type||"game",duration:a.duration,competency:a.competency,description:a.description,chapter_id,class_label:classLabel});
-        load();setShowForm(false);
-      }
-      else setError("क्रियाकलाप बनाउन सकिएन।");
-    }catch(e){setError("AI त्रुटि: "+e.message);}
-    setGenerating(false);
-  };
-
-  const save=async()=>{
-    if(!form.title.trim())return;setSaving(true);
-    const chapter_id=await resolveChapterId(form.chapter_title,classLabel);
-    const{chapter_title,...rest}=form;
-    await db.upsertActivity({...rest,chapter_id,class_label:classLabel});
-    setSaving(false);setShowForm(false);setForm({title:"",type:"game",competency:"",duration:"",description:"",chapter_title:""});load();
-  };
-  const filtered=typeFilter==="सबै"?activities:activities.filter((a)=>a.type===typeFilter);
-
-  return(<>
-    <div className={`${printing?"no-print":""} ss-page`} style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
-      <PageHeader icon={Gamepad2} title="क्रियाकलाप" color={TEAL} action={
-        <Button size="sm" icon={Plus} onClick={()=>setShowForm(!showForm)} style={{background:`linear-gradient(160deg, ${TEAL} 0%, color-mix(in srgb, ${TEAL} 72%, black) 100%)`}}>नयाँ</Button>
-      }/>
-      {showForm&&(
-        <Card style={{marginBottom:14}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-            <div style={{fontWeight:700,fontSize:16.5}}>नयाँ क्रियाकलाप</div>
-            <AIButton label={generating?"बनाउँदै...":"AI बाट बनाउनुहोस्"} onClick={autoGenerate} loading={generating}/>
-          </div>
-          {error&&<ErrorMsg msg={error}/>}
-          <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title}/>
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} placeholder="— अध्याय छान्नुहोस् (AI का लागि अनिवार्य) —"/>
-            <MaterialAttach chapterTitle={form.chapter_title}/>
-            <input placeholder="क्रियाकलापको नाम" value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
-            <input placeholder="क्षमता" value={form.competency} onChange={(e)=>setForm({...form,competency:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
-            <input placeholder="समय" value={form.duration} onChange={(e)=>setForm({...form,duration:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
-            <textarea placeholder="विवरण" value={form.description} onChange={(e)=>setForm({...form,description:e.target.value})} rows={3} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
-              {TYPES.map((t,i)=>{const Icon=t.icon;const c=PALETTE[i%PALETTE.length];const active=form.type===t.id;return(
-                <button key={t.id} onClick={()=>setForm({...form,type:t.id})} style={{display:"flex",alignItems:"center",gap:7,padding:"7px 12px 7px 7px",borderRadius:11,border:`1.5px solid ${active?c:`color-mix(in srgb, ${c} 25%, ${BORDER})`}`,background:active?`color-mix(in srgb, ${c} 14%, ${SURFACE})`:SURFACE,color:active?c:INK,fontWeight:600,fontSize:15.5,cursor:"pointer",boxShadow:active?`0 4px 10px color-mix(in srgb, ${c} 30%, transparent)`:"none"}}>
-                  <div style={{width:24,height:24,borderRadius:7,background:`linear-gradient(160deg, ${c} 0%, color-mix(in srgb, ${c} 70%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={12} color="#fff"/></div>
-                  {t.label}
-                </button>
-              );})}
-            </div>
-            <div style={{display:"flex",gap:8}}>
-              <button onClick={()=>setShowForm(false)} className="ss-btn" style={{flex:1,padding:"10px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer",boxShadow:SHADOW.sm}}>रद्द</button>
-              <button className="ss-btn" onClick={save} disabled={saving} style={{flex:1,padding:"10px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}>{saving?"...":"सुरक्षित"}</button>
-            </div>
-          </div>
-        </Card>
-      )}
-      <div style={{display:"flex",gap:7,overflowX:"auto",marginBottom:14}}>
-        <button onClick={()=>setTypeFilter("सबै")} style={{padding:"6px 12px",borderRadius:999,background:typeFilter==="सबै"?ACCENT:SURFACE,color:typeFilter==="सबै"?"#fff":INK,fontWeight:600,fontSize:15.5,whiteSpace:"nowrap",cursor:"pointer",border:"1px solid "+(typeFilter==="सबै"?ACCENT:BORDER)}}>सबै</button>
-        {TYPES.map((t,i)=>{const Icon=t.icon;const c=PALETTE[i%PALETTE.length];return<button key={t.id} onClick={()=>setTypeFilter(t.id)} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:999,background:typeFilter===t.id?c:SURFACE,color:typeFilter===t.id?"#fff":INK,fontWeight:600,fontSize:15.5,whiteSpace:"nowrap",cursor:"pointer",border:"1px solid "+(typeFilter===t.id?c:BORDER)}}><Icon size={13}/>{t.label}</button>;})}
-      </div>
-      {loading?<Spinner/>:filtered.length===0?<EmptyState icon={Gamepad2} text="कुनै क्रियाकलाप छैन।"/>:(
-        <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {filtered.map((a)=>{const typeIdx=TYPES.findIndex((t)=>t.id===a.type);const typeInfo=TYPES[typeIdx]||TYPES[0];const Icon=typeInfo.icon;const typeColor=PALETTE[Math.max(typeIdx,0)%PALETTE.length];return(
-            <Card key={a.id} accentColor={typeColor} style={{paddingTop:24,position:"relative",overflow:"visible"}}>
-              <PinBadge color={typeColor}/>
-              <div style={{display:"flex",gap:12}}>
-                <div style={{width:40,height:40,borderRadius:10,background:`linear-gradient(160deg, ${typeColor} 0%, color-mix(in srgb, ${typeColor} 70%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 10px color-mix(in srgb, ${typeColor} 40%, transparent)`}}><Icon size={19} color="#fff"/></div>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{display:"flex",justifyContent:"space-between",gap:8}}><div style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:700,fontSize:16.5,color:INK}}>{a.title}</div>{a.duration&&<span style={{fontSize:15,color:INK_SOFT,flexShrink:0}}>{a.duration}</span>}</div>
-                  {a.description&&<div style={{fontSize:16,color:INK_SOFT,lineHeight:1.5,marginTop:4}}>{a.description}</div>}
-                  <div style={{display:"flex",gap:5,marginTop:6,flexWrap:"wrap",alignItems:"center"}}>
-                    {/* FIX — same dead-field bug as Question Bank: a.chapter_title
-                        never existed on the row; the real value is a.chapters.title. */}
-                    {a.chapters?.title&&<span style={{fontSize:14,background:WARN_BG,color:MARIGOLD_DARK,padding:"2px 7px",borderRadius:5,fontWeight:600}}>{a.chapters.title}</span>}
-                    {a.competency&&<span style={{fontSize:14,background:ACCENT_LIGHT,color:ACCENT,padding:"2px 7px",borderRadius:5,fontWeight:600}}>{a.competency}</span>}
-                    <button className="ss-icon-btn" onClick={(e)=>{e.stopPropagation();setPrinting(a);}} style={{marginLeft:"auto",background:"none",border:`1px solid ${BORDER}`,borderRadius:8,padding:"4px 8px",display:"flex",alignItems:"center",gap:4,color:INK_SOFT,fontSize:13.5,fontWeight:600,cursor:"pointer"}}><Printer size={12}/>प्रिन्ट</button>
-                  </div>
-                </div>
-              </div>
-            </Card>
-          );})}
-        </div>
-      )}
-    </div>
-    {printing&&(
-      <PrintableSheet title={printing.title} subtitle={TYPES.find((t)=>t.id===printing.type)?.label} chip={printing.chapters?.title} chipColor={PALETTE[Math.max(TYPES.findIndex((t)=>t.id===printing.type),0)%PALETTE.length]} onClose={()=>setPrinting(null)}>
-        {printing.competency&&<div style={{marginBottom:10,fontSize:16,color:INK_SOFT}}><strong style={{color:INK}}>क्षमता:</strong> {printing.competency}</div>}
-        {printing.duration&&<div style={{marginBottom:14,fontSize:16,color:INK_SOFT}}><strong style={{color:INK}}>समय:</strong> {printing.duration}</div>}
-        <div style={{fontSize:17,color:INK,lineHeight:1.7,whiteSpace:"pre-wrap"}}>{printing.description||"विवरण थपिएको छैन।"}</div>
-      </PrintableSheet>
-    )}
-    </>
-  );
-}
-
-// NEW — lifted to module scope (was local to ResourceCreator) so both the
-// generator and the Saved Resources library can share the same icon/color
-// per template type instead of duplicating the list.
-const RESOURCE_TEMPLATES=[
-  {id:"worksheet",title:"कार्यपत्र",icon:FileText,color:ACCENT,prompt:(l,classContext)=>`${classContext} "${l?.title||""}" पाठका लागि अभ्यास कार्यपत्र नेपालीमा बनाउनुहोस्। उद्देश्य: ${(l?.objectives||[]).join(", ")}`},
-  {id:"revision",title:"पुनरावलोकन",icon:ClipboardList,color:TEAL,prompt:(l,classContext)=>`${classContext} "${l?.title||""}" पाठको पुनरावलोकन पाना बनाउनुहोस्। मुख्य बुँदा, शब्दावली र प्रश्नहरू।`},
-  {id:"flashcard",title:"फ्ल्यासकार्ड",icon:Copy,color:VIOLET,prompt:(l)=>`"${l?.title||""}" पाठका शब्दावलीहरू: ${(l?.vocabulary||[]).join(", ")} — फ्ल्यासकार्ड बनाउनुहोस्।`},
-  {id:"mindmap",title:"अवधारणा नक्सा",icon:Brain,color:BLUE,prompt:(l)=>`"${l?.title||""}" पाठको अवधारणा नक्सा (text format) बनाउनुहोस्।`},
-  {id:"vocab",title:"शब्दावली सूची",icon:Tag,color:ROSE,prompt:(l)=>`"${l?.title||""}" पाठका शब्दावलीहरू अर्थ र वाक्य प्रयोगसहित: ${(l?.vocabulary||[]).join(", ")}`},
-  {id:"practice",title:"अभ्यास प्रश्न",icon:PenSquare,color:MARIGOLD_DARK,prompt:(l)=>`"${l?.title||""}" पाठका लागि १५ वटा विभिन्न प्रकारका अभ्यास प्रश्नहरू बनाउनुहोस्।`},
-];
-const resourceTemplateMeta=(id)=>RESOURCE_TEMPLATES.find((t)=>t.id===id)||{title:"स्रोत",icon:Wand2,color:MARIGOLD_DARK};
-
-// NEW — groups the four AI-generation screens (Questions, Activities,
-// Assessment, Resources) behind one nav item with internal tabs, instead of
-// four separate items cluttering the "थप" menu. Same screens underneath,
-// just fewer places to hunt for them.
-// NEW — गृहकार्य, डायरी, खोज, पात्रो, and सेटिङ used to each be a full
-// separate top-level screen. On desktop especially, most of them are
-// short lists or forms — as their own screen, each one left most of the
-// window empty. Same fix as AI Tools already uses below: one screen, an
-// internal tab bar, real content filling the space either way instead of
-// five mostly-empty pages.
-// NEW — compact preview for a screen that's genuinely too small to need a
-// whole page (Homework, Diary). Shows a one-line status and a single
-// button that opens the real thing as a popup — used instead of forcing
-// every feature into its own full route regardless of how much content
-// it actually has.
-function SummaryPanel({ icon:Icon, color, title, subtitle, onOpen }) {
-  return(
-    <Card onClick={onOpen} accentColor={color} style={{cursor:"pointer",display:"flex",alignItems:"center",gap:12,paddingTop:22,position:"relative",overflow:"visible"}}>
-      <PinBadge color={color}/>
-      <div style={{width:42,height:42,borderRadius:12,background:`linear-gradient(160deg, ${color} 0%, color-mix(in srgb, ${color} 70%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 10px color-mix(in srgb, ${color} 40%, transparent)`}}><Icon size={20} color="#fff"/></div>
-      <div style={{flex:1,minWidth:0}}>
-        <div style={{fontSize:17,fontWeight:700,color:INK}}>{title}</div>
-        <div style={{fontSize:14.5,color:INK_SOFT,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{subtitle}</div>
-      </div>
-      <ChevronRight size={18} color={INK_SOFT} style={{flexShrink:0}}/>
-    </Card>
-  );
-}
-
-// NEW — generic popup wrapper so any full manager (Homework, Diary) can
-// open on top of wherever the teacher already is, same pattern as the
-// Settings popup, instead of being its own dedicated screen.
 function ManagerPopup({ title, onClose, children }) {
   return(
     <div className="no-print" onClick={onClose} style={{position:"fixed",inset:0,zIndex:88,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",padding:16}}>
@@ -3523,9 +3218,9 @@ function ManagerPopup({ title, onClose, children }) {
 function MoreHub({
   initialPanel,onInitialPanelConsumed,
   section,homework,hwLoading,onRefreshHomework,
-  lessons,classLabel,active,
+  lessons,classLabel,active,classContext,
 }) {
-  const [openPanel,setOpenPanel]=useState(null); // null | "homework" | "journal"
+  const [openPanel,setOpenPanel]=useState(null); // null | "homework" | "journal" | "assessment"
   useEffect(()=>{
     if(!initialPanel)return;
     setOpenPanel(initialPanel);
@@ -3539,6 +3234,14 @@ function MoreHub({
   // used to include entries from every class, not just the current one.
   useEffect(()=>{db.getJournalEntries(classLabel).then(({data})=>setJournalCount((data||[]).length));},[openPanel,classLabel]);
   const pendingHomework=homework.filter((h)=>h.checked_count<h.total_students).length;
+  // NEW — Assessment Builder used to be its own tab inside AI Sahayak,
+  // duplicating Yojana's per-lesson tabs in everything but this: it's
+  // actually the only place a rubric ever gets created (Yojana's rubric
+  // tab just displays it). That makes it record-keeping with a due date,
+  // same shape as गृहकार्य/डायरी below, not per-lesson AI generation —
+  // so it moved here instead of getting deleted.
+  const [assessmentCount,setAssessmentCount]=useState(null);
+  useEffect(()=>{db.getAssessments(classLabel).then(({data})=>setAssessmentCount((data||[]).length));},[openPanel,classLabel]);
 
   return(
     <div className="ss-page" style={{padding:"20px 20px 130px",margin:"0 auto",width:"100%"}}>
@@ -3548,33 +3251,45 @@ function MoreHub({
           subtitle={hwLoading?"लोड हुँदै...":homework.length===0?"कुनै गृहकार्य छैन":`${homework.length} जम्मा · ${pendingHomework} जाँच बाँकी`}/>
         <SummaryPanel icon={Heart} color={ROSE} title="डायरी" onOpen={()=>setOpenPanel("journal")}
           subtitle={journalCount===null?"लोड हुँदै...":journalCount===0?"कुनै प्रविष्टि छैन":`${journalCount} प्रविष्टि`}/>
+        <SummaryPanel icon={NotebookPen} color={BLUE} title="मूल्याङ्कन" onOpen={()=>setOpenPanel("assessment")}
+          subtitle={assessmentCount===null?"लोड हुँदै...":assessmentCount===0?"कुनै मूल्याङ्कन छैन":`${assessmentCount} जम्मा`}/>
       </div>
       <CalendarView classLabel={classLabel} active={active}/>
       {openPanel==="homework"&&<ManagerPopup title="गृहकार्य" onClose={()=>setOpenPanel(null)}><HomeworkManager section={section} loading={hwLoading} homework={homework} onRefresh={onRefreshHomework} classLabel={classLabel}/></ManagerPopup>}
       {openPanel==="journal"&&<ManagerPopup title="डायरी" onClose={()=>setOpenPanel(null)}><TeachingJournal lessons={lessons} classLabel={classLabel}/></ManagerPopup>}
+      {openPanel==="assessment"&&<ManagerPopup title="मूल्याङ्कन" onClose={()=>setOpenPanel(null)}><AssessmentBuilder classContext={classContext} classLabel={classLabel}/></ManagerPopup>}
     </div>
   );
 }
 
 function AITools({ lessons, classContext, classLabel, initialTab, onInitialTabConsumed }) {
   // FIX — "AI च्याट" used to be its own top-level screen, separate from
-  // every other AI feature (question bank/activities/assessment/
-  // resources), even though it draws on the exact same lesson/material
-  // context. It's the first tab here now, so there's one AI screen with
-  // one obvious place to look, not two screens that both start with "AI".
+  // every other AI feature (resources/saved), even though it draws on
+  // the exact same lesson/material context. It's the first tab here now,
+  // so there's one AI screen with one obvious place to look, not two
+  // screens that both start with "AI".
   const [tab,setTab]=useState("chat");
   // NEW — arriving here from a Search result: jump straight to the
-  // relevant sub-tab instead of always opening on Question Bank.
+  // relevant sub-tab instead of always opening on chat.
   useEffect(()=>{
     if(!initialTab)return;
     setTab(initialTab);
     onInitialTabConsumed?.();
   },[initialTab,onInitialTabConsumed]);
+  // FIX — Question Bank, Activities Library, and Assessment used to sit
+  // here as their own tabs, but they duplicated what Yojana's per-lesson
+  // प्रश्नहरू/क्रियाकलाप/मूल्याङ्कन tabs already do for that lesson, just
+  // against a separate reusable table instead of the lesson itself — two
+  // places to generate the same kind of content with no clear reason to
+  // pick one over the other. Question Bank and Activities are dropped
+  // entirely (Yojana's per-lesson tabs cover that job now). Assessment
+  // wasn't a real duplicate — it's the only place a rubric ever gets
+  // created, Yojana's rubric tab just displays it — so instead of deleting
+  // it, it moved to थप (More), next to गृहकार्य and डायरी, since it's
+  // record-keeping with due dates that feed the calendar, not
+  // per-lesson AI content generation like the tabs left here.
   const TABS=[
     {id:"chat",label:"च्याट",icon:Bot,color:ACCENT,bg:ACCENT_LIGHT},
-    {id:"questions",label:"प्रश्न बैंक",icon:HelpCircle,color:VIOLET,bg:VIOLET_LIGHT},
-    {id:"activities",label:"क्रियाकलाप",icon:Gamepad2,color:TEAL,bg:TEAL_LIGHT},
-    {id:"assessment",label:"मूल्याङ्कन",icon:NotebookPen,color:BLUE,bg:BLUE_LIGHT},
     {id:"resources",label:"स्रोत",icon:Wand2,color:MARIGOLD_DARK,bg:WARN_BG},
     {id:"saved",label:"सुरक्षित",icon:BookMarked,color:ROSE,bg:ROSE_LIGHT},
   ];
@@ -3602,9 +3317,6 @@ function AITools({ lessons, classContext, classLabel, initialTab, onInitialTabCo
         .ai-tools-tabs{-webkit-mask-image:linear-gradient(to right, transparent 0, black 14px, black calc(100% - 14px), transparent 100%);mask-image:linear-gradient(to right, transparent 0, black 14px, black calc(100% - 14px), transparent 100%);}
       `}</style>
       {tab==="chat"&&<AIAssistant lessons={lessons} classContext={classContext} classLabel={classLabel}/>}
-      {tab==="questions"&&<QuestionBank classContext={classContext} classLabel={classLabel}/>}
-      {tab==="activities"&&<ActivitiesLibrary classContext={classContext} classLabel={classLabel}/>}
-      {tab==="assessment"&&<AssessmentBuilder classContext={classContext} classLabel={classLabel}/>}
       {tab==="resources"&&<ResourceCreator lessons={lessons} classContext={classContext} classLabel={classLabel}/>}
       {tab==="saved"&&<SavedResources classLabel={classLabel}/>}
     </div>
@@ -3752,18 +3464,20 @@ function SavedResources({ classLabel }) {
   );
 }
 
-function DocumentSearch({ lessons, homework, classLabel, onOpenLesson, onGoMaterials, onGoAITools, onGoHomework }) {
+function DocumentSearch({ lessons, homework, classLabel, onOpenLesson, onGoMaterials, onGoHomework, onGoAssessment }) {
   const [query,setQuery]=useState("");
-  const [allQuestions,setAllQuestions]=useState([]);
-  const [allActivities,setAllActivities]=useState([]);
   const [allMaterials,setAllMaterials]=useState([]);
+  const [allAssessments,setAllAssessments]=useState([]);
   useEffect(()=>{
-    // FIX — getQuestions/getActivities were called with no classLabel, so
-    // सबैतिर खोज searched (and could jump you to) content from every
-    // class, not just the one you're currently in.
-    db.getQuestions(classLabel).then(({data})=>setAllQuestions(data||[]));
-    db.getActivities(classLabel).then(({data})=>setAllActivities(data||[]));
+    // FIX — getMaterials was called with no classLabel, so सबैतिर खोज
+    // searched (and could jump you to) content from every class, not just
+    // the one you're currently in.
     db.getMaterials(classLabel).then(({data})=>setAllMaterials(data||[]));
+    // NEW — प्रश्न/क्रियाकलाप results are gone along with Question Bank/
+    // Activities Library (see AITools) — that content now lives per-lesson
+    // inside Yojana and is found there, not through a standalone bank.
+    // मूल्याङ्कन results replace them, now that Assessment lives in थप.
+    db.getAssessments(classLabel).then(({data})=>setAllAssessments(data||[]));
   },[classLabel]);
   // FIX — results were pure display, tapping one did nothing. Each result
   // now knows how to jump to where it actually lives.
@@ -3772,11 +3486,10 @@ function DocumentSearch({ lessons, homework, classLabel, onOpenLesson, onGoMater
     return[
       ...lessons.filter((l)=>l.title?.toLowerCase().includes(q)||(l.objectives||[]).some((o)=>o.toLowerCase().includes(q))).map((l)=>({kind:"पाठ",title:l.title,sub:l.chapters?.title||l.chapter_title||"",icon:ClipboardList,color:ACCENT,onClick:()=>onOpenLesson?.(l)})),
       ...allMaterials.filter((m)=>m.name?.toLowerCase().includes(q)||m.chapters?.title?.toLowerCase().includes(q)).map((m)=>({kind:"सामग्री",title:m.name,sub:(m.chapters?.title?m.chapters.title+" · ":"")+(m.file_type?.toUpperCase()||""),icon:FileText,color:DANGER,onClick:onGoMaterials})),
-      ...allQuestions.filter((qq)=>qq.text?.toLowerCase().includes(q)).map((qq)=>({kind:"प्रश्न",title:qq.text,sub:qq.type+" · "+qq.difficulty,icon:HelpCircle,color:VIOLET,onClick:()=>onGoAITools?.("questions")})),
-      ...allActivities.filter((a)=>a.title?.toLowerCase().includes(q)||a.description?.toLowerCase().includes(q)).map((a)=>({kind:"क्रियाकलाप",title:a.title,sub:a.chapters?.title||"",icon:Gamepad2,color:TEAL,onClick:()=>onGoAITools?.("activities")})),
+      ...allAssessments.filter((a)=>a.title?.toLowerCase().includes(q)).map((a)=>({kind:"मूल्याङ्कन",title:a.title,sub:a.chapters?.title||"",icon:NotebookPen,color:BLUE,onClick:onGoAssessment})),
       ...homework.filter((h)=>h.title?.toLowerCase().includes(q)).map((h)=>({kind:"गृहकार्य",title:h.title,sub:`${h.checked_count}/${h.total_students}`,icon:ListChecks,color:WARN,onClick:onGoHomework})),
     ];
-  },[query,lessons,allMaterials,allQuestions,allActivities,homework,onOpenLesson,onGoMaterials,onGoAITools,onGoHomework]);
+  },[query,lessons,allMaterials,allAssessments,homework,onOpenLesson,onGoMaterials,onGoHomework,onGoAssessment]);
   return(
     <div className="ss-page-read" style={{padding:"20px 20px 130px",maxWidth:820,margin:"0 auto"}}>
       <div style={{marginBottom:4}}><PageHeader icon={Search} title="सबैतिर खोज" color={TEAL}/></div>
@@ -4474,10 +4187,9 @@ export default function App() {
   // they just worked with.
   const [prefillChapter,setPrefillChapter]=useState(null);
   const goPlanner=useCallback((chapter)=>{setPrefillChapter(typeof chapter==="string"?chapter:null);setScreen("planner");},[]);
-  // NEW — lets Search results jump straight into the right AI Tools
-  // sub-tab (Question Bank / Activities / Assessment) instead of always
-  // landing on Question Bank and making the teacher click around to find
-  // what they searched for.
+  // NEW — lets Search results jump straight into the right AI Sahayak
+  // sub-tab instead of always landing on च्याट and making the teacher
+  // click around to find what they searched for.
   const [aiToolsTab,setAiToolsTab]=useState(null);
   const goAITools=useCallback((tab)=>{setAiToolsTab(typeof tab==="string"?tab:null);setScreen("aitools");},[]);
   const [moreTab,setMoreTab]=useState(null);
@@ -5038,7 +4750,7 @@ export default function App() {
         {visitedScreens.has("more")&&<div style={{display:screen==="more"?undefined:"none"}}>
           <MoreHub initialPanel={moreTab} onInitialPanelConsumed={()=>setMoreTab(null)}
             section={currentSection} homework={homework} hwLoading={hwLoading} onRefreshHomework={loadHomework}
-            lessons={lessons} classLabel={classLabel} active={screen==="more"}
+            lessons={lessons} classLabel={classLabel} active={screen==="more"} classContext={classContext}
           />
         </div>}
         {visitedScreens.has("aitools")&&<div style={{display:screen==="aitools"?undefined:"none"}}>
@@ -5059,8 +4771,8 @@ export default function App() {
             <DocumentSearch lessons={lessons} homework={homework} classLabel={classLabel}
               onOpenLesson={(l)=>{setSearchOpen(false);openLesson(l);}}
               onGoMaterials={()=>{setSearchOpen(false);setScreen("materials");}}
-              onGoAITools={(tab)=>{setSearchOpen(false);goAITools(tab);}}
               onGoHomework={()=>{setSearchOpen(false);goMore("homework");}}
+              onGoAssessment={()=>{setSearchOpen(false);goMore("assessment");}}
             />
           </div>
         </div>
