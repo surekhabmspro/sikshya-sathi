@@ -1537,15 +1537,55 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
     )}
     {viewing&&(
       <div className="no-print" style={{position:"fixed",inset:0,zIndex:90,background:"#000",display:"flex",flexDirection:"column"}}>
-        <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:INK,color:"#fff",flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:INK,color:"#fff",flexShrink:0,flexWrap:"wrap"}}>
           <div style={{flex:1,minWidth:0,fontWeight:700,fontSize:15.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{viewing.title}</div>
+          {/* NEW — simulations are built for a laptop-plus-projector, not a
+              phone in hand (see SimulationPanel's own intro text above) —
+              saying so here, right where a teacher previewing on their
+              phone would otherwise think something's broken, replaces
+              confusion with a clear expectation. */}
+          <span style={{fontSize:13,color:"rgba(255,255,255,0.6)",fontWeight:600,whiteSpace:"nowrap"}}>🖥️ ल्यापटप/प्रोजेक्टरका लागि डिजाइन गरिएको</span>
           <button className="ss-icon-btn" onClick={generate} disabled={generating} title="अर्को नयाँ सिमुलेसन बनाउनुहोस्" style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:8,display:"flex",cursor:generating?"default":"pointer",flexShrink:0}}>{generating?<Loader size={17} style={{animation:"spin 1s linear infinite"}}/>:<RefreshCw size={17}/>}</button>
           <button className="ss-icon-btn" onClick={()=>setViewing(null)} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:8,display:"flex",cursor:"pointer",flexShrink:0}}><X size={19}/></button>
         </div>
-        <iframe title={viewing.title} srcDoc={viewing.html_content} sandbox="allow-scripts" style={{flex:1,border:"none",width:"100%",background:"#fff"}}/>
+        <SimulationStage html={viewing.html_content} title={viewing.title}/>
       </div>
     )}
   </div>);
+}
+
+// FIX — the AI is instructed (see gemini.generateSimulation's prompt) to
+// build every simulation for a fixed landscape 1280×720–1920×1080 laptop/
+// projector canvas, but an instruction is not a guarantee: on an actual
+// classroom laptop window, a smaller/larger projector resolution, or a
+// teacher just previewing on their phone before class, the AI's own layout
+// had no way to adapt — content could run off-screen or (on a phone) be
+// impossibly cramped. This wraps the iframe in a fixed 1280×720 "stage"
+// and scales that whole stage down (or up) with a CSS transform to
+// whatever space is actually available, letterboxed and centered — so the
+// simulation always appears exactly as the AI laid it out, proportionally
+// correct, on any screen, instead of overflowing or clipping.
+function SimulationStage({ html, title }) {
+  const wrapRef = useRef(null);
+  const [scale, setScale] = useState(1);
+  const STAGE_W = 1280, STAGE_H = 720;
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const fit = () => {
+      const { width, height } = el.getBoundingClientRect();
+      setScale(Math.min(width / STAGE_W, height / STAGE_H, 1.4));
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return (
+    <div ref={wrapRef} style={{flex:1,minHeight:0,display:"flex",alignItems:"center",justifyContent:"center",background:"#000",overflow:"hidden"}}>
+      <iframe title={title} srcDoc={html} sandbox="allow-scripts" style={{width:STAGE_W,height:STAGE_H,border:"none",background:"#fff",flexShrink:0,transform:`scale(${scale})`,transformOrigin:"center center"}}/>
+    </div>
+  );
 }
 
 function StatCard({ icon:Icon, value, label, color, onClick, accent }) {
@@ -4506,19 +4546,34 @@ export default function App() {
   const toggleTheme=()=>setTheme((t)=>t==="light"?"dark":"light");
   useEffect(()=>{ document.documentElement.setAttribute("data-theme", theme); },[theme]);
 
-  // NEW — class/subject are no longer hardcoded. They're stored locally per
-  // device (same pattern as the theme toggle above) and editable from
-  // Settings, so the same app works for any class and any subject instead of
-  // being permanently "कक्षा ५ · सामाजिक अध्ययन". Every AI prompt that used to
-  // hardcode that string now reads classContext instead.
+  // FIX — class, subject, and teacher name used to live in localStorage
+  // ONLY (see the old comment below), which is why the PC and phone could
+  // silently show completely different data: each device had its own
+  // separate "which class am I on" value, and since the uploaded textbook
+  // and every chapter/lesson/material are looked up BY that class label,
+  // a mismatch there is exactly what makes materials — and the whole
+  // dashboard — look like "different content" or "my PDF disappeared"
+  // between devices, even though everything was actually uploaded fine.
+  // Now the account (Supabase user_metadata) is the source of truth, and
+  // it's applied here as soon as a session is available; localStorage is
+  // kept only as a same-device fallback for the instant before that
+  // happens (and for fully offline use).
   const [classLabel,setClassLabelState]=useState(()=>{
     try{ return localStorage.getItem("ss-class")||"कक्षा ५"; }catch{ return "कक्षा ५"; }
   });
   const [subjectLabel,setSubjectLabelState]=useState(()=>{
     try{ return localStorage.getItem("ss-subject")||"सामाजिक अध्ययन"; }catch{ return "सामाजिक अध्ययन"; }
   });
-  const setClassLabel=(v)=>{setClassLabelState(v);try{localStorage.setItem("ss-class",v);}catch{}};
-  const setSubjectLabel=(v)=>{setSubjectLabelState(v);try{localStorage.setItem("ss-subject",v);}catch{}};
+  const setClassLabel=(v)=>{
+    setClassLabelState(v);
+    try{localStorage.setItem("ss-class",v);}catch{}
+    supabase.auth.updateUser({data:{class_label:v}}).catch(()=>{});
+  };
+  const setSubjectLabel=(v)=>{
+    setSubjectLabelState(v);
+    try{localStorage.setItem("ss-subject",v);}catch{}
+    supabase.auth.updateUser({data:{subject_label:v}}).catch(()=>{});
+  };
   const classContext=`${classLabel} ${subjectLabel}`.trim();
 
   // NEW — teacher's display name, used in Settings and the dashboard greeting
@@ -4526,7 +4581,28 @@ export default function App() {
   const [teacherName,setTeacherNameState]=useState(()=>{
     try{ return localStorage.getItem("ss-teacher-name")||""; }catch{ return ""; }
   });
-  const setTeacherName=(v)=>{setTeacherNameState(v);try{localStorage.setItem("ss-teacher-name",v);}catch{}};
+  const setTeacherName=(v)=>{
+    setTeacherNameState(v);
+    try{localStorage.setItem("ss-teacher-name",v);}catch{}
+    supabase.auth.updateUser({data:{teacher_name:v}}).catch(()=>{});
+  };
+
+  // FIX — this is the other half of the class/subject/name sync fix above:
+  // as soon as the account's session is available, pull class/subject/name
+  // FROM it and apply them here, so a second device (or a fresh browser
+  // profile on the same PC) immediately shows the same class/subject/name
+  // as every other device signed into this account, instead of quietly
+  // falling back to this device's own separate localStorage copy (or the
+  // hardcoded "कक्षा ५" default) and looking like a different account's
+  // worth of data. Only applied when the account actually has a saved
+  // value, so a brand-new account still gets the ordinary defaults.
+  useEffect(()=>{
+    const meta=session?.user?.user_metadata;
+    if(!meta)return;
+    if(meta.class_label&&meta.class_label!==classLabel){setClassLabelState(meta.class_label);try{localStorage.setItem("ss-class",meta.class_label);}catch{}}
+    if(meta.subject_label&&meta.subject_label!==subjectLabel){setSubjectLabelState(meta.subject_label);try{localStorage.setItem("ss-subject",meta.subject_label);}catch{}}
+    if(meta.teacher_name&&meta.teacher_name!==teacherName){setTeacherNameState(meta.teacher_name);try{localStorage.setItem("ss-teacher-name",meta.teacher_name);}catch{}}
+  },[session]);
 
   // NEW — inject the theme's CSS variables directly, once, on first mount.
   // This runs before the login screen or spinner ever renders (hooks always
