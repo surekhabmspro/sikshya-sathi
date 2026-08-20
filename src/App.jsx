@@ -4999,8 +4999,16 @@ export default function App() {
         </div>
       </div>
 
-      <style>{`.ss-topbar-icon{width:38px;height:38px;border-radius:13px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:transform .15s ease, box-shadow .15s ease;}
-      .ss-topbar-icon:hover{transform:translateY(-1px) rotate(-3deg);}
+      {/* FIX — topbar icons looked flat/plain (solid tint square, no depth)
+          next to the rest of the app's glossy "raised" card look. Added the
+          same top sheen + layered drop shadow used elsewhere (SHADOW.raised)
+          via ::before, plus a pressed/inset state on :active, so these read
+          as chunky, tappable 3D buttons instead of flat color swatches. */}
+      <style>{`.ss-topbar-icon{width:38px;height:38px;border-radius:13px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;position:relative;isolation:isolate;transition:transform .15s ease, box-shadow .15s ease;box-shadow:0 1px 1px rgba(var(--shadow-rgb),0.07), 0 5px 12px rgba(var(--shadow-rgb),0.16), 0 1.5px 3px rgba(var(--shadow-rgb),0.12);}
+      .ss-topbar-icon::before{content:"";position:absolute;inset:0;border-radius:inherit;background:linear-gradient(165deg, rgba(255,255,255,0.38) 0%, rgba(255,255,255,0.08) 35%, rgba(255,255,255,0) 55%);pointer-events:none;mix-blend-mode:overlay;}
+      .ss-topbar-icon svg{position:relative;z-index:1;filter:drop-shadow(0 1px 1px rgba(0,0,0,0.12));}
+      .ss-topbar-icon:hover{transform:translateY(-2px) rotate(-3deg);box-shadow:0 2px 3px rgba(var(--shadow-rgb),0.10), 0 8px 18px rgba(var(--shadow-rgb),0.22), 0 2px 5px rgba(var(--shadow-rgb),0.14);}
+      .ss-topbar-icon:active{transform:translateY(0) scale(0.94);box-shadow:inset 0 2px 4px rgba(0,0,0,0.18);}
       @media(min-width:860px){.ss-topbar-icon{width:42px;height:42px;border-radius:14px;}}`}</style>
 
       <style>{`@media (max-width:420px){.ss-sync-label{display:none;}}`}</style>
