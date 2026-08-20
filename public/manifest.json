@@ -1,11 +1,11 @@
 {
-  "name": "शिक्षा साथी — Shiksha Sathi",
+  "name": "शिक्षा साथी",
   "short_name": "शिक्षा साथी",
-  "description": "कक्षा ५ सामाजिक अध्ययन शिक्षकका लागि AI सहायक एप",
+  "description": "शिक्षकका लागि AI पाठ योजना, सामग्री र मूल्याङ्कन सहायक — जुनसुकै कक्षा र विषयमा प्रयोग गर्न मिल्ने",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#FBF7EE",
-  "theme_color": "#1F4D3D",
+  "background_color": "#1C1006",
+  "theme_color": "#C2470A",
   "orientation": "portrait-primary",
   "icons": [
     { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
