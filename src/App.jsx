@@ -3669,8 +3669,17 @@ function CalendarView({ classLabel, active }) {
 
   return(
     <div className="ss-page-read" style={{padding:"20px 20px 130px",maxWidth:640,margin:"0 auto"}}>
+      <style>{`
+        .cal-header-actions{display:flex;gap:8px;flex-wrap:wrap;}
+        @media(max-width:460px){
+          .cal-header-actions{width:100%;}
+          .cal-header-actions>*{flex:1 1 100%;justify-content:center;}
+        }
+        .cal-cat-tabs{-webkit-mask-image:linear-gradient(to right, transparent 0, black 14px, black calc(100% - 14px), transparent 100%);mask-image:linear-gradient(to right, transparent 0, black 14px, black calc(100% - 14px), transparent 100%);}
+        @media(max-width:420px){.cal-cat-chip{padding:6px 11px !important;font-size:13.5px !important;}}
+      `}</style>
       <PageHeader icon={CalendarDays} title="पात्रो" color={VIOLET} action={
-        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <div className="cal-header-actions">
           {/* NEW — upload a photo/PDF of the actual school calendar and let
               AI propose events, instead of typing every holiday/exam date
               in by hand. Manual add (next button) still works exactly as
@@ -3686,12 +3695,17 @@ function CalendarView({ classLabel, active }) {
 
       {/* NEW — category filter chips, same visual language as Materials'
           category chips: tap to hide/show that category's dots on the
-          grid and entries in the day list. */}
-      <div style={{display:"flex",gap:7,overflowX:"auto",marginBottom:14,paddingBottom:2}}>
+          grid and entries in the day list. FIX — this row used to just
+          overflow-scroll with no visual hint of more content, so on a
+          phone-width screen the cut-off edge (बिदा sliced on the left,
+          म्याद... sliced on the right) read as broken rather than
+          scrollable — same problem AI Sahayak's tab row had. Same fix:
+          a soft edge fade plus a touch less padding on narrow screens. */}
+      <div className="cal-cat-tabs" style={{display:"flex",gap:7,overflowX:"auto",marginBottom:14,paddingBottom:2}}>
         {EVENT_CATEGORY_ORDER.map((key)=>{
           const meta=EVENT_CATEGORY_META[key];const Icon=meta.icon;const active=activeCats.has(key);
           return(
-            <button key={key} onClick={()=>toggleCat(key)} className="ss-chip" style={{display:"flex",alignItems:"center",gap:5,padding:"7px 13px",borderRadius:999,background:active?meta.color:SURFACE,color:active?"#fff":INK_SOFT,fontWeight:700,fontSize:14.5,whiteSpace:"nowrap",cursor:"pointer",border:`1.5px solid ${active?meta.color:BORDER}`,boxShadow:active?SHADOW.sm:"none"}}><Icon size={13}/>{meta.label}</button>
+            <button key={key} onClick={()=>toggleCat(key)} className="ss-chip cal-cat-chip" style={{display:"flex",alignItems:"center",gap:5,padding:"7px 13px",borderRadius:999,background:active?meta.color:SURFACE,color:active?"#fff":INK_SOFT,fontWeight:700,fontSize:14.5,whiteSpace:"nowrap",cursor:"pointer",border:`1.5px solid ${active?meta.color:BORDER}`,boxShadow:active?SHADOW.sm:"none",flexShrink:0}}><Icon size={13}/>{meta.label}</button>
           );
         })}
       </div>
