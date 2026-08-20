@@ -65,8 +65,8 @@ const SHADOW = {
   // physical, tappable objects instead of flat rectangles.
   raised: "inset 0 1px 0 var(--card-sheen), 0 1px 2px rgba(var(--shadow-rgb),0.06), 0 8px 18px rgba(var(--shadow-rgb),0.13), 0 2px 5px rgba(var(--shadow-rgb),0.09)",
   raisedHover: "inset 0 1px 0 var(--card-sheen), 0 14px 30px rgba(var(--shadow-rgb),0.20), 0 4px 10px rgba(var(--shadow-rgb),0.12)",
-  accent: "0 8px 20px color-mix(in srgb, var(--accent) 32%, transparent)",
-  marigold: "0 8px 20px color-mix(in srgb, var(--marigold) 36%, transparent)",
+  accent: "0 6px 16px color-mix(in srgb, var(--accent) 22%, transparent)",
+  marigold: "0 6px 16px color-mix(in srgb, var(--marigold) 24%, transparent)",
 };
 
 // color+"1A" string-concat only works when color is a literal hex string; it
@@ -484,14 +484,16 @@ function SectionLabel({ children, icon:Icon, color }) {
   );
 }
 
-// NEW — a colourful corkboard-style pushpin for library/material cards, so
-// each tile reads as a physical pinned document rather than a flat row.
-// Rotated slightly and drop-shadowed so it looks stuck-on, not printed-on.
+// Small modern corner tag — replaces the earlier glossy "pushpin" look
+// (a shiny radial-gradient ball) with a flat rounded ribbon in the card's
+// accent color. Reads as a clean category flag instead of a novelty
+// corkboard prop, and its flat fill is far less visually loud sitting on
+// top of an already-colored card.
 function PinBadge({ color }) {
   return (
-    <div style={{position:"absolute",top:-9,left:16,zIndex:3,transform:"rotate(-14deg)",filter:"drop-shadow(0 3px 4px rgba(0,0,0,0.35))"}}>
-      <div style={{width:22,height:22,borderRadius:"50%",background:`radial-gradient(circle at 35% 30%, color-mix(in srgb, ${color} 60%, white) 0%, ${color} 55%, color-mix(in srgb, ${color} 70%, black) 100%)`,border:"2px solid rgba(255,255,255,0.55)",display:"flex",alignItems:"center",justifyContent:"center"}}>
-        <div style={{width:5,height:5,borderRadius:"50%",background:"rgba(255,255,255,0.85)"}}/>
+    <div style={{position:"absolute",top:0,left:16,zIndex:3}}>
+      <div style={{width:30,height:14,borderRadius:"0 0 7px 7px",background:color,boxShadow:"0 3px 6px rgba(0,0,0,0.18)",display:"flex",alignItems:"flex-end",justifyContent:"center",paddingBottom:3}}>
+        <div style={{width:12,height:2.5,borderRadius:2,background:"rgba(255,255,255,0.75)"}}/>
       </div>
     </div>
   );
@@ -552,7 +554,7 @@ function PageHeader({ icon:Icon, title, subtitle, action, color=ACCENT }) {
   return (
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:20,flexWrap:"wrap"}}>
       <div style={{display:"flex",alignItems:"center",gap:13,minWidth:0}}>
-        {Icon&&<div style={{width:46,height:46,borderRadius:15,background:`linear-gradient(155deg, ${color} 0%, color-mix(in srgb, ${color} 65%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 6px 14px color-mix(in srgb, ${color} 45%, transparent)`,transform:"rotate(-3deg)"}}><Icon size={21} color="#fff" style={{transform:"rotate(3deg)"}}/></div>}
+        {Icon&&<div style={{width:44,height:44,borderRadius:14,background:`color-mix(in srgb, ${color} 15%, var(--surface))`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={21} color={color}/></div>}
         <div style={{minWidth:0}}>
           <div style={{fontSize:23,fontWeight:800,color:INK,letterSpacing:"-0.01em",lineHeight:1.2,fontFamily:"'Baloo 2','Hind',sans-serif"}}>{title}</div>
           {subtitle&&<div style={{fontSize:14.5,color:INK_SOFT,fontWeight:600,marginTop:2}}>{subtitle}</div>}
@@ -958,7 +960,7 @@ function SectionSelector({ sections, current, onChange, onAdd }) {
 function PrintableSheet({ title, subtitle, chip, chipColor, onClose, children }) {
   return (
     <div className="print-area" style={{position:"fixed",inset:0,background:PAPER,zIndex:70,display:"flex",flexDirection:"column"}}>
-      <div className="no-print" style={{background:`linear-gradient(120deg, ${MARIGOLD} 0%, ${ACCENT} 55%, ${ROSE} 100%)`,color:"#fff",padding:"14px 16px",display:"flex",alignItems:"center",gap:10}}>
+      <div className="no-print" style={{background:`linear-gradient(120deg, ${MARIGOLD} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",padding:"14px 16px",display:"flex",alignItems:"center",gap:10}}>
         <button className="ss-icon-btn" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:10,display:"flex",cursor:"pointer"}}><ChevronLeft size={20}/></button>
         <div style={{flex:1,minWidth:0}}>
           {subtitle&&<div style={{fontSize:14,opacity:0.75}}>{subtitle}</div>}
@@ -1246,7 +1248,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
           .lesson-obj-trigger{display:flex;}
         }
       `}</style>
-      <div className="no-print" style={{background:`linear-gradient(120deg, ${MARIGOLD} 0%, ${ACCENT} 55%, ${ROSE} 100%)`,color:"#fff",padding:"12px 16px",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+      <div className="no-print" style={{background:`linear-gradient(120deg, ${MARIGOLD} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",padding:"12px 16px",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
         <button className="ss-icon-btn" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:10,display:"flex",cursor:"pointer"}}><ChevronLeft size={20}/></button>
         <div style={{flex:1,minWidth:0}}>
           <div style={{fontSize:13.5,opacity:0.75}}>{chapterTitle}</div>
@@ -1554,17 +1556,15 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
 
 function StatCard({ icon:Icon, value, label, color, onClick, accent }) {
   return (
-    <Card onClick={onClick} accentColor={color} style={{padding:"14px 16px",paddingTop:20,position:"relative",overflow:"visible", background: accent?`linear-gradient(160deg, color-mix(in srgb, ${color} 14%, var(--surface)) 0%, var(--surface) 65%)`:undefined}}>
+    <Card onClick={onClick} accentColor={color} style={{padding:"14px 16px",paddingTop:22,position:"relative",overflow:"visible", background: accent?`linear-gradient(160deg, color-mix(in srgb, ${color} 8%, var(--surface)) 0%, var(--surface) 65%)`:undefined}}>
       <PinBadge color={color}/>
       <div style={{display:"flex",alignItems:"center",gap:11}}>
         <div style={{
           width:40,height:40,borderRadius:13,flexShrink:0,
-          background:`linear-gradient(155deg, ${color} 0%, color-mix(in srgb, ${color} 65%, black) 100%)`,
+          background:`color-mix(in srgb, ${color} 16%, var(--surface))`,
           display:"flex",alignItems:"center",justifyContent:"center",
-          boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 10px color-mix(in srgb, ${color} 45%, transparent)`,
-          transform:"rotate(-3deg)",
         }}>
-          <Icon size={19} color="#fff" style={{transform:"rotate(3deg)"}}/>
+          <Icon size={19} color={color}/>
         </div>
         <div style={{minWidth:0}}>
           <div style={{fontSize:24,fontWeight:800,color:INK,lineHeight:1.05,fontFamily:"'Baloo 2','Hind',sans-serif"}}>{value}</div>
@@ -1690,7 +1690,7 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, on
 
       {!textbookReady&&(
         <Card onClick={onGoSettings} accentColor={MARIGOLD_DARK} style={{marginBottom:16,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}>
-          <div style={{width:40,height:40,borderRadius:13,background:`linear-gradient(155deg, ${MARIGOLD} 0%, ${MARIGOLD_DARK} 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:SHADOW.marigold,transform:"rotate(-3deg)"}}><BookMarked size={19} color="#fff" style={{transform:"rotate(3deg)"}}/></div>
+          <div style={{width:40,height:40,borderRadius:13,background:`color-mix(in srgb, ${MARIGOLD_DARK} 16%, var(--surface))`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><BookMarked size={19} color={MARIGOLD_DARK}/></div>
           <div style={{flex:1,minWidth:0}}>
             <div style={{fontWeight:700,fontSize:16.5,color:INK}}>पहिले पाठ्यपुस्तक अपलोड गर्नुहोस्</div>
             <div style={{fontSize:14.5,color:INK_SOFT}}>सेटिङमा गएर PDF थप्नुहोस् — त्यसपछि मात्र AI ले तयार गर्न सक्छ</div>
@@ -1700,7 +1700,7 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, on
       )}
 
       {today&&(
-        <div style={{background:`linear-gradient(120deg,${MARIGOLD} 0%, ${ACCENT} 55%, ${ROSE} 100%)`,borderRadius:24,padding:"18px 20px",color:"#fff",marginBottom:16,boxShadow:SHADOW.accent,position:"relative",overflow:"hidden"}}>
+        <div style={{background:`linear-gradient(120deg, ${MARIGOLD} 0%, ${ACCENT_DARK} 100%)`,borderRadius:24,padding:"18px 20px",color:"#fff",marginBottom:16,boxShadow:SHADOW.accent,position:"relative",overflow:"hidden"}}>
           <div style={{position:"absolute",top:-36,right:-30,width:130,height:130,borderRadius:"50%",background:"rgba(255,255,255,0.09)"}}/>
           <div style={{position:"absolute",bottom:-40,right:60,width:80,height:80,borderRadius:"50%",background:"rgba(255,255,255,0.07)"}}/>
           <div style={{position:"relative",minWidth:0}}>
@@ -1741,7 +1741,7 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, on
           plain shortcut: Planner is the single door where you pick an
           Adhyaya, see its Paths, and generate a Path's full bundle. */}
       <Card onClick={()=>onGoPlanner()} accentColor={ACCENT} style={{marginBottom:16,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}>
-        <div style={{width:40,height:40,borderRadius:13,background:`linear-gradient(155deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:SHADOW.accent,transform:"rotate(-3deg)"}}><Wand2 size={19} color="#fff" style={{transform:"rotate(3deg)"}}/></div>
+        <div style={{width:40,height:40,borderRadius:13,background:`color-mix(in srgb, ${ACCENT} 16%, var(--surface))`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Wand2 size={19} color={ACCENT}/></div>
         <div style={{flex:1,minWidth:0}}>
           <div style={{fontWeight:700,fontSize:16.5,color:INK}}>पाठ योजना बनाउनुहोस्</div>
           <div style={{fontSize:14.5,color:INK_SOFT}}>अध्याय छान्नुहोस्, त्यसभित्र पाठ थप्नुहोस् — AI ले एकैचोटि सबै तयार गर्छ</div>
@@ -2986,7 +2986,7 @@ function AIAssistant({ lessons, classContext, classLabel }) {
   return(
     <div className="ss-page-read" style={{display:"flex",flexDirection:"column",height:"calc(100vh - 170px)",maxWidth:720,margin:"0 auto",width:"100%"}}>
       <div style={{padding:"14px 16px 8px"}}>
-        <div style={{fontSize:19,fontWeight:800,color:INK,display:"flex",alignItems:"center",gap:9,fontFamily:"'Baloo 2','Hind',sans-serif"}}><div style={{width:34,height:34,borderRadius:11,background:`linear-gradient(155deg, ${ACCENT} 0%, ${VIOLET} 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:SHADOW.accent,transform:"rotate(-3deg)"}}><Bot size={17} color="#fff" style={{transform:"rotate(3deg)"}}/></div>AI शिक्षण सहायक</div>
+        <div style={{fontSize:19,fontWeight:800,color:INK,display:"flex",alignItems:"center",gap:9,fontFamily:"'Baloo 2','Hind',sans-serif"}}><div style={{width:34,height:34,borderRadius:11,background:`color-mix(in srgb, ${ACCENT} 16%, var(--surface))`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Bot size={17} color={ACCENT}/></div>AI शिक्षण सहायक</div>
         {lessons.length>0&&(
           <select value={lessonId} onChange={(e)=>setLessonId(e.target.value)} style={{marginTop:8,width:"100%",borderRadius:10,padding:"8px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontWeight:600,fontFamily:"'Hind','Baloo 2',sans-serif"}}>
             {lessons.map((l)=><option key={l.id} value={l.id}>{lessonOptionLabel(l)}</option>)}
@@ -4260,7 +4260,7 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
       {!isStandalone&&(
         <Card accentColor={TEAL} style={{marginBottom:14,background:`linear-gradient(135deg, ${tint(TEAL,10)} 0%, ${tint(ACCENT,5)} 100%)`,border:`1.5px solid ${ACCENT_LIGHT}`}}>
           <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
-            <div style={{width:46,height:46,borderRadius:14,background:`linear-gradient(135deg, ${TEAL}, ${ACCENT})`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:SHADOW.accent,transform:"rotate(-3deg)"}}><Zap size={21} color="#fff" style={{transform:"rotate(3deg)"}}/></div>
+            <div style={{width:46,height:46,borderRadius:14,background:`color-mix(in srgb, ${ACCENT} 16%, var(--surface))`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Zap size={21} color={ACCENT}/></div>
             <div>
               <div style={{fontWeight:800,fontSize:17,color:INK}}>फोन र कम्प्युटरमा एप झैं इन्स्टल गर्नुहोस्</div>
               <div style={{fontSize:15,color:INK_SOFT,marginTop:1}}>ब्राउजर बिना, होम स्क्रिनबाट सिधै खोल्नुहोस्</div>
@@ -4544,7 +4544,7 @@ export default function App() {
     style.id="ss-theme-vars";
     style.textContent=`
       [data-theme="light"]{--bg:#FFF7EA;--bg-grad:#FFE7BE;--surface:#FFFFFF;--surface-2:#FFF2DC;--ink:#2B1A0E;--ink-soft:#8A6D4E;--border:#F2DCB0;--accent:#E8590C;--accent-dark:#C2470A;--accent-light:#FFE3CC;--marigold:#F0A500;--marigold-dark:#C6870A;--teal:#0E9384;--teal-light:#D6F3EC;--violet:#7C3AED;--violet-light:#EDE3FE;--blue:#2563EB;--blue-light:#DDE7FE;--rose:#E11D74;--rose-light:#FCE0EC;--danger:#DC2626;--danger-bg:#FCE1DE;--warn:#D97706;--warn-bg:#FCEED0;--shadow-rgb:43,27,14;--card-sheen:rgba(255,255,255,0.85);}
-      [data-theme="dark"]{--bg:#1C1006;--bg-grad:#2B1A0B;--surface:#241505;--surface-2:#301C0C;--ink:#FBEEDD;--ink-soft:#CBA97C;--border:#4A311A;--accent:#FF7A1E;--accent-dark:#E8590C;--accent-light:#3C2410;--marigold:#FFC53D;--marigold-dark:#E8A70B;--teal:#2DD4BF;--teal-light:#0D332D;--violet:#A78BFA;--violet-light:#2B1F49;--blue:#60A5FA;--blue-light:#152A4A;--rose:#FB7185;--rose-light:#3A1526;--danger:#F87171;--danger-bg:#3A1512;--warn:#FBBF24;--warn-bg:#3A2A0A;--shadow-rgb:10,6,2;--card-sheen:rgba(255,255,255,0.06);}
+      [data-theme="dark"]{--bg:#1C1006;--bg-grad:#2B1A0B;--surface:#241505;--surface-2:#301C0C;--ink:#FBEEDD;--ink-soft:#CBA97C;--border:#4A311A;--accent:#E8641F;--accent-dark:#C2470A;--accent-light:#3C2410;--marigold:#E0A93E;--marigold-dark:#C6900F;--teal:#26B39F;--teal-light:#0D332D;--violet:#9B85E0;--violet-light:#2B1F49;--blue:#5A93E0;--blue-light:#152A4A;--rose:#E2708A;--rose-light:#3A1526;--danger:#E06A6A;--danger-bg:#3A1512;--warn:#E0AA3E;--warn-bg:#3A2A0A;--shadow-rgb:10,6,2;--card-sheen:rgba(255,255,255,0.05);}
       html,body{background:radial-gradient(1100px 620px at 12% -8%, var(--bg-grad), var(--bg) 55%);}
     `;
     document.head.appendChild(style);
@@ -4747,16 +4747,16 @@ export default function App() {
         [data-theme="dark"]{
           --bg:#1C1006; --bg-grad:#2B1A0B; --surface:#241505; --surface-2:#301C0C;
           --ink:#FBEEDD; --ink-soft:#CBA97C; --border:#4A311A;
-          --accent:#FF7A1E; --accent-dark:#E8590C; --accent-light:#3C2410;
-          --marigold:#FFC53D; --marigold-dark:#E8A70B;
-          --teal:#2DD4BF; --teal-light:#0D332D;
-          --violet:#A78BFA; --violet-light:#2B1F49;
-          --blue:#60A5FA; --blue-light:#152A4A;
-          --rose:#FB7185; --rose-light:#3A1526;
-          --danger:#F87171; --danger-bg:#3A1512;
-          --warn:#FBBF24; --warn-bg:#3A2A0A;
+          --accent:#E8641F; --accent-dark:#C2470A; --accent-light:#3C2410;
+          --marigold:#E0A93E; --marigold-dark:#C6900F;
+          --teal:#26B39F; --teal-light:#0D332D;
+          --violet:#9B85E0; --violet-light:#2B1F49;
+          --blue:#5A93E0; --blue-light:#152A4A;
+          --rose:#E2708A; --rose-light:#3A1526;
+          --danger:#E06A6A; --danger-bg:#3A1512;
+          --warn:#E0AA3E; --warn-bg:#3A2A0A;
           --shadow-rgb:10,6,2;
-          --card-sheen:rgba(255,255,255,0.06);
+          --card-sheen:rgba(255,255,255,0.05);
         }
 
         @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
