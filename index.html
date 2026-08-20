@@ -13,15 +13,18 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="शिक्षा साथी" />
 
-    <!-- Fonts — Inter for Latin/numerals, Noto Sans Devanagari for Nepali
-         script. Loaded here (not just @import'd inside App.jsx) so text is
-         never rendered in the browser's fallback font, even for a split
-         second: fallback Devanagari rendering on most OSes is thin, badly
-         spaced, and hard to read, which was the single biggest readability
-         problem in the app. preconnect speeds up the first paint. -->
+    <!-- Fonts — Hind (warm, rounded, Devanagari-native humanist face) carries
+         all body/UI text — Nepali and Latin alike, from one family, so
+         nothing ever falls back to a thin, badly-spaced system Devanagari
+         font. Baloo 2 (bold, rounded, playful — also Devanagari-native) is
+         reserved for headings, big numbers and the app wordmark, giving the
+         "warm & vibrant, energetic classroom" personality its display voice.
+         Loaded here (not just @import'd inside App.jsx) so text is never
+         rendered in the fallback font, even for a split second.
+         preconnect speeds up the first paint. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Devanagari:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Hind:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
     <!-- NEW — light/dark theme colors, defined here (not just inside App.jsx)
          so they exist from the very first paint: the login screen and the
@@ -34,40 +37,41 @@
       *{box-sizing:border-box;}
       body{margin:0;-webkit-font-smoothing:antialiased;}
       [data-theme="light"]{
-        --bg:#F7F4EB; --bg-grad:#ECE4CD; --surface:#FFFFFF; --surface-2:#FBF8EF;
-        --ink:#141B2E; --ink-soft:#5B6478; --border:#E1DCC8;
-        --accent:#20388F; --accent-dark:#152867; --accent-light:#E4E9F8;
-        --marigold:#C98A1E; --marigold-dark:#9C6B12;
-        --teal:#1B8C82; --teal-light:#E1F2F0;
-        --violet:#7259B5; --violet-light:#EFE9FA;
-        --blue:#3167B0; --blue-light:#E7EEFA;
-        --rose:#B85C78; --rose-light:#F7E7ED;
-        --danger:#B3261E; --danger-bg:#FBEAE6;
-        --warn:#9C6B12; --warn-bg:#FBF0DA;
-        --shadow-rgb:15,19,36;
-        --card-sheen:rgba(255,255,255,0.8);
+        --bg:#FFF7EA; --bg-grad:#FFE7BE; --surface:#FFFFFF; --surface-2:#FFF2DC;
+        --ink:#2B1A0E; --ink-soft:#8A6D4E; --border:#F2DCB0;
+        --accent:#E8590C; --accent-dark:#C2470A; --accent-light:#FFE3CC;
+        --marigold:#F0A500; --marigold-dark:#C6870A;
+        --teal:#0E9384; --teal-light:#D6F3EC;
+        --violet:#7C3AED; --violet-light:#EDE3FE;
+        --blue:#2563EB; --blue-light:#DDE7FE;
+        --rose:#E11D74; --rose-light:#FCE0EC;
+        --danger:#DC2626; --danger-bg:#FCE1DE;
+        --warn:#D97706; --warn-bg:#FCEED0;
+        --shadow-rgb:43,27,14;
+        --card-sheen:rgba(255,255,255,0.85);
       }
       [data-theme="dark"]{
-        --bg:#151C2F; --bg-grad:#1B2440; --surface:#1D2740; --surface-2:#26314F;
-        --ink:#D9DEEC; --ink-soft:#A6AECB; --border:#37456B;
-        --accent:#4C6FE0; --accent-dark:#3050C4; --accent-light:#1B2647;
-        --marigold:#F5A93F; --marigold-dark:#D68A1E;
-        --teal:#3FB8C9; --teal-light:#122D36;
-        --violet:#A98CE8; --violet-light:#241B3E;
-        --blue:#5C93EA; --blue-light:#152540;
-        --rose:#E88CA0; --rose-light:#3A1F2A;
-        --danger:#F0685A; --danger-bg:#3A1E1A;
-        --warn:#E8A23A; --warn-bg:#3A2A12;
-        --shadow-rgb:2,4,12;
-        --card-sheen:rgba(255,255,255,0.07);
+        --bg:#1C1006; --bg-grad:#2B1A0B; --surface:#241505; --surface-2:#301C0C;
+        --ink:#FBEEDD; --ink-soft:#CBA97C; --border:#4A311A;
+        --accent:#FF7A1E; --accent-dark:#E8590C; --accent-light:#3C2410;
+        --marigold:#FFC53D; --marigold-dark:#E8A70B;
+        --teal:#2DD4BF; --teal-light:#0D332D;
+        --violet:#A78BFA; --violet-light:#2B1F49;
+        --blue:#60A5FA; --blue-light:#152A4A;
+        --rose:#FB7185; --rose-light:#3A1526;
+        --danger:#F87171; --danger-bg:#3A1512;
+        --warn:#FBBF24; --warn-bg:#3A2A0A;
+        --shadow-rgb:10,6,2;
+        --card-sheen:rgba(255,255,255,0.06);
       }
       [data-theme="light"] { color-scheme: light; }
       [data-theme="dark"] { color-scheme: dark; }
       html, body {
         background: radial-gradient(1100px 620px at 12% -8%, var(--bg-grad), var(--bg) 55%);
         color: var(--ink);
-        font-family: 'Inter','Noto Sans Devanagari',sans-serif;
+        font-family: 'Hind','Baloo 2',sans-serif;
       }
+      .ss-display { font-family: 'Baloo 2','Hind',sans-serif; }
       /* NEW — this stylesheet did not exist at all before, which is why
          printing produced a blank page: the .no-print class referenced
          throughout the app had no rule hiding it, and the printable
