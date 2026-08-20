@@ -3202,6 +3202,23 @@ function AssessmentBuilder({ classContext, classLabel }) {
   );
 }
 
+function SummaryPanel({ icon:Icon, color, title, subtitle, onOpen }) {
+  return(
+    <Card onClick={onOpen} accentColor={color} style={{cursor:"pointer",display:"flex",alignItems:"center",gap:12,paddingTop:22,position:"relative",overflow:"visible"}}>
+      <PinBadge color={color}/>
+      <div style={{width:42,height:42,borderRadius:12,background:`linear-gradient(160deg, ${color} 0%, color-mix(in srgb, ${color} 70%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 10px color-mix(in srgb, ${color} 40%, transparent)`}}><Icon size={20} color="#fff"/></div>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:17,fontWeight:700,color:INK}}>{title}</div>
+        <div style={{fontSize:14.5,color:INK_SOFT,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{subtitle}</div>
+      </div>
+      <ChevronRight size={18} color={INK_SOFT} style={{flexShrink:0}}/>
+    </Card>
+  );
+}
+
+// NEW — generic popup wrapper so any full manager (Homework, Diary) can
+// open on top of wherever the teacher already is, same pattern as the
+// Settings popup, instead of being its own dedicated screen.
 function ManagerPopup({ title, onClose, children }) {
   return(
     <div className="no-print" onClick={onClose} style={{position:"fixed",inset:0,zIndex:88,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",padding:16}}>
@@ -3322,6 +3339,19 @@ function AITools({ lessons, classContext, classLabel, initialTab, onInitialTabCo
     </div>
   );
 }
+
+// NEW — lifted to module scope (was local to ResourceCreator) so both the
+// generator and the Saved Resources library can share the same icon/color
+// per template type instead of duplicating the list.
+const RESOURCE_TEMPLATES=[
+  {id:"worksheet",title:"कार्यपत्र",icon:FileText,color:ACCENT,prompt:(l,classContext)=>`${classContext} "${l?.title||""}" पाठका लागि अभ्यास कार्यपत्र नेपालीमा बनाउनुहोस्। उद्देश्य: ${(l?.objectives||[]).join(", ")}`},
+  {id:"revision",title:"पुनरावलोकन",icon:ClipboardList,color:TEAL,prompt:(l,classContext)=>`${classContext} "${l?.title||""}" पाठको पुनरावलोकन पाना बनाउनुहोस्। मुख्य बुँदा, शब्दावली र प्रश्नहरू।`},
+  {id:"flashcard",title:"फ्ल्यासकार्ड",icon:Copy,color:VIOLET,prompt:(l)=>`"${l?.title||""}" पाठका शब्दावलीहरू: ${(l?.vocabulary||[]).join(", ")} — फ्ल्यासकार्ड बनाउनुहोस्।`},
+  {id:"mindmap",title:"अवधारणा नक्सा",icon:Brain,color:BLUE,prompt:(l)=>`"${l?.title||""}" पाठको अवधारणा नक्सा (text format) बनाउनुहोस्।`},
+  {id:"vocab",title:"शब्दावली सूची",icon:Tag,color:ROSE,prompt:(l)=>`"${l?.title||""}" पाठका शब्दावलीहरू अर्थ र वाक्य प्रयोगसहित: ${(l?.vocabulary||[]).join(", ")}`},
+  {id:"practice",title:"अभ्यास प्रश्न",icon:PenSquare,color:MARIGOLD_DARK,prompt:(l)=>`"${l?.title||""}" पाठका लागि १५ वटा विभिन्न प्रकारका अभ्यास प्रश्नहरू बनाउनुहोस्।`},
+];
+const resourceTemplateMeta=(id)=>RESOURCE_TEMPLATES.find((t)=>t.id===id)||{title:"स्रोत",icon:Wand2,color:MARIGOLD_DARK};
 
 function ResourceCreator({ lessons, classContext, classLabel }) {
   const [active,setActive]=useState(null);
