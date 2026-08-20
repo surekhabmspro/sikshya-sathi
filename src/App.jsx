@@ -417,18 +417,25 @@ async function preparePath({ chapterTitle, chapterId, pathTitle, lessonId, secti
 // and a soft focus ring, done in plain inline styles + a couple of CSS
 // classes injected globally (see the <style> block in App()) so :hover and
 // :active actually work instead of relying only on JS mouse handlers.
+// Buttons — fully-rounded "pill" shape reads friendlier/more energetic than
+// the old squared-13px-radius look, and each filled variant gets a real
+// two-stop gradient + a colour-matched glow shadow instead of a flat tint,
+// which is what makes a warm palette actually feel vibrant instead of just
+// "recolored". Ghost/ AI accents use the marigold family so the app's two
+// warm hues (saffron accent + marigold) both get airtime instead of one
+// color carrying every button on screen.
 function Button({ children, onClick, variant="primary", size="md", disabled, style, icon:Icon, type }) {
   const variants = {
-    primary:   { background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`, color:"#fff", border:"none", boxShadow:SHADOW.accent },
-    marigold:  { background:`linear-gradient(180deg, #DDB054 0%, ${MARIGOLD} 100%)`, color:"#2A1E07", border:"none", boxShadow:SHADOW.marigold },
-    secondary: { background:SURFACE, color:ACCENT, border:`1.5px solid ${BORDER}`, boxShadow:SHADOW.sm },
-    ghost:     { background:ACCENT_LIGHT, color:ACCENT, border:"none", boxShadow:"none" },
-    danger:    { background:SURFACE, color:DANGER, border:`1.5px solid ${DANGER_BG}`, boxShadow:SHADOW.sm },
+    primary:   { background:`linear-gradient(135deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`, color:"#fff", border:"none", boxShadow:SHADOW.accent },
+    marigold:  { background:`linear-gradient(135deg, #FFD874 0%, ${MARIGOLD} 100%)`, color:"#3A2606", border:"none", boxShadow:SHADOW.marigold },
+    secondary: { background:SURFACE, color:ACCENT, border:`2px solid ${BORDER}`, boxShadow:SHADOW.sm },
+    ghost:     { background:ACCENT_LIGHT, color:ACCENT_DARK, border:"none", boxShadow:"none" },
+    danger:    { background:SURFACE, color:DANGER, border:`2px solid ${DANGER_BG}`, boxShadow:SHADOW.sm },
   };
   const sizes = {
-    sm: { padding:"10px 16px", fontSize:16 },
-    md: { padding:"14px 22px", fontSize:16.5 },
-    lg: { padding:"17px 28px", fontSize:18 },
+    sm: { padding:"10px 18px", fontSize:15.5 },
+    md: { padding:"14px 24px", fontSize:16.5 },
+    lg: { padding:"17px 30px", fontSize:18 },
   };
   return (
     <button
@@ -438,7 +445,7 @@ function Button({ children, onClick, variant="primary", size="md", disabled, sty
       className="ss-btn"
       style={{
         display:"flex", alignItems:"center", justifyContent:"center", gap:8,
-        borderRadius:13, fontWeight:700, letterSpacing:"-0.01em", fontFamily:"'Inter','Noto Sans Devanagari',sans-serif",
+        borderRadius:999, fontWeight:700, letterSpacing:"-0.005em", fontFamily:"'Hind','Baloo 2',sans-serif",
         cursor:disabled?"wait":"pointer", opacity:disabled?0.65:1,
         ...variants[variant], ...sizes[size], ...style,
       }}>
@@ -448,15 +455,20 @@ function Button({ children, onClick, variant="primary", size="md", disabled, sty
   );
 }
 
+// Cards — bumped radius (22) and a subtle warm-tinted gradient surface so
+// cards read as "paper lit from above" rather than flat grey boxes; the
+// left accent-color rail (when given) is now thicker (5px) and the whole
+// card gets a soft matching glow on hover, not just a lift, so color-coded
+// lists (materials, activities...) feel lively while scanning.
 function Card({ children, onClick, style, accentColor }) {
   return (
     <div onClick={onClick}
       className={onClick?"ss-card ss-card-hover":"ss-card"}
       style={{
-        background:`linear-gradient(165deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 90%, var(--border) 55%) 100%)`,
-        border:`1px solid ${BORDER}`, borderRadius:18, padding:18,
+        background:`linear-gradient(165deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 88%, ${accentColor||MARIGOLD} 6%) 100%)`,
+        border:`1px solid ${BORDER}`, borderRadius:22, padding:18,
         cursor:onClick?"pointer":"default", boxShadow:SHADOW.raised,
-        ...(accentColor?{borderLeft:`4px solid ${accentColor}`,borderTopLeftRadius:8,borderBottomLeftRadius:8}:{}),
+        ...(accentColor?{borderLeft:`5px solid ${accentColor}`,borderTopLeftRadius:9,borderBottomLeftRadius:9}:{}),
         ...style,
       }}>
       {children}
@@ -465,7 +477,7 @@ function Card({ children, onClick, style, accentColor }) {
 }
 function SectionLabel({ children, icon:Icon, color }) {
   return (
-    <div style={{ display:"flex",alignItems:"center",gap:7, fontSize:16, letterSpacing:"0.06em", textTransform:"uppercase", color:`color-mix(in srgb, ${color||ACCENT} 45%, ${INK_SOFT})`, marginBottom:11, fontWeight:700 }}>
+    <div style={{ display:"flex",alignItems:"center",gap:7, fontSize:15, letterSpacing:"0.08em", textTransform:"uppercase", color:color||ACCENT_DARK, marginBottom:11, fontWeight:800, fontFamily:"'Baloo 2','Hind',sans-serif" }}>
       {Icon&&<Icon size={14} color={color||ACCENT}/>}
       {children}
     </div>
@@ -510,19 +522,19 @@ function ErrorMsg({ msg }) {
 }
 function EmptyState({ icon:Icon=FileText, text, actionLabel, onAction }) {
   return (
-    <div style={{textAlign:"center",padding:"30px 20px"}}>
+    <div style={{textAlign:"center",padding:"34px 20px"}}>
       <div style={{
-        width:52,height:52,borderRadius:15,margin:"0 auto 12px",
-        background:`linear-gradient(160deg, color-mix(in srgb, ${ACCENT} 14%, var(--surface)) 0%, var(--surface) 70%)`,
-        border:`1px solid ${BORDER}`,display:"flex",alignItems:"center",justifyContent:"center",
-        boxShadow:SHADOW.raised,
-      }}><Icon size={21} color={INK_SOFT}/></div>
-      <div style={{fontSize:16.5,fontWeight:600,color:INK_SOFT}}>{text}</div>
+        width:60,height:60,borderRadius:20,margin:"0 auto 14px",
+        background:`linear-gradient(155deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`,
+        display:"flex",alignItems:"center",justifyContent:"center",
+        boxShadow:SHADOW.marigold, transform:"rotate(-4deg)",
+      }}><Icon size={25} color="#fff" style={{transform:"rotate(4deg)"}}/></div>
+      <div style={{fontSize:16.5,fontWeight:700,color:INK_SOFT}}>{text}</div>
       {/* NEW — a message alone in a big empty area doesn't tell you what to
           do next. Giving the empty state its own action button puts the
           obvious next step right where your eye already landed. */}
       {actionLabel&&onAction&&(
-        <button className="ss-btn" onClick={onAction} style={{marginTop:14,display:"inline-flex",alignItems:"center",gap:6,background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"9px 16px",fontWeight:700,fontSize:15,cursor:"pointer",boxShadow:SHADOW.accent}}><Plus size={15}/>{actionLabel}</button>
+        <button className="ss-btn" onClick={onAction} style={{marginTop:16,display:"inline-flex",alignItems:"center",gap:6,background:`linear-gradient(135deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`,color:"#fff",border:"none",borderRadius:999,padding:"11px 20px",fontWeight:700,fontSize:15.5,cursor:"pointer",boxShadow:SHADOW.accent}}><Plus size={15}/>{actionLabel}</button>
       )}
     </div>
   );
@@ -532,22 +544,41 @@ function EmptyState({ icon:Icon=FileText, text, actionLabel, onAction }) {
 // each screen hand-rolled its own title size/weight/icon usage, so the app
 // felt inconsistent moving between sections — this is what makes it read as
 // one cohesively-designed product instead of many separate pages.
+// The icon badge is now a rounded-square set at a slight tilt (a small
+// "stamped/pinned" touch that recurs across the app — see PinBadge) and the
+// title uses the Baloo 2 display face so every screen opens on the same
+// bold, energetic beat.
 function PageHeader({ icon:Icon, title, subtitle, action, color=ACCENT }) {
   return (
-    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:18,flexWrap:"wrap"}}>
-      <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
-        {Icon&&<div style={{width:42,height:42,borderRadius:13,background:`linear-gradient(160deg, ${color} 0%, color-mix(in srgb, ${color} 70%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 10px color-mix(in srgb, ${color} 40%, transparent)`}}><Icon size={19} color="#fff"/></div>}
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:20,flexWrap:"wrap"}}>
+      <div style={{display:"flex",alignItems:"center",gap:13,minWidth:0}}>
+        {Icon&&<div style={{width:46,height:46,borderRadius:15,background:`linear-gradient(155deg, ${color} 0%, color-mix(in srgb, ${color} 65%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 6px 14px color-mix(in srgb, ${color} 45%, transparent)`,transform:"rotate(-3deg)"}}><Icon size={21} color="#fff" style={{transform:"rotate(3deg)"}}/></div>}
         <div style={{minWidth:0}}>
-          <div style={{fontSize:21.5,fontWeight:800,color:INK,letterSpacing:"-0.015em",lineHeight:1.2}}>{title}</div>
-          {subtitle&&<div style={{fontSize:14.5,color:INK_SOFT,fontWeight:600,marginTop:1}}>{subtitle}</div>}
+          <div style={{fontSize:23,fontWeight:800,color:INK,letterSpacing:"-0.01em",lineHeight:1.2,fontFamily:"'Baloo 2','Hind',sans-serif"}}>{title}</div>
+          {subtitle&&<div style={{fontSize:14.5,color:INK_SOFT,fontWeight:600,marginTop:2}}>{subtitle}</div>}
         </div>
       </div>
       {action&&<div style={{flexShrink:0}}>{action}</div>}
     </div>
   );
 }
+// The AI action is the single most important button on most screens — give
+// it its own bold gradient treatment (not the quiet "ghost" look) so it
+// reads as the obvious next tap rather than blending in with secondary
+// actions.
 function AIButton({ label, onClick, loading, style }) {
-  return <Button variant="ghost" size="sm" onClick={onClick} disabled={loading} icon={loading?undefined:Zap} style={style}>{loading?<><Spinner small/> {label}</>:label}</Button>;
+  return (
+    <button className="ss-btn" onClick={onClick} disabled={loading} style={{
+      display:"flex",alignItems:"center",justifyContent:"center",gap:8,
+      background:`linear-gradient(135deg, ${VIOLET} 0%, ${ACCENT} 100%)`, color:"#fff", border:"none",
+      borderRadius:999, fontWeight:700, fontSize:16, padding:"11px 20px",
+      cursor:loading?"wait":"pointer", opacity:loading?0.75:1,
+      boxShadow:`0 6px 16px color-mix(in srgb, ${VIOLET} 38%, transparent)`,
+      fontFamily:"'Hind','Baloo 2',sans-serif", ...style,
+    }}>
+      {loading?<Spinner small/>:<Zap size={16}/>} {label}
+    </button>
+  );
 }
 // NEW — THE single door for saving a material file, same one-door pattern
 // as preparePath() for lesson plans. The bulk uploader in समग्री and the
@@ -832,21 +863,21 @@ function LoginScreen({ onLogin }) {
   const fieldStyle={width:"100%",border:`1.5px solid ${BORDER}`,borderRadius:12,padding:"13px 42px 13px 42px",fontSize:16.5,outline:"none",background:SURFACE_2,color:INK,caretColor:ACCENT};
 
   return(
-    <div style={{minHeight:"100vh",position:"relative",overflow:"hidden",background:`radial-gradient(1000px 560px at 15% -10%, ${ACCENT_LIGHT}, ${PAPER} 55%)`,display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}>
-      <div style={{position:"absolute",top:-120,right:-100,width:340,height:340,borderRadius:"50%",background:`radial-gradient(circle, ${tint(MARIGOLD,14)}, transparent 70%)`,pointerEvents:"none"}}/>
-      <div style={{position:"absolute",bottom:-140,left:-110,width:360,height:360,borderRadius:"50%",background:`radial-gradient(circle, ${tint(TEAL,12)}, transparent 70%)`,pointerEvents:"none"}}/>
+    <div style={{minHeight:"100vh",position:"relative",overflow:"hidden",background:`radial-gradient(1000px 560px at 15% -10%, ${ACCENT_LIGHT}, ${PAPER} 55%)`,display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'Hind','Baloo 2',sans-serif"}}>
+      <div style={{position:"absolute",top:-120,right:-100,width:340,height:340,borderRadius:"50%",background:`radial-gradient(circle, ${tint(MARIGOLD,20)}, transparent 70%)`,pointerEvents:"none"}}/>
+      <div style={{position:"absolute",bottom:-140,left:-110,width:360,height:360,borderRadius:"50%",background:`radial-gradient(circle, ${tint(ROSE,16)}, transparent 70%)`,pointerEvents:"none"}}/>
 
       <div style={{width:"100%",maxWidth:408,position:"relative"}}>
         <div style={{textAlign:"center",marginBottom:32}}>
-          <img src="/icons/icon-192.png" alt="शिक्षा साथी" width={76} height={76} style={{borderRadius:22,margin:"0 auto 18px",display:"block",boxShadow:SHADOW.accent}}/>
-          <div style={{fontSize:30,fontWeight:800,color:INK,letterSpacing:"-0.02em"}}>शिक्षा साथी</div>
+          <img src="/icons/icon-192.png" alt="शिक्षा साथी" width={76} height={76} style={{borderRadius:26,margin:"0 auto 18px",display:"block",boxShadow:SHADOW.marigold,transform:"rotate(-4deg)"}}/>
+          <div style={{fontSize:32,fontWeight:800,color:INK,letterSpacing:"-0.01em",fontFamily:"'Baloo 2','Hind',sans-serif"}}>शिक्षा साथी</div>
           <div style={{fontSize:16.5,color:INK_SOFT,marginTop:6,fontWeight:600}}>जुनसुकै कक्षा र विषयका शिक्षकको साथी</div>
         </div>
 
-        <Card style={{boxShadow:SHADOW.lg,padding:8,border:`1px solid ${BORDER}`}}>
-          <div style={{display:"flex",gap:4,padding:6,background:SURFACE_2,borderRadius:14,marginBottom:22}}>
-            <button onClick={()=>{setMode("login");setError("");}} className="ss-btn" style={{flex:1,padding:"10px",borderRadius:10,border:"none",cursor:"pointer",fontWeight:700,fontSize:16,background:mode==="login"?SURFACE:"transparent",color:mode==="login"?ACCENT:INK_SOFT,boxShadow:mode==="login"?SHADOW.sm:"none"}}>लगइन</button>
-            <button onClick={()=>{setMode("signup");setError("");}} className="ss-btn" style={{flex:1,padding:"10px",borderRadius:10,border:"none",cursor:"pointer",fontWeight:700,fontSize:16,background:mode==="signup"?SURFACE:"transparent",color:mode==="signup"?ACCENT:INK_SOFT,boxShadow:mode==="signup"?SHADOW.sm:"none"}}>नयाँ खाता</button>
+        <Card style={{boxShadow:SHADOW.lg,padding:8,border:`1px solid ${BORDER}`,borderRadius:26}}>
+          <div style={{display:"flex",gap:4,padding:6,background:SURFACE_2,borderRadius:999,marginBottom:22}}>
+            <button onClick={()=>{setMode("login");setError("");}} className="ss-btn" style={{flex:1,padding:"10px",borderRadius:999,border:"none",cursor:"pointer",fontWeight:700,fontSize:16,background:mode==="login"?`linear-gradient(135deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`:"transparent",color:mode==="login"?"#fff":INK_SOFT,boxShadow:mode==="login"?SHADOW.accent:"none"}}>लगइन</button>
+            <button onClick={()=>{setMode("signup");setError("");}} className="ss-btn" style={{flex:1,padding:"10px",borderRadius:999,border:"none",cursor:"pointer",fontWeight:700,fontSize:16,background:mode==="signup"?`linear-gradient(135deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`:"transparent",color:mode==="signup"?"#fff":INK_SOFT,boxShadow:mode==="signup"?SHADOW.accent:"none"}}>नयाँ खाता</button>
           </div>
 
           <div style={{padding:"0 18px 22px"}}>
@@ -927,7 +958,7 @@ function SectionSelector({ sections, current, onChange, onAdd }) {
 function PrintableSheet({ title, subtitle, chip, chipColor, onClose, children }) {
   return (
     <div className="print-area" style={{position:"fixed",inset:0,background:PAPER,zIndex:70,display:"flex",flexDirection:"column"}}>
-      <div className="no-print" style={{background:`linear-gradient(120deg, ${TEAL} 0%, ${ACCENT} 65%, ${ACCENT_DARK} 100%)`,color:"#fff",padding:"14px 16px",display:"flex",alignItems:"center",gap:10}}>
+      <div className="no-print" style={{background:`linear-gradient(120deg, ${MARIGOLD} 0%, ${ACCENT} 55%, ${ROSE} 100%)`,color:"#fff",padding:"14px 16px",display:"flex",alignItems:"center",gap:10}}>
         <button className="ss-icon-btn" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:10,display:"flex",cursor:"pointer"}}><ChevronLeft size={20}/></button>
         <div style={{flex:1,minWidth:0}}>
           {subtitle&&<div style={{fontSize:14,opacity:0.75}}>{subtitle}</div>}
@@ -1203,7 +1234,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
           .lesson-rail{width:250px;flex-shrink:0;display:flex;flex-direction:column;overflow-y:auto;border-right:1px solid ${BORDER};background:${SURFACE};}
           .lesson-tabs{flex-direction:column;overflow-x:visible;border-bottom:none;padding:10px;gap:2px;}
           .lesson-tab-btn{border-bottom:none;border-left:3px solid transparent;border-radius:10px;padding:11px 13px;justify-content:flex-start;}
-          .lesson-tab-btn.active{background:${ACCENT_LIGHT};border-left-color:${ACCENT};}
+          .lesson-tab-btn.active{background:${ACCENT_LIGHT};border-left-color:${MARIGOLD};}
           /* FIX — this used to be max-width:900px with no centering, so on
              a wide monitor the content pane sat pinned against the rail
              and everything past 900px was just dead empty screen. Centered
@@ -1215,7 +1246,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
           .lesson-obj-trigger{display:flex;}
         }
       `}</style>
-      <div className="no-print" style={{background:`linear-gradient(120deg, ${TEAL} 0%, ${ACCENT} 65%, ${ACCENT_DARK} 100%)`,color:"#fff",padding:"12px 16px",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+      <div className="no-print" style={{background:`linear-gradient(120deg, ${MARIGOLD} 0%, ${ACCENT} 55%, ${ROSE} 100%)`,color:"#fff",padding:"12px 16px",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
         <button className="ss-icon-btn" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:10,display:"flex",cursor:"pointer"}}><ChevronLeft size={20}/></button>
         <div style={{flex:1,minWidth:0}}>
           <div style={{fontSize:13.5,opacity:0.75}}>{chapterTitle}</div>
@@ -1364,7 +1395,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
           printable handout: bordered header block, a byline row (class/
           teacher/date), and consistent section rules — not just a plain
           dump of text. */}
-      <div className="print-only" style={{fontFamily:"'Noto Sans Devanagari','Inter',sans-serif",color:"#111",maxWidth:"18cm",margin:"0 auto"}}>
+      <div className="print-only" style={{fontFamily:"'Hind','Baloo 2',sans-serif",color:"#111",maxWidth:"18cm",margin:"0 auto"}}>
         <div style={{border:"1.5px solid #111",borderRadius:6,padding:"14px 18px",marginBottom:16}}>
           {chapterTitle&&<div style={{fontSize:12.5,letterSpacing:"0.06em",textTransform:"uppercase",color:"#444",fontWeight:700,marginBottom:3}}>{chapterTitle}</div>}
           <div style={{fontSize:23,fontWeight:800,marginBottom:8,lineHeight:1.25}}>{lesson.title}</div>
@@ -1523,20 +1554,21 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
 
 function StatCard({ icon:Icon, value, label, color, onClick, accent }) {
   return (
-    <Card onClick={onClick} style={{padding:"14px 15px",paddingTop:20,position:"relative",overflow:"visible", background: accent?`linear-gradient(160deg, color-mix(in srgb, ${color} 10%, var(--surface)) 0%, var(--surface) 65%)`:undefined}}>
+    <Card onClick={onClick} accentColor={color} style={{padding:"14px 16px",paddingTop:20,position:"relative",overflow:"visible", background: accent?`linear-gradient(160deg, color-mix(in srgb, ${color} 14%, var(--surface)) 0%, var(--surface) 65%)`:undefined}}>
       <PinBadge color={color}/>
       <div style={{display:"flex",alignItems:"center",gap:11}}>
         <div style={{
-          width:38,height:38,borderRadius:11,flexShrink:0,
-          background:`linear-gradient(160deg, ${color} 0%, color-mix(in srgb, ${color} 70%, black) 100%)`,
+          width:40,height:40,borderRadius:13,flexShrink:0,
+          background:`linear-gradient(155deg, ${color} 0%, color-mix(in srgb, ${color} 65%, black) 100%)`,
           display:"flex",alignItems:"center",justifyContent:"center",
-          boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 10px color-mix(in srgb, ${color} 40%, transparent)`,
+          boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 10px color-mix(in srgb, ${color} 45%, transparent)`,
+          transform:"rotate(-3deg)",
         }}>
-          <Icon size={18} color="#fff"/>
+          <Icon size={19} color="#fff" style={{transform:"rotate(3deg)"}}/>
         </div>
         <div style={{minWidth:0}}>
-          <div style={{fontSize:22,fontWeight:800,color:INK,lineHeight:1.05}}>{value}</div>
-          <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:600,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{label}</div>
+          <div style={{fontSize:24,fontWeight:800,color:INK,lineHeight:1.05,fontFamily:"'Baloo 2','Hind',sans-serif"}}>{value}</div>
+          <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:600,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{label}</div>
         </div>
       </div>
     </Card>
@@ -1648,12 +1680,17 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, on
   const timeGreeting=hour<11?"शुभ प्रभात":hour<16?"नमस्ते":"शुभ साँझ";
 
   return(
-    <div className="ss-page" style={{padding:"18px 18px 130px",maxWidth:760,margin:"0 auto"}}>
-      {teacherName&&<div style={{fontSize:16.5,fontWeight:700,color:INK,marginBottom:10}}>{timeGreeting}, {teacherName} जी 👋</div>}
+    <div className="ss-page" style={{padding:"20px 18px 130px",maxWidth:760,margin:"0 auto"}}>
+      {teacherName&&(
+        <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+          <div style={{fontSize:24,fontWeight:800,color:INK,fontFamily:"'Baloo 2','Hind',sans-serif",letterSpacing:"-0.01em"}}>{timeGreeting}, {teacherName} जी</div>
+          <span style={{fontSize:22}}>👋</span>
+        </div>
+      )}
 
       {!textbookReady&&(
-        <Card onClick={onGoSettings} style={{marginBottom:16,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}>
-          <div style={{width:38,height:38,borderRadius:11,background:`linear-gradient(160deg, ${MARIGOLD_DARK} 0%, color-mix(in srgb, ${MARIGOLD_DARK} 70%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 10px color-mix(in srgb, ${MARIGOLD_DARK} 40%, transparent)`}}><BookMarked size={18} color="#fff"/></div>
+        <Card onClick={onGoSettings} accentColor={MARIGOLD_DARK} style={{marginBottom:16,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}>
+          <div style={{width:40,height:40,borderRadius:13,background:`linear-gradient(155deg, ${MARIGOLD} 0%, ${MARIGOLD_DARK} 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:SHADOW.marigold,transform:"rotate(-3deg)"}}><BookMarked size={19} color="#fff" style={{transform:"rotate(3deg)"}}/></div>
           <div style={{flex:1,minWidth:0}}>
             <div style={{fontWeight:700,fontSize:16.5,color:INK}}>पहिले पाठ्यपुस्तक अपलोड गर्नुहोस्</div>
             <div style={{fontSize:14.5,color:INK_SOFT}}>सेटिङमा गएर PDF थप्नुहोस् — त्यसपछि मात्र AI ले तयार गर्न सक्छ</div>
@@ -1663,21 +1700,22 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, on
       )}
 
       {today&&(
-        <div style={{background:`linear-gradient(120deg,${TEAL} 0%, ${ACCENT} 65%, ${ACCENT_DARK} 100%)`,borderRadius:18,padding:"16px 18px",color:"#fff",marginBottom:16,boxShadow:SHADOW.accent,position:"relative",overflow:"hidden"}}>
-          <div style={{position:"absolute",top:-30,right:-30,width:110,height:110,borderRadius:"50%",background:"rgba(255,255,255,0.07)"}}/>
+        <div style={{background:`linear-gradient(120deg,${MARIGOLD} 0%, ${ACCENT} 55%, ${ROSE} 100%)`,borderRadius:24,padding:"18px 20px",color:"#fff",marginBottom:16,boxShadow:SHADOW.accent,position:"relative",overflow:"hidden"}}>
+          <div style={{position:"absolute",top:-36,right:-30,width:130,height:130,borderRadius:"50%",background:"rgba(255,255,255,0.09)"}}/>
+          <div style={{position:"absolute",bottom:-40,right:60,width:80,height:80,borderRadius:"50%",background:"rgba(255,255,255,0.07)"}}/>
           <div style={{position:"relative",minWidth:0}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
-              <div style={{fontSize:13,opacity:0.8,fontWeight:600,letterSpacing:"0.03em",textTransform:"uppercase"}}>{today.chapters?.title||today.chapter_title||""}</div>
+              <div style={{display:"inline-flex",fontSize:12.5,opacity:0.95,fontWeight:700,letterSpacing:"0.04em",textTransform:"uppercase",background:"rgba(255,255,255,0.18)",padding:"3px 10px",borderRadius:999}}>आजको पाठ · {today.chapters?.title||today.chapter_title||""}</div>
               {/* NEW — was previously impossible to change; this is the fix. */}
               {lessons.length>1&&(
-                <button className="ss-btn" onClick={()=>setPickingToday((v)=>!v)} style={{background:"rgba(255,255,255,0.16)",border:"none",color:"#fff",borderRadius:8,padding:"4px 9px",fontSize:13,fontWeight:700,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"}}>बदल्नुहोस्</button>
+                <button className="ss-btn" onClick={()=>setPickingToday((v)=>!v)} style={{background:"rgba(255,255,255,0.2)",border:"none",color:"#fff",borderRadius:999,padding:"4px 11px",fontSize:13,fontWeight:700,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"}}>बदल्नुहोस्</button>
               )}
             </div>
-            <div style={{fontSize:19.5,fontWeight:800,margin:"2px 0 12px",letterSpacing:"-0.01em",overflowWrap:"break-word"}}>{today.title}</div>
+            <div style={{fontSize:21,fontWeight:800,margin:"8px 0 14px",letterSpacing:"-0.01em",overflowWrap:"break-word",fontFamily:"'Baloo 2','Hind',sans-serif"}}>{today.title}</div>
             {pickingToday?(
-              <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:8,marginBottom:4,maxHeight:220,overflowY:"auto",boxShadow:SHADOW.lg}}>
+              <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:16,padding:8,marginBottom:4,maxHeight:220,overflowY:"auto",boxShadow:SHADOW.lg}}>
                 {lessons.map((l)=>(
-                  <div key={l.id} onClick={()=>chooseToday(l)} style={{padding:"9px 10px",borderRadius:8,cursor:"pointer",background:l.id===today.id?ACCENT_LIGHT:"transparent"}}>
+                  <div key={l.id} onClick={()=>chooseToday(l)} style={{padding:"9px 10px",borderRadius:10,cursor:"pointer",background:l.id===today.id?ACCENT_LIGHT:"transparent"}}>
                     <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:600}}>{l.chapters?.title||l.chapter_title||""}</div>
                     <div style={{fontSize:15.5,color:INK,fontWeight:700}}>{l.title}</div>
                   </div>
@@ -1689,9 +1727,9 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, on
               // buried inside the lesson viewer (open lesson → find print
               // button). It's a one-tap action from the dashboard now,
               // sitting right next to opening the lesson itself.
-              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                <Button variant="marigold" size="sm" icon={Sparkles} onClick={()=>onOpenLesson(today)}>आजको पाठ सुरु</Button>
-                <Button size="sm" icon={Printer} onClick={()=>onOpenLesson(today,{autoPrint:true})} style={{background:"rgba(255,255,255,0.16)",border:"1px solid rgba(255,255,255,0.35)",color:"#fff"}}>प्रिन्ट गर्नुहोस्</Button>
+              <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>
+                <Button size="sm" icon={Sparkles} onClick={()=>onOpenLesson(today)} style={{background:"#fff",color:ACCENT_DARK,boxShadow:"0 4px 14px rgba(0,0,0,0.18)"}}>आजको पाठ सुरु</Button>
+                <Button size="sm" icon={Printer} onClick={()=>onOpenLesson(today,{autoPrint:true})} style={{background:"rgba(255,255,255,0.2)",border:"1.5px solid rgba(255,255,255,0.4)",color:"#fff"}}>प्रिन्ट गर्नुहोस्</Button>
               </div>
             )}
           </div>
@@ -1702,8 +1740,8 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, on
           (and drifting out of sync with) the one inside Planner. Now it's a
           plain shortcut: Planner is the single door where you pick an
           Adhyaya, see its Paths, and generate a Path's full bundle. */}
-      <Card onClick={()=>onGoPlanner()} style={{marginBottom:16,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}>
-        <div style={{width:38,height:38,borderRadius:11,background:`linear-gradient(160deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:SHADOW.accent}}><Wand2 size={18} color="#fff"/></div>
+      <Card onClick={()=>onGoPlanner()} accentColor={ACCENT} style={{marginBottom:16,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}>
+        <div style={{width:40,height:40,borderRadius:13,background:`linear-gradient(155deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:SHADOW.accent,transform:"rotate(-3deg)"}}><Wand2 size={19} color="#fff" style={{transform:"rotate(3deg)"}}/></div>
         <div style={{flex:1,minWidth:0}}>
           <div style={{fontWeight:700,fontSize:16.5,color:INK}}>पाठ योजना बनाउनुहोस्</div>
           <div style={{fontSize:14.5,color:INK_SOFT}}>अध्याय छान्नुहोस्, त्यसभित्र पाठ थप्नुहोस् — AI ले एकैचोटि सबै तयार गर्छ</div>
@@ -1711,7 +1749,8 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, on
         <ChevronRight size={18} color={INK_SOFT} style={{flexShrink:0}}/>
       </Card>
 
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:16}}>
+      <SectionLabel icon={Zap} color={ACCENT}>एक नजरमा</SectionLabel>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:12,marginBottom:18}}>
         <StatCard icon={BookOpen} value={chapters?.length||0} label="अध्यायहरू" color={ACCENT} accent onClick={onGoMaterials}/>
         <StatCard icon={FileText} value={materialsCount} label="सामग्री फाइल" color={ROSE} accent onClick={onGoMaterials}/>
         <StatCard icon={CheckCircle2} value={lessons.filter((l)=>l.status==="ready").length} label="तयार पाठ" color={TEAL} accent onClick={onGoPlanner}/>
@@ -2015,10 +2054,9 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
 
   return(
     <div className="ss-page" style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-        <div style={{fontSize:20,fontWeight:700,color:INK}}>पाठ योजना</div>
-        <button className="ss-btn" onClick={()=>setAddingChapter(true)} style={{display:"flex",alignItems:"center",gap:5,background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}><Plus size={14}/>नयाँ अध्याय</button>
-      </div>
+      <PageHeader icon={ClipboardList} title="पाठ योजना" color={ACCENT} action={
+        <Button size="sm" icon={Plus} onClick={()=>setAddingChapter(true)}>नयाँ अध्याय</Button>
+      }/>
 
       {/* NEW — पहिले अध्याय (Unit), त्यसपछि त्यो भित्र धेरै पाठ (Path):
           every अध्याय below can hold several पाठ, expanded/collapsed like
@@ -2137,25 +2175,26 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
 
       {loading?<Spinner/>:groups.length===0?<EmptyState icon={ClipboardList} text="अझै कुनै अध्याय छैन।" actionLabel="पहिलो अध्याय थप्नुहोस्" onAction={()=>setAddingChapter(true)}/>:(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {groups.map(({chapter,paths,unassigned})=>{
+          {groups.map(({chapter,paths,unassigned},gi)=>{
             const isOpen=expanded.has(chapter.id);
+            const chapColor=unassigned?DANGER:PALETTE[gi%PALETTE.length];
             return(
-              <Card key={chapter.id} style={unassigned?{padding:0,overflow:"hidden",border:`1.5px dashed ${DANGER}`}:{padding:0,overflow:"hidden"}}>
+              <Card key={chapter.id} accentColor={unassigned?DANGER:chapColor} style={unassigned?{padding:0,overflow:"hidden",border:`1.5px dashed ${DANGER}`}:{padding:0,overflow:"hidden"}}>
                 <div onClick={()=>editingChapterId!==chapter.id&&toggleExpand(chapter.id)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"14px 16px",cursor:"pointer"}}>
                   {editingChapterId===chapter.id?(
                     <div style={{display:"flex",gap:6,flex:1,minWidth:0}} onClick={(e)=>e.stopPropagation()}>
                       <input autoFocus value={chapterEditValue} onChange={(e)=>setChapterEditValue(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&renameChapter(chapter)} className="ss-field" style={{flex:1,minWidth:0,borderRadius:10,padding:"7px 10px",fontSize:16,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
-                      <button className="ss-btn" onClick={()=>renameChapter(chapter)} disabled={chapterBusy===chapter.id} style={{padding:"7px 12px",borderRadius:8,border:"none",background:ACCENT,color:"#fff",fontWeight:700,cursor:"pointer"}}>✓</button>
-                      <button className="ss-btn" onClick={()=>setEditingChapterId(null)} style={{padding:"7px 12px",borderRadius:8,border:`1px solid ${BORDER}`,background:SURFACE,cursor:"pointer"}}>✕</button>
+                      <button className="ss-btn" onClick={()=>renameChapter(chapter)} disabled={chapterBusy===chapter.id} style={{padding:"7px 12px",borderRadius:999,border:"none",background:ACCENT,color:"#fff",fontWeight:700,cursor:"pointer"}}>✓</button>
+                      <button className="ss-btn" onClick={()=>setEditingChapterId(null)} style={{padding:"7px 12px",borderRadius:999,border:`1px solid ${BORDER}`,background:SURFACE,cursor:"pointer"}}>✕</button>
                     </div>
                   ):(
                     <>
-                      <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0,flex:1}}>
-                        {isOpen?<ChevronDown size={16} color={INK_SOFT} style={{flexShrink:0}}/>:<ChevronRight size={16} color={INK_SOFT} style={{flexShrink:0}}/>}
-                        <div style={{fontWeight:700,fontSize:17,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{chapter.title}</div>
+                      <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0,flex:1}}>
+                        <div style={{width:30,height:30,borderRadius:10,flexShrink:0,background:`linear-gradient(155deg, ${chapColor} 0%, color-mix(in srgb, ${chapColor} 65%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",transform:"rotate(-3deg)"}}>{isOpen?<ChevronDown size={15} color="#fff" style={{transform:"rotate(3deg)"}}/>:<ChevronRight size={15} color="#fff" style={{transform:"rotate(3deg)"}}/>}</div>
+                        <div style={{fontWeight:700,fontSize:17,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:"'Baloo 2','Hind',sans-serif"}}>{chapter.title}</div>
                       </div>
                       <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-                        <span style={{fontSize:13.5,background:paths.length?ACCENT_LIGHT:SURFACE_2,color:paths.length?ACCENT:INK_SOFT,padding:"3px 9px",borderRadius:999,fontWeight:700}}>{paths.length} पाठ</span>
+                        <span style={{fontSize:13.5,background:paths.length?`color-mix(in srgb, ${chapColor} 18%, transparent)`:SURFACE_2,color:paths.length?chapColor:INK_SOFT,padding:"3px 10px",borderRadius:999,fontWeight:700}}>{paths.length} पाठ</span>
                         {!unassigned&&<button className="ss-icon-btn" onClick={(e)=>{e.stopPropagation();setEditingChapterId(chapter.id);setChapterEditValue(chapter.title);}} title="नाम बदल्नुहोस्" style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,padding:4}}><PenSquare size={15}/></button>}
                         {!unassigned&&<button className="ss-icon-btn" onClick={(e)=>deleteChapterInPlanner(chapter,e)} disabled={chapterBusy===chapter.id} title="मेटाउनुहोस्" style={{background:"none",border:"none",cursor:"pointer",color:DANGER,padding:4}}><Trash2 size={15}/></button>}
                       </div>
@@ -2463,22 +2502,21 @@ function Materials({ classLabel }) {
   },[materials]);
 
   return(
-    <div className="ss-page" style={{padding:"18px 18px 130px",maxWidth:1040,margin:"0 auto"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-        <div style={{fontSize:22,fontWeight:800,color:INK,letterSpacing:"-0.01em"}}>सामग्री पुस्तकालय</div>
-        <Button variant="ghost" size="sm" icon={RefreshCw} onClick={sync} disabled={syncing}>{syncing?"...":"सिंक"}</Button>
-      </div>
+    <div className="ss-page" style={{padding:"20px 18px 130px",maxWidth:1040,margin:"0 auto"}}>
+      <PageHeader icon={FolderKanban} title="सामग्री पुस्तकालय" color={ROSE} action={
+        <Button variant="secondary" size="sm" icon={RefreshCw} onClick={sync} disabled={syncing}>{syncing?"...":"सिंक"}</Button>
+      }/>
       {error&&<ErrorMsg msg={error}/>}
       {untaggedCount>0&&(
-        <div onClick={()=>setChapterFilter("untagged")} style={{background:WARN_BG,borderRadius:12,padding:"11px 16px",fontSize:16,color:WARN,margin:"12px 0",display:"flex",alignItems:"center",gap:8,fontWeight:600,cursor:"pointer"}}>
+        <div onClick={()=>setChapterFilter("untagged")} style={{background:WARN_BG,borderRadius:14,padding:"11px 16px",fontSize:16,color:WARN,margin:"12px 0",display:"flex",alignItems:"center",gap:8,fontWeight:600,cursor:"pointer"}}>
           <Tag size={15}/>{untaggedCount} फाइलमा अध्याय तोकिएको छैन — AI ले ती फाइल प्रयोग गर्न सक्दैन। हेर्न यहाँ थिच्नुहोस्।
         </div>
       )}
 
-      <Card style={{marginBottom:16,marginTop:12}}>
+      <Card accentColor={ROSE} style={{marginBottom:16,marginTop:12}}>
         <div style={{fontSize:16.5,fontWeight:700,color:INK,marginBottom:8}}>नयाँ फाइल थप्नुहोस्</div>
         <div style={{fontSize:15,color:INK_SOFT,marginBottom:12}}>तल थिचेर आफ्नो फोनबाट फाइल छान्नुहोस् (लेसन प्लान, PPT, जे भए पनि) — कुन अध्याय र पाठको हो भनेर पछि सोध्नेछौं।</div>
-        <label className="ss-btn" style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:12,padding:"14px",fontSize:17,fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}>
+        <label className="ss-btn" style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:`linear-gradient(135deg, ${ROSE} 0%, ${VIOLET} 100%)`,color:"#fff",border:"none",borderRadius:999,padding:"14px",fontSize:17,fontWeight:700,cursor:"pointer",boxShadow:`0 8px 20px color-mix(in srgb, ${ROSE} 36%, transparent)`}}>
           <Plus size={17}/>फाइल छान्नुहोस्
           <input type="file" multiple onChange={selectFiles} style={{display:"none"}} accept=".pdf,.pptx,.ppt,.doc,.docx,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.mp4,.mp3"/>
         </label>
@@ -2593,16 +2631,16 @@ function Materials({ classLabel }) {
       <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
         <div style={{flex:1,minWidth:180,display:"flex",alignItems:"center",gap:8,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"11px 14px"}}>
           <Search size={16} color={INK_SOFT}/>
-          <input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="फाइल खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:16.5,flex:1,minWidth:0,background:"transparent",color:INK,caretColor:ACCENT,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
+          <input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="फाइल खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:16.5,flex:1,minWidth:0,background:"transparent",color:INK,caretColor:ACCENT,fontFamily:"'Hind','Baloo 2',sans-serif"}}/>
         </div>
         {/* NEW — browse materials by chapter, same concept the Planner now
             uses, instead of only being able to filter by file category. */}
-        <select value={chapterFilter} onChange={(e)=>setChapterFilter(e.target.value)} style={{border:`1px solid ${chapterFilter!=="all"?ACCENT:BORDER}`,borderRadius:12,padding:"11px 14px",fontSize:16,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif",background:chapterFilter!=="all"?ACCENT_LIGHT:SURFACE,color:chapterFilter!=="all"?ACCENT:INK,fontWeight:600}}>
+        <select value={chapterFilter} onChange={(e)=>setChapterFilter(e.target.value)} style={{border:`1px solid ${chapterFilter!=="all"?ACCENT:BORDER}`,borderRadius:12,padding:"11px 14px",fontSize:16,fontFamily:"'Hind','Baloo 2',sans-serif",background:chapterFilter!=="all"?ACCENT_LIGHT:SURFACE,color:chapterFilter!=="all"?ACCENT:INK,fontWeight:600}}>
           <option value="all">सबै अध्याय</option>
           <option value="untagged">अध्याय नतोकिएका</option>
           {(chapters||[]).map((c)=><option key={c.id} value={c.id}>{c.title}</option>)}
         </select>
-        <select value={sortBy} onChange={(e)=>setSortBy(e.target.value)} style={{border:`1px solid ${BORDER}`,borderRadius:12,padding:"11px 14px",fontSize:16,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif",background:SURFACE,color:INK,fontWeight:600}}>
+        <select value={sortBy} onChange={(e)=>setSortBy(e.target.value)} style={{border:`1px solid ${BORDER}`,borderRadius:12,padding:"11px 14px",fontSize:16,fontFamily:"'Hind','Baloo 2',sans-serif",background:SURFACE,color:INK,fontWeight:600}}>
           <option value="newest">नयाँ पहिले</option>
           <option value="name">नाम अनुसार (क-ज्ञ)</option>
         </select>
@@ -2735,10 +2773,9 @@ function HomeworkManager({ section, loading, homework, onRefresh, classLabel }) 
   };
   return(
     <div className="ss-page" style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-        <div style={{fontSize:20,fontWeight:700,color:INK}}>गृहकार्य</div>
-        <button className="ss-btn" onClick={()=>setShowForm(true)} style={{display:"flex",alignItems:"center",gap:5,background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}><Plus size={14}/>नयाँ</button>
-      </div>
+      <PageHeader icon={ListChecks} title="गृहकार्य" color={BLUE} action={
+        <Button size="sm" icon={Plus} onClick={()=>setShowForm(true)} style={{background:`linear-gradient(135deg, ${BLUE} 0%, ${VIOLET} 100%)`}}>नयाँ</Button>
+      }/>
       {showForm&&(
         <Card style={{marginBottom:14}}>
           <div style={{display:"flex",flexDirection:"column",gap:9}}>
@@ -2809,10 +2846,9 @@ function TeachingJournal({ lessons, classLabel }) {
   };
   return(
     <div className="ss-page" style={{padding:"20px 20px 130px",maxWidth:820,margin:"0 auto"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-        <div style={{fontSize:20,fontWeight:700,color:INK,display:"flex",alignItems:"center",gap:8}}><Heart size={20} color={ACCENT}/>डायरी</div>
-        {!showForm&&<button className="ss-btn" onClick={()=>setShowForm(true)} style={{display:"flex",alignItems:"center",gap:5,background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}><Plus size={14}/>थप</button>}
-      </div>
+      <PageHeader icon={Heart} title="डायरी" color={ROSE} action={
+        !showForm&&<Button size="sm" icon={Plus} onClick={()=>setShowForm(true)} style={{background:`linear-gradient(135deg, ${ROSE} 0%, ${VIOLET} 100%)`}}>थप</Button>
+      }/>
       {showForm&&(
         <Card style={{marginBottom:14}}>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -2821,7 +2857,7 @@ function TeachingJournal({ lessons, classLabel }) {
               {(lessons||[]).length===0?(
                 <div style={{fontSize:15,color:INK_SOFT,background:SURFACE_2,borderRadius:10,padding:"9px 12px"}}>अझै कुनै पाठ योजना बनाइएको छैन — पाठ योजनामा एउटा थपेपछि यहाँ छान्न सकिन्छ।</div>
               ):(
-                <select value={form.lesson_id} onChange={(e)=>setForm({...form,lesson_id:e.target.value})} style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}>
+                <select value={form.lesson_id} onChange={(e)=>setForm({...form,lesson_id:e.target.value})} style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontFamily:"'Hind','Baloo 2',sans-serif"}}>
                   <option value="">— कुनै पाठसँग नजोडी —</option>
                   {lessons.map((l)=><option key={l.id} value={l.id}>{lessonOptionLabel(l)}</option>)}
                 </select>
@@ -2950,9 +2986,9 @@ function AIAssistant({ lessons, classContext, classLabel }) {
   return(
     <div className="ss-page-read" style={{display:"flex",flexDirection:"column",height:"calc(100vh - 170px)",maxWidth:720,margin:"0 auto",width:"100%"}}>
       <div style={{padding:"14px 16px 8px"}}>
-        <div style={{fontSize:19,fontWeight:700,color:INK,display:"flex",alignItems:"center",gap:8}}><Bot size={20} color={ACCENT}/>AI शिक्षण सहायक</div>
+        <div style={{fontSize:19,fontWeight:800,color:INK,display:"flex",alignItems:"center",gap:9,fontFamily:"'Baloo 2','Hind',sans-serif"}}><div style={{width:34,height:34,borderRadius:11,background:`linear-gradient(155deg, ${ACCENT} 0%, ${VIOLET} 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:SHADOW.accent,transform:"rotate(-3deg)"}}><Bot size={17} color="#fff" style={{transform:"rotate(3deg)"}}/></div>AI शिक्षण सहायक</div>
         {lessons.length>0&&(
-          <select value={lessonId} onChange={(e)=>setLessonId(e.target.value)} style={{marginTop:8,width:"100%",borderRadius:10,padding:"8px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontWeight:600,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}>
+          <select value={lessonId} onChange={(e)=>setLessonId(e.target.value)} style={{marginTop:8,width:"100%",borderRadius:10,padding:"8px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontWeight:600,fontFamily:"'Hind','Baloo 2',sans-serif"}}>
             {lessons.map((l)=><option key={l.id} value={l.id}>{lessonOptionLabel(l)}</option>)}
           </select>
         )}
@@ -3012,7 +3048,7 @@ function AIAssistant({ lessons, classContext, classLabel }) {
         </div>
       )}
       <div style={{display:"flex",gap:8,padding:"8px 16px 16px"}}>
-        <input value={input} onChange={(e)=>setInput(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&send(input)} placeholder="आफ्नो प्रश्न लेख्नुहोस्..." style={{flex:1,minWidth:0,border:`1px solid ${BORDER}`,borderRadius:999,padding:"12px 16px",fontSize:16.5,outline:"none",background:SURFACE_2,color:INK,caretColor:ACCENT,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
+        <input value={input} onChange={(e)=>setInput(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&send(input)} placeholder="आफ्नो प्रश्न लेख्नुहोस्..." style={{flex:1,minWidth:0,border:`1px solid ${BORDER}`,borderRadius:999,padding:"12px 16px",fontSize:16.5,outline:"none",background:SURFACE_2,color:INK,caretColor:ACCENT,fontFamily:"'Hind','Baloo 2',sans-serif"}}/>
         <button className="ss-btn" onClick={()=>send(input)} style={{background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:"50%",width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,boxShadow:SHADOW.accent}}><Send size={17}/></button>
       </div>
     </div>
@@ -3077,10 +3113,9 @@ function QuestionBank({ classContext, classLabel }) {
 
   return(<>
     <div className={`${showSet?"no-print":""} ss-page`} style={{padding:"20px 20px 150px",maxWidth:1040,margin:"0 auto"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-        <div style={{fontSize:20,fontWeight:700,color:INK}}>प्रश्न बैंक</div>
-        <button className="ss-btn" onClick={()=>setShowForm(!showForm)} style={{display:"flex",alignItems:"center",gap:5,background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}><Plus size={14}/>नयाँ</button>
-      </div>
+      <PageHeader icon={HelpCircle} title="प्रश्न बैंक" color={VIOLET} action={
+        <Button size="sm" icon={Plus} onClick={()=>setShowForm(!showForm)} style={{background:`linear-gradient(135deg, ${VIOLET} 0%, ${ROSE} 100%)`}}>नयाँ</Button>
+      }/>
       {showForm&&(
         <Card style={{marginBottom:14}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -3106,7 +3141,7 @@ function QuestionBank({ classContext, classLabel }) {
       )}
       <div style={{display:"flex",alignItems:"center",gap:8,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"10px 14px",marginBottom:10}}>
         <Search size={16} color={INK_SOFT}/>
-        <input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="प्रश्न खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:16.5,flex:1,minWidth:0,background:"transparent",color:INK,caretColor:ACCENT,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
+        <input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="प्रश्न खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:16.5,flex:1,minWidth:0,background:"transparent",color:INK,caretColor:ACCENT,fontFamily:"'Hind','Baloo 2',sans-serif"}}/>
       </div>
       <div style={{display:"flex",gap:7,overflowX:"auto",marginBottom:14}}>
         {DIFFS.map((d)=><button key={d} onClick={()=>setDiffFilter(d)} style={{padding:"6px 12px",borderRadius:999,background:diffFilter===d?ACCENT:SURFACE,color:diffFilter===d?"#fff":INK,fontWeight:600,fontSize:15.5,whiteSpace:"nowrap",cursor:"pointer",border:"1px solid "+(diffFilter===d?ACCENT:BORDER)}}>{d}</button>)}
@@ -3209,10 +3244,9 @@ function AssessmentBuilder({ classContext, classLabel }) {
 
   return(<>
     <div className={`${printing?"no-print":""} ss-page`} style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-        <div style={{fontSize:20,fontWeight:700,color:INK}}>मूल्याङ्कन</div>
-        <button className="ss-btn" onClick={()=>setShowForm(!showForm)} style={{display:"flex",alignItems:"center",gap:5,background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}><Plus size={14}/>नयाँ</button>
-      </div>
+      <PageHeader icon={NotebookPen} title="मूल्याङ्कन" color={BLUE} action={
+        <Button size="sm" icon={Plus} onClick={()=>setShowForm(!showForm)} style={{background:`linear-gradient(135deg, ${BLUE} 0%, ${TEAL} 100%)`}}>नयाँ</Button>
+      }/>
       {showForm&&(
         <Card style={{marginBottom:14}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -3322,10 +3356,9 @@ function ActivitiesLibrary({ classContext, classLabel }) {
 
   return(<>
     <div className={`${printing?"no-print":""} ss-page`} style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-        <div style={{fontSize:20,fontWeight:700,color:INK}}>क्रियाकलाप</div>
-        <button className="ss-btn" onClick={()=>setShowForm(!showForm)} style={{display:"flex",alignItems:"center",gap:5,background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:16,fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}><Plus size={14}/>नयाँ</button>
-      </div>
+      <PageHeader icon={Gamepad2} title="क्रियाकलाप" color={TEAL} action={
+        <Button size="sm" icon={Plus} onClick={()=>setShowForm(!showForm)} style={{background:`linear-gradient(135deg, ${TEAL} 0%, ${MARIGOLD} 100%)`}}>नयाँ</Button>
+      }/>
       {showForm&&(
         <Card style={{marginBottom:14}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -3475,7 +3508,7 @@ function MoreHub({
 
   return(
     <div className="ss-page" style={{padding:"20px 20px 130px",margin:"0 auto",width:"100%"}}>
-      <div style={{fontSize:20,fontWeight:700,color:INK,display:"flex",alignItems:"center",gap:8,marginBottom:14}}><Layers size={20} color={ACCENT}/>थप</div>
+      <PageHeader icon={Layers} title="थप" color={ROSE}/>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:12,marginBottom:18}}>
         <SummaryPanel icon={ListChecks} color={BLUE} title="गृहकार्य" onOpen={()=>setOpenPanel("homework")}
           subtitle={hwLoading?"लोड हुँदै...":homework.length===0?"कुनै गृहकार्य छैन":`${homework.length} जम्मा · ${pendingHomework} जाँच बाँकी`}/>
@@ -3596,7 +3629,7 @@ function ResourceCreator({ lessons, classContext, classLabel }) {
 
   return(
     <div className="ss-page" style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
-      <div className="no-print" style={{fontSize:20,fontWeight:700,color:INK,marginBottom:4,display:"flex",alignItems:"center",gap:8}}><Wand2 size={20} color={ACCENT}/>स्रोत निर्माता</div>
+      <div className="no-print" style={{marginBottom:4}}><PageHeader icon={Wand2} title="स्रोत निर्माता" color={MARIGOLD_DARK}/></div>
       <div className="no-print" style={{fontSize:16,color:INK_SOFT,marginBottom:16}}>{lesson?`"${lesson.title}" — AI बाट स्वतः बनाइन्छ।`:"पहिले पाठ योजनामा पाठ थप्नुहोस्।"}</div>
       <div className="no-print"><MaterialsHint count={matchedCount} chapterTitle={chapterTitle}/></div>
       <div className="no-print" style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:20}}>
@@ -3614,7 +3647,7 @@ function ResourceCreator({ lessons, classContext, classLabel }) {
             )}
           </div>
           {generating?<div style={{display:"flex",alignItems:"center",gap:8,color:INK_SOFT,fontSize:16.5,padding:20}}><Spinner small/>AI बनाउँदैछ...</div>:(
-            <pre style={{background:SURFACE_2,borderRadius:10,padding:14,fontSize:16,color:INK,lineHeight:1.7,whiteSpace:"pre-wrap",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif",maxHeight:400,overflowY:"auto"}}>{generatedText}</pre>
+            <pre style={{background:SURFACE_2,borderRadius:10,padding:14,fontSize:16,color:INK,lineHeight:1.7,whiteSpace:"pre-wrap",fontFamily:"'Hind','Baloo 2',sans-serif",maxHeight:400,overflowY:"auto"}}>{generatedText}</pre>
           )}
         </Card>
       )}
@@ -3654,7 +3687,7 @@ function SavedResources({ classLabel }) {
 
   return(
     <div className="ss-page" style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
-      <div style={{fontSize:20,fontWeight:700,color:INK,marginBottom:4,display:"flex",alignItems:"center",gap:8}}><BookMarked size={20} color={ROSE}/>सुरक्षित स्रोतहरू</div>
+      <div style={{marginBottom:4}}><PageHeader icon={BookMarked} title="सुरक्षित स्रोतहरू" color={ROSE}/></div>
       <div style={{fontSize:16,color:INK_SOFT,marginBottom:16}}>AI बाट बनाएका र सुरक्षित गरेका कार्यपत्र, फ्ल्यासकार्ड, पुनरावलोकन पाना — पछि हेर्न वा प्रिन्ट गर्न।</div>
       {loadError&&<ErrorMsg msg={loadError}/>}
       {loading?<Spinner/>:items.length===0?(
@@ -3678,7 +3711,7 @@ function SavedResources({ classLabel }) {
       )}
       {viewing&&(
         <PrintableSheet title={viewing.title} subtitle={resourceTemplateMeta(viewing.template_id).title} chip={viewing.chapter_title} chipColor={resourceTemplateMeta(viewing.template_id).color} onClose={()=>setViewing(null)}>
-          <pre style={{background:SURFACE_2,borderRadius:10,padding:14,fontSize:16,color:INK,lineHeight:1.7,whiteSpace:"pre-wrap",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}>{viewing.content}</pre>
+          <pre style={{background:SURFACE_2,borderRadius:10,padding:14,fontSize:16,color:INK,lineHeight:1.7,whiteSpace:"pre-wrap",fontFamily:"'Hind','Baloo 2',sans-serif"}}>{viewing.content}</pre>
         </PrintableSheet>
       )}
     </div>
@@ -3712,10 +3745,10 @@ function DocumentSearch({ lessons, homework, classLabel, onOpenLesson, onGoMater
   },[query,lessons,allMaterials,allQuestions,allActivities,homework,onOpenLesson,onGoMaterials,onGoAITools,onGoHomework]);
   return(
     <div className="ss-page-read" style={{padding:"20px 20px 130px",maxWidth:820,margin:"0 auto"}}>
-      <div style={{fontSize:20,fontWeight:700,color:INK,marginBottom:4}}>सबैतिर खोज</div>
+      <div style={{marginBottom:4}}><PageHeader icon={Search} title="सबैतिर खोज" color={TEAL}/></div>
       <div style={{display:"flex",alignItems:"center",gap:8,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:14,padding:"12px 14px",marginBottom:14,marginTop:10}}>
         <Search size={17} color={INK_SOFT}/>
-        <input autoFocus autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false" value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="खोज्नुहोस्..." style={{border:"none",outline:"none",boxShadow:"none",WebkitAppearance:"none",appearance:"none",fontSize:17,flex:1,minWidth:0,background:"transparent",color:INK,caretColor:ACCENT,fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}/>
+        <input autoFocus autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false" value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="खोज्नुहोस्..." style={{border:"none",outline:"none",boxShadow:"none",WebkitAppearance:"none",appearance:"none",fontSize:17,flex:1,minWidth:0,background:"transparent",color:INK,caretColor:ACCENT,fontFamily:"'Hind','Baloo 2',sans-serif"}}/>
       </div>
       {!query.trim()?<EmptyState icon={Search} text="टाइप गर्नुहोस्..."/>:results.length===0?<EmptyState icon={Search} text={`"${query}" फेला परेन।`}/>:(
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -3906,21 +3939,20 @@ function CalendarView({ classLabel, active }) {
 
   return(
     <div className="ss-page-read" style={{padding:"20px 20px 130px",maxWidth:640,margin:"0 auto"}}>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,gap:10,flexWrap:"wrap"}}>
-        <div style={{fontSize:20,fontWeight:700,color:INK,display:"flex",alignItems:"center",gap:8}}><CalendarDays size={20} color={ACCENT}/>पात्रो</div>
+      <PageHeader icon={CalendarDays} title="पात्रो" color={VIOLET} action={
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           {/* NEW — upload a photo/PDF of the actual school calendar and let
               AI propose events, instead of typing every holiday/exam date
               in by hand. Manual add (next button) still works exactly as
               before — this is an addition, not a replacement. */}
-          <label className="ss-btn" style={{display:"flex",alignItems:"center",gap:6,background:SURFACE_2,color:INK,border:`1px solid ${BORDER}`,borderRadius:10,padding:"9px 15px",fontWeight:700,fontSize:15.5,cursor:uploading?"default":"pointer",boxShadow:SHADOW.sm}}>
+          <label className="ss-btn" style={{display:"flex",alignItems:"center",gap:6,background:SURFACE_2,color:INK,border:`1px solid ${BORDER}`,borderRadius:999,padding:"9px 16px",fontWeight:700,fontSize:15.5,cursor:uploading?"default":"pointer",boxShadow:SHADOW.sm}}>
             <Paperclip size={16}/>{uploading?"पढ्दै...":"पात्रो अपलोड गर्नुहोस्"}
             <input type="file" accept="application/pdf,.pdf,image/*" onChange={handleCalendarUpload} disabled={uploading} style={{display:"none"}}/>
           </label>
-          <button className="ss-btn" onClick={openNew} style={{display:"flex",alignItems:"center",gap:6,background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"9px 15px",fontWeight:700,fontSize:15.5,cursor:"pointer",boxShadow:SHADOW.accent}}><Plus size={16}/>कार्यक्रम थप्नुहोस्</button>
+          <Button size="sm" icon={Plus} onClick={openNew} style={{background:`linear-gradient(135deg, ${VIOLET} 0%, ${ACCENT} 100%)`,boxShadow:`0 6px 16px color-mix(in srgb, ${VIOLET} 40%, transparent)`}}>कार्यक्रम थप्नुहोस्</Button>
         </div>
-      </div>
-      {uploadError&&<div style={{background:DANGER_BG,color:DANGER,borderRadius:10,padding:"10px 14px",fontSize:15,fontWeight:600,marginBottom:14}}>{uploadError}</div>}
+      }/>
+      {uploadError&&<div style={{background:DANGER_BG,color:DANGER,borderRadius:12,padding:"10px 14px",fontSize:15,fontWeight:600,marginBottom:14}}>{uploadError}</div>}
 
       {/* NEW — category filter chips, same visual language as Materials'
           category chips: tap to hide/show that category's dots on the
@@ -3934,18 +3966,18 @@ function CalendarView({ classLabel, active }) {
         })}
       </div>
 
-      <Card style={{marginBottom:14,padding:14}}>
+      <Card accentColor={VIOLET} style={{marginBottom:14,padding:14}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-          <button className="ss-btn" onClick={()=>{if(month===0){setMonth(11);setYear((y)=>y-1);}else setMonth((m)=>m-1);}} style={{background:WARN_BG,border:"none",borderRadius:8,padding:"6px 12px",fontWeight:700,cursor:"pointer",color:ACCENT,fontSize:18}}>‹</button>
+          <button className="ss-btn" onClick={()=>{if(month===0){setMonth(11);setYear((y)=>y-1);}else setMonth((m)=>m-1);}} style={{background:`linear-gradient(135deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`,border:"none",borderRadius:999,width:34,height:34,fontWeight:700,cursor:"pointer",color:"#fff",fontSize:18,boxShadow:SHADOW.sm}}>‹</button>
           <div style={{textAlign:"center"}}>
-            <select value={month} onChange={(e)=>setMonth(Number(e.target.value))} style={{border:"none",fontWeight:700,fontSize:18,color:INK,cursor:"pointer",background:"transparent",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif"}}>
+            <select value={month} onChange={(e)=>setMonth(Number(e.target.value))} style={{border:"none",fontWeight:800,fontSize:19,color:INK,cursor:"pointer",background:"transparent",fontFamily:"'Baloo 2','Hind',sans-serif"}}>
               {MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}
             </select>
-            <select value={year} onChange={(e)=>setYear(Number(e.target.value))} style={{border:"none",fontWeight:700,fontSize:18,color:INK,cursor:"pointer",background:"transparent",fontFamily:"'Inter','Noto Sans Devanagari',sans-serif",marginLeft:4}}>
+            <select value={year} onChange={(e)=>setYear(Number(e.target.value))} style={{border:"none",fontWeight:800,fontSize:19,color:INK,cursor:"pointer",background:"transparent",fontFamily:"'Baloo 2','Hind',sans-serif",marginLeft:4}}>
               {Array.from({length:5},(_,i)=>today.getFullYear()-1+i).map((y)=><option key={y} value={y}>{y}</option>)}
             </select>
           </div>
-          <button className="ss-btn" onClick={()=>{if(month===11){setMonth(0);setYear((y)=>y+1);}else setMonth((m)=>m+1);}} style={{background:WARN_BG,border:"none",borderRadius:8,padding:"6px 12px",fontWeight:700,cursor:"pointer",color:ACCENT,fontSize:18}}>›</button>
+          <button className="ss-btn" onClick={()=>{if(month===11){setMonth(0);setYear((y)=>y+1);}else setMonth((m)=>m+1);}} style={{background:`linear-gradient(135deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`,border:"none",borderRadius:999,width:34,height:34,fontWeight:700,cursor:"pointer",color:"#fff",fontSize:18,boxShadow:SHADOW.sm}}>›</button>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4,marginBottom:6}}>
           {DAYS.map((d)=><div key={d} style={{textAlign:"center",fontSize:15,fontWeight:700,color:INK_SOFT,padding:"4px 0"}}>{d}</div>)}
@@ -3959,7 +3991,7 @@ function CalendarView({ classLabel, active }) {
             const dayItems=itemsByDate[dateStr]||[];
             const dots=[...new Set(dayItems.map((i)=>i.category))].slice(0,3);
             return(
-              <button key={day} className="ss-btn" onClick={()=>setSelected(dateStr)} style={{aspectRatio:1,borderRadius:8,border:isToday||isSel?"none":`1px solid color-mix(in srgb, ${BORDER} 60%, transparent)`,background:isToday?ACCENT:isSel?ACCENT_LIGHT:"transparent",color:isToday?"#fff":isSel?ACCENT:INK,fontWeight:isToday||isSel?700:600,fontSize:16.5,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,padding:0}}>
+              <button key={day} className="ss-btn" onClick={()=>setSelected(dateStr)} style={{aspectRatio:1,borderRadius:12,border:isToday||isSel?"none":`1px solid color-mix(in srgb, ${BORDER} 60%, transparent)`,background:isToday?`linear-gradient(135deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`:isSel?ACCENT_LIGHT:"transparent",color:isToday?"#fff":isSel?ACCENT:INK,fontWeight:isToday||isSel?700:600,fontSize:16.5,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,padding:0,boxShadow:isToday?SHADOW.accent:"none"}}>
                 <span>{day}</span>
                 {dots.length>0&&(
                   <span style={{display:"flex",gap:2,height:5}}>
@@ -4223,12 +4255,12 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
 
   return(
     <div className="ss-page-read" style={{padding:"20px 20px 130px",maxWidth:680,margin:"0 auto"}}>
-      <div style={{fontSize:20,fontWeight:700,color:INK,marginBottom:16,display:"flex",alignItems:"center",gap:8}}><SettingsIcon size={20} color={ACCENT}/>सेटिङ</div>
+      <PageHeader icon={SettingsIcon} title="सेटिङ" color={VIOLET}/>
 
       {!isStandalone&&(
-        <Card style={{marginBottom:14,background:`linear-gradient(135deg, ${tint(TEAL,10)} 0%, ${tint(ACCENT,5)} 100%)`,border:`1.5px solid ${ACCENT_LIGHT}`}}>
+        <Card accentColor={TEAL} style={{marginBottom:14,background:`linear-gradient(135deg, ${tint(TEAL,10)} 0%, ${tint(ACCENT,5)} 100%)`,border:`1.5px solid ${ACCENT_LIGHT}`}}>
           <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
-            <div style={{width:44,height:44,borderRadius:12,background:`linear-gradient(135deg, ${TEAL}, ${ACCENT})`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:SHADOW.accent}}><Zap size={21} color="#fff"/></div>
+            <div style={{width:46,height:46,borderRadius:14,background:`linear-gradient(135deg, ${TEAL}, ${ACCENT})`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:SHADOW.accent,transform:"rotate(-3deg)"}}><Zap size={21} color="#fff" style={{transform:"rotate(3deg)"}}/></div>
             <div>
               <div style={{fontWeight:800,fontSize:17,color:INK}}>फोन र कम्प्युटरमा एप झैं इन्स्टल गर्नुहोस्</div>
               <div style={{fontSize:15,color:INK_SOFT,marginTop:1}}>ब्राउजर बिना, होम स्क्रिनबाट सिधै खोल्नुहोस्</div>
@@ -4511,8 +4543,8 @@ export default function App() {
     const style=document.createElement("style");
     style.id="ss-theme-vars";
     style.textContent=`
-      [data-theme="light"]{--bg:#F7F4EB;--bg-grad:#ECE4CD;--surface:#FFFFFF;--surface-2:#FBF8EF;--ink:#141B2E;--ink-soft:#5B6478;--border:#E1DCC8;--accent:#20388F;--accent-dark:#152867;--accent-light:#E4E9F8;--marigold:#C98A1E;--marigold-dark:#9C6B12;--teal:#1B8C82;--teal-light:#E1F2F0;--violet:#7259B5;--violet-light:#EFE9FA;--blue:#3167B0;--blue-light:#E7EEFA;--rose:#B85C78;--rose-light:#F7E7ED;--danger:#B3261E;--danger-bg:#FBEAE6;--warn:#9C6B12;--warn-bg:#FBF0DA;--shadow-rgb:15,19,36;--card-sheen:rgba(255,255,255,0.8);}
-      [data-theme="dark"]{--bg:#151C2F;--bg-grad:#1B2440;--surface:#1D2740;--surface-2:#26314F;--ink:#D9DEEC;--ink-soft:#A6AECB;--border:#37456B;--accent:#4C6FE0;--accent-dark:#3050C4;--accent-light:#1B2647;--marigold:#F5A93F;--marigold-dark:#D68A1E;--teal:#3FB8C9;--teal-light:#122D36;--violet:#A98CE8;--violet-light:#241B3E;--blue:#5C93EA;--blue-light:#152540;--rose:#E88CA0;--rose-light:#3A1F2A;--danger:#F0685A;--danger-bg:#3A1E1A;--warn:#E8A23A;--warn-bg:#3A2A12;--shadow-rgb:2,4,12;--card-sheen:rgba(255,255,255,0.07);}
+      [data-theme="light"]{--bg:#FFF7EA;--bg-grad:#FFE7BE;--surface:#FFFFFF;--surface-2:#FFF2DC;--ink:#2B1A0E;--ink-soft:#8A6D4E;--border:#F2DCB0;--accent:#E8590C;--accent-dark:#C2470A;--accent-light:#FFE3CC;--marigold:#F0A500;--marigold-dark:#C6870A;--teal:#0E9384;--teal-light:#D6F3EC;--violet:#7C3AED;--violet-light:#EDE3FE;--blue:#2563EB;--blue-light:#DDE7FE;--rose:#E11D74;--rose-light:#FCE0EC;--danger:#DC2626;--danger-bg:#FCE1DE;--warn:#D97706;--warn-bg:#FCEED0;--shadow-rgb:43,27,14;--card-sheen:rgba(255,255,255,0.85);}
+      [data-theme="dark"]{--bg:#1C1006;--bg-grad:#2B1A0B;--surface:#241505;--surface-2:#301C0C;--ink:#FBEEDD;--ink-soft:#CBA97C;--border:#4A311A;--accent:#FF7A1E;--accent-dark:#E8590C;--accent-light:#3C2410;--marigold:#FFC53D;--marigold-dark:#E8A70B;--teal:#2DD4BF;--teal-light:#0D332D;--violet:#A78BFA;--violet-light:#2B1F49;--blue:#60A5FA;--blue-light:#152A4A;--rose:#FB7185;--rose-light:#3A1526;--danger:#F87171;--danger-bg:#3A1512;--warn:#FBBF24;--warn-bg:#3A2A0A;--shadow-rgb:10,6,2;--card-sheen:rgba(255,255,255,0.06);}
       html,body{background:radial-gradient(1100px 620px at 12% -8%, var(--bg-grad), var(--bg) 55%);}
     `;
     document.head.appendChild(style);
@@ -4689,41 +4721,42 @@ export default function App() {
 
   return(
     <DataProvider value={dataValue}>
-    <div data-theme={theme} style={{fontFamily:"'Inter','Noto Sans Devanagari',sans-serif",background:PAPER,minHeight:"100vh",color:INK,fontSize:17,transition:"background .2s ease, color .2s ease"}}>
+    <div data-theme={theme} style={{fontFamily:"'Hind','Baloo 2',sans-serif",background:PAPER,minHeight:"100vh",color:INK,fontSize:17,transition:"background .2s ease, color .2s ease"}}>
       <style>{`
         *{box-sizing:border-box;}body{margin:0;-webkit-font-smoothing:antialiased;}
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Hind:wght@400;500;600;700&display=swap');
+        .ss-display{font-family:'Baloo 2','Hind',sans-serif;}
 
         /* NEW — light/dark color tokens. Everything in the component tree
            reads these via var(--x), so toggling data-theme instantly
            re-colors the whole app with no per-component logic needed. */
         [data-theme="light"]{
-          --bg:#F7F4EB; --bg-grad:#ECE4CD; --surface:#FFFFFF; --surface-2:#FBF8EF;
-          --ink:#141B2E; --ink-soft:#5B6478; --border:#E1DCC8;
-          --accent:#20388F; --accent-dark:#152867; --accent-light:#E4E9F8;
-          --marigold:#C98A1E; --marigold-dark:#9C6B12;
-          --teal:#1B8C82; --teal-light:#E1F2F0;
-          --violet:#7259B5; --violet-light:#EFE9FA;
-          --blue:#3167B0; --blue-light:#E7EEFA;
-          --rose:#B85C78; --rose-light:#F7E7ED;
-          --danger:#B3261E; --danger-bg:#FBEAE6;
-          --warn:#9C6B12; --warn-bg:#FBF0DA;
-          --shadow-rgb:15,19,36;
-          --card-sheen:rgba(255,255,255,0.8);
+          --bg:#FFF7EA; --bg-grad:#FFE7BE; --surface:#FFFFFF; --surface-2:#FFF2DC;
+          --ink:#2B1A0E; --ink-soft:#8A6D4E; --border:#F2DCB0;
+          --accent:#E8590C; --accent-dark:#C2470A; --accent-light:#FFE3CC;
+          --marigold:#F0A500; --marigold-dark:#C6870A;
+          --teal:#0E9384; --teal-light:#D6F3EC;
+          --violet:#7C3AED; --violet-light:#EDE3FE;
+          --blue:#2563EB; --blue-light:#DDE7FE;
+          --rose:#E11D74; --rose-light:#FCE0EC;
+          --danger:#DC2626; --danger-bg:#FCE1DE;
+          --warn:#D97706; --warn-bg:#FCEED0;
+          --shadow-rgb:43,27,14;
+          --card-sheen:rgba(255,255,255,0.85);
         }
         [data-theme="dark"]{
-          --bg:#151C2F; --bg-grad:#1B2440; --surface:#1D2740; --surface-2:#26314F;
-          --ink:#D9DEEC; --ink-soft:#A6AECB; --border:#37456B;
-          --accent:#4C6FE0; --accent-dark:#3050C4; --accent-light:#1B2647;
-          --marigold:#F5A93F; --marigold-dark:#D68A1E;
-          --teal:#3FB8C9; --teal-light:#122D36;
-          --violet:#A98CE8; --violet-light:#241B3E;
-          --blue:#5C93EA; --blue-light:#152540;
-          --rose:#E88CA0; --rose-light:#3A1F2A;
-          --danger:#F0685A; --danger-bg:#3A1E1A;
-          --warn:#E8A23A; --warn-bg:#3A2A12;
-          --shadow-rgb:2,4,12;
-          --card-sheen:rgba(255,255,255,0.07);
+          --bg:#1C1006; --bg-grad:#2B1A0B; --surface:#241505; --surface-2:#301C0C;
+          --ink:#FBEEDD; --ink-soft:#CBA97C; --border:#4A311A;
+          --accent:#FF7A1E; --accent-dark:#E8590C; --accent-light:#3C2410;
+          --marigold:#FFC53D; --marigold-dark:#E8A70B;
+          --teal:#2DD4BF; --teal-light:#0D332D;
+          --violet:#A78BFA; --violet-light:#2B1F49;
+          --blue:#60A5FA; --blue-light:#152A4A;
+          --rose:#FB7185; --rose-light:#3A1526;
+          --danger:#F87171; --danger-bg:#3A1512;
+          --warn:#FBBF24; --warn-bg:#3A2A0A;
+          --shadow-rgb:10,6,2;
+          --card-sheen:rgba(255,255,255,0.06);
         }
 
         @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
@@ -4781,7 +4814,7 @@ export default function App() {
            inline styles win over these defaults anyway. */
         input:not([type=file]),select,textarea{
           transition:border-color .15s ease, box-shadow .15s ease, background .15s ease;
-          font-family:'Inter','Noto Sans Devanagari',sans-serif;
+          font-family:'Hind','Baloo 2',sans-serif;
         }
         input::placeholder,textarea::placeholder{color:${INK_SOFT};opacity:0.75;}
         input:focus,select:focus,textarea:focus{outline:none;border-color:${ACCENT} !important;box-shadow:0 0 0 3px ${ACCENT_LIGHT};}
@@ -4867,8 +4900,8 @@ export default function App() {
       `}</style>
 
       <div className="no-print ss-topbar" style={{background:`linear-gradient(120deg, color-mix(in srgb, color-mix(in srgb, ${ACCENT} 8%, ${SURFACE}) 88%, transparent) 0%, color-mix(in srgb, color-mix(in srgb, ${TEAL} 7%, ${SURFACE}) 88%, transparent) 100%)`,backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",borderBottom:`1px solid ${BORDER}`,display:"flex",alignItems:"center",gap:12,position:"sticky",top:0,zIndex:10,boxShadow:"0 4px 16px rgba(var(--shadow-rgb),0.09)"}}>
-        <img src="/icons/icon-64.png" alt="शिक्षा साथी" width={40} height={40} style={{borderRadius:12,boxShadow:SHADOW.accent,flexShrink:0}}/>
-        <div style={{minWidth:0,overflow:"hidden"}}><div style={{fontWeight:800,fontSize:18.5,letterSpacing:"-0.015em",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",background:`linear-gradient(100deg, ${ACCENT} 0%, ${TEAL} 100%)`,WebkitBackgroundClip:"text",backgroundClip:"text",color:"transparent"}}>शिक्षा साथी</div><div style={{fontSize:14.5,color:`color-mix(in srgb, ${ACCENT} 35%, ${INK_SOFT})`,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{classLabel} · {subjectLabel}</div></div>
+        <img src="/icons/icon-64.png" alt="शिक्षा साथी" width={40} height={40} style={{borderRadius:14,boxShadow:SHADOW.marigold,flexShrink:0,transform:"rotate(-4deg)"}}/>
+        <div style={{minWidth:0,overflow:"hidden"}}><div style={{fontWeight:800,fontSize:19,letterSpacing:"-0.01em",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",fontFamily:"'Baloo 2','Hind',sans-serif",background:`linear-gradient(100deg, ${MARIGOLD_DARK} 0%, ${ACCENT} 100%)`,WebkitBackgroundClip:"text",backgroundClip:"text",color:"transparent"}}>शिक्षा साथी</div><div style={{fontSize:14.5,color:`color-mix(in srgb, ${ACCENT} 35%, ${INK_SOFT})`,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{classLabel} · {subjectLabel}</div></div>
         <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
           <div title={syncError?syncError:lessonsLoading?"सिंक हुँदैछ...":synced?"सिंक भयो":"सिंक भएको"} onClick={syncError?()=>{setSyncError("");loadLessons();loadHomework();loadChapters();}:undefined} style={{display:"flex",alignItems:"center",gap:4,fontSize:13.5,color:syncError?ROSE:synced?ACCENT:INK_SOFT,fontWeight:700,transition:"color .3s",whiteSpace:"nowrap",background:syncError?"color-mix(in srgb, "+ROSE+" 14%, transparent)":synced?ACCENT_LIGHT:"transparent",padding:"5px 9px",borderRadius:999,cursor:syncError?"pointer":"default"}}>
             {syncError?<AlertTriangle size={13} style={{flexShrink:0}}/>:<RefreshCw size={13} style={{animation:lessonsLoading?"spin 1s linear infinite":"none",flexShrink:0}}/>}
@@ -4886,9 +4919,9 @@ export default function App() {
         </div>
       </div>
 
-      <style>{`.ss-topbar-icon{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:transform .15s ease, box-shadow .15s ease;}
-      .ss-topbar-icon:hover{transform:translateY(-1px);}
-      @media(min-width:860px){.ss-topbar-icon{width:42px;height:42px;border-radius:12px;}}`}</style>
+      <style>{`.ss-topbar-icon{width:38px;height:38px;border-radius:13px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:transform .15s ease, box-shadow .15s ease;}
+      .ss-topbar-icon:hover{transform:translateY(-1px) rotate(-3deg);}
+      @media(min-width:860px){.ss-topbar-icon{width:42px;height:42px;border-radius:14px;}}`}</style>
 
       <style>{`@media (max-width:420px){.ss-sync-label{display:none;}}`}</style>
 
@@ -4897,8 +4930,8 @@ export default function App() {
       <div className="desktop-sidebar no-print" style={{position:"fixed",top:0,left:0,bottom:0,width:232,background:`linear-gradient(170deg, color-mix(in srgb, color-mix(in srgb, ${ACCENT} 6%, ${SURFACE}) 90%, transparent) 0%, color-mix(in srgb, color-mix(in srgb, ${TEAL} 5%, ${SURFACE}) 90%, transparent) 100%)`,backdropFilter:"blur(14px)",WebkitBackdropFilter:"blur(14px)",borderRight:`1px solid ${BORDER}`,flexDirection:"column",paddingTop:118,paddingLeft:12,paddingRight:12,zIndex:5,overflowY:"auto",gap:2}}>
         <div style={{fontSize:12.5,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:INK_SOFT,padding:"0 14px",marginBottom:6}}>मुख्य</div>
         {nav.map((n,i)=>{const Icon=n.icon;const active=screen===n.id;return(
-          <button key={n.id} onClick={()=>setScreen(n.id)} className={`ss-btn${active?"":" ss-nav-item"}`} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",border:"none",background:active?`linear-gradient(135deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`:(i%2===0?"transparent":`color-mix(in srgb, ${n.color} 5%, transparent)`),color:active?"#fff":INK,fontWeight:active?700:600,fontSize:15.5,letterSpacing:"0.01em",cursor:"pointer",textAlign:"left",width:"100%",borderRadius:12,boxShadow:active?SHADOW.accent:"none"}}>
-            <div style={{width:28,height:28,borderRadius:8,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",background:active?"rgba(255,255,255,0.2)":`color-mix(in srgb, ${n.color} 16%, transparent)`}}><Icon size={16} color={active?"#fff":n.color}/></div>
+          <button key={n.id} onClick={()=>setScreen(n.id)} className={`ss-btn${active?"":" ss-nav-item"}`} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",border:"none",background:active?`linear-gradient(135deg, ${n.color} 0%, color-mix(in srgb, ${n.color} 65%, black) 100%)`:(i%2===0?"transparent":`color-mix(in srgb, ${n.color} 5%, transparent)`),color:active?"#fff":INK,fontWeight:active?700:600,fontSize:15.5,letterSpacing:"0.01em",cursor:"pointer",textAlign:"left",width:"100%",borderRadius:999,boxShadow:active?`0 4px 12px color-mix(in srgb, ${n.color} 45%, transparent)`:"none"}}>
+            <div style={{width:28,height:28,borderRadius:9,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",background:active?"rgba(255,255,255,0.22)":`color-mix(in srgb, ${n.color} 16%, transparent)`,transform:active?"rotate(-4deg)":"none"}}><Icon size={16} color={active?"#fff":n.color} style={active?{transform:"rotate(4deg)"}:undefined}/></div>
             {n.label}
           </button>
         );})}
@@ -4931,7 +4964,7 @@ export default function App() {
           tools) close the popup first so you land on a clean screen. */}
       {searchOpen&&(
         <div className="no-print" onClick={()=>setSearchOpen(false)} style={{position:"fixed",inset:0,zIndex:89,display:"flex",alignItems:"flex-start",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",padding:"8vh 16px 16px"}}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:18,width:"100%",maxWidth:640,maxHeight:"80vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative"}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:24,width:"100%",maxWidth:640,maxHeight:"80vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative"}}>
             <div style={{position:"sticky",top:0,zIndex:2,display:"flex",justifyContent:"flex-end",padding:"10px 10px 0",background:PAPER}}>
               <button className="ss-icon-btn" onClick={()=>setSearchOpen(false)} style={{background:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,cursor:"pointer",color:INK_SOFT}}><X size={19}/></button>
             </div>
@@ -4949,7 +4982,7 @@ export default function App() {
           of whatever screen you're already on, closes right back to it. */}
       {settingsOpen&&(
         <div className="no-print" onClick={()=>setSettingsOpen(false)} style={{position:"fixed",inset:0,zIndex:90,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",padding:20}}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:18,width:"100%",maxWidth:760,maxHeight:"88vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative"}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:24,width:"100%",maxWidth:760,maxHeight:"88vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative"}}>
             <div style={{position:"sticky",top:0,zIndex:2,display:"flex",justifyContent:"flex-end",padding:"14px 14px 0",background:PAPER}}>
               <button className="ss-icon-btn" onClick={()=>setSettingsOpen(false)} style={{background:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,cursor:"pointer",color:INK_SOFT}}><X size={19}/></button>
             </div>
@@ -4973,7 +5006,7 @@ export default function App() {
             screens. All five destinations are flat, direct taps now. */}
         {nav.map((n)=>{const Icon=n.icon;const active=screen===n.id;return(
           <button key={n.id} onClick={()=>setScreen(n.id)} className="ss-btn" style={{background:"none",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:active?n.color:INK_SOFT,fontSize:12.5,fontWeight:700,cursor:"pointer",padding:"5px 8px 3px",flex:1,borderRadius:14}}>
-            <div style={{width:44,height:30,borderRadius:14,background:active?`linear-gradient(160deg, ${n.color} 0%, color-mix(in srgb, ${n.color} 70%, black) 100%)`:`linear-gradient(160deg, color-mix(in srgb, ${n.color} 18%, transparent) 0%, color-mix(in srgb, ${n.color} 7%, transparent) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:active?`inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 10px color-mix(in srgb, ${n.color} 45%, transparent)`:"none",transition:"all .18s ease"}}><Icon size={19} color={active?"#fff":n.color}/></div>
+            <div style={{width:46,height:32,borderRadius:16,background:active?`linear-gradient(155deg, ${n.color} 0%, color-mix(in srgb, ${n.color} 65%, black) 100%)`:`linear-gradient(160deg, color-mix(in srgb, ${n.color} 18%, transparent) 0%, color-mix(in srgb, ${n.color} 7%, transparent) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:active?`inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 10px color-mix(in srgb, ${n.color} 45%, transparent)`:"none",transition:"all .18s ease",transform:active?"rotate(-3deg) translateY(-1px)":"none"}}><Icon size={19} color={active?"#fff":n.color} style={active?{transform:"rotate(3deg)"}:undefined}/></div>
             {n.label}
           </button>
         );})}
