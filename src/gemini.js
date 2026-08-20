@@ -63,7 +63,24 @@ const textbookKey = (classLabel) => `textbook_pdf::${classLabel || "default"}`;
 // meant. Devanagari and other non-ASCII text is left as-is here; only
 // characters that would actually break a storage path (slashes, percent
 // signs, control characters) are swapped for a dash.
-const sanitizeForStorageKey = (s) => (s || "default").trim().replace(/[\/\\%?#\x00-\x1f]/g, "-");
+// FIX #2 — swapping encodeURIComponent for raw Devanagari (see the comment
+// above) assumed Supabase Storage keys accept arbitrary UTF-8 text. If the
+// "Invalid key" error persists even with that fix, it means the storage
+// backend's key validator is stricter than that and rejects non-ASCII
+// bytes outright — no amount of picking-which-characters-to-escape fixes
+// that, since the Devanagari itself is what it went. Base64url-encoding
+// the whole label sidesteps the question entirely: the result is always
+// plain ASCII letters/digits/-/_ , which is valid everywhere, for any
+// class label in any script.
+const sanitizeForStorageKey = (s) => {
+  const str = (s || "default").trim();
+  try {
+    const b64 = btoa(unescape(encodeURIComponent(str)));
+    return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  } catch {
+    return "default";
+  }
+};
 const textbookStoragePath = (teacherId, classLabel) => `${teacherId}/textbook/${sanitizeForStorageKey(classLabel)}.pdf`;
 
 const cacheTextbookLocally = async (base64, classLabel) => {
