@@ -54,7 +54,17 @@ const textbookKey = (classLabel) => `textbook_pdf::${classLabel || "default"}`;
 // protects everything else in that bucket), so it's tied to the account,
 // not the device. IndexedDB is kept as a fast local cache and an offline
 // fallback, but Supabase is always the source of truth when reachable.
-const textbookStoragePath = (teacherId, classLabel) => `${teacherId}/textbook/${encodeURIComponent(classLabel || "default")}.pdf`;
+// FIX — this used to run classLabel through encodeURIComponent (e.g.
+// "कक्षा ५" → "%E0%A4%95...%A5%AB"), on the assumption that's what makes a
+// path segment "URL-safe". It's exactly backwards for a Supabase Storage
+// key: the object-key validator accepts ordinary UTF-8 text like "कक्षा ५"
+// just fine, but rejects the "%" characters that encodeURIComponent
+// introduces — which is what an "Invalid key" error on upload/download
+// meant. Devanagari and other non-ASCII text is left as-is here; only
+// characters that would actually break a storage path (slashes, percent
+// signs, control characters) are swapped for a dash.
+const sanitizeForStorageKey = (s) => (s || "default").trim().replace(/[\/\\%?#\x00-\x1f]/g, "-");
+const textbookStoragePath = (teacherId, classLabel) => `${teacherId}/textbook/${sanitizeForStorageKey(classLabel)}.pdf`;
 
 const cacheTextbookLocally = async (base64, classLabel) => {
   try {
