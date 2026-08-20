@@ -1088,8 +1088,10 @@ function LessonEditModal({ lesson, classContext, classLabel, onClose, onSaved })
   );
 }
 
-function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classContext, teacherName }) {
-  const [tab,setTab]=useState("sequence");
+function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classContext, teacherName, initialTab }) {
+  // NEW — lets Search jump straight to this lesson's मूल्याङ्कन tab (or
+  // any tab) instead of always opening on पढाउने.
+  const [tab,setTab]=useState(initialTab||"sequence");
   // NEW — vocabulary entries are stored as "शब्द: अर्थ" (word: meaning). This
   // used to just print the whole string as one flat pill (word and meaning
   // both always visible, taking up space and cluttering the row). Now only
@@ -1190,17 +1192,57 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
   // lesson.rubric only for any legacy row that might still have it set,
   // so nothing that did work before stops working.
   const [linkedRubric,setLinkedRubric]=useState(lesson.rubric||[]);
+  // NEW — the rubric tab used to only display a rubric created elsewhere
+  // (the standalone मूल्याङ्कन screen in थप). That screen duplicated what
+  // this tab already had the context for — chapter, lesson, class — so
+  // it's gone now and this tab creates the rubric itself instead.
+  const [linkedAssessmentId,setLinkedAssessmentId]=useState(null);
+  const [rubricForm,setRubricForm]=useState(false);
+  const [rubricType,setRubricType]=useState("observation");
+  const [rubricText,setRubricText]=useState("");
+  const [rubricDueDate,setRubricDueDate]=useState("");
+  const [rubricGenerating,setRubricGenerating]=useState(false);
+  const [rubricSaving,setRubricSaving]=useState(false);
+  const [rubricError,setRubricError]=useState("");
+  const [rubricMatchedCount,setRubricMatchedCount]=useState(0);
   useEffect(()=>{
     let cancelled=false;
     db.getAssessmentsByLesson(lesson.id).then(({data})=>{
       if(cancelled)return;
       const latest=(data||[]).find((a)=>a.rubric?.length>0);
       setLinkedRubric(latest?.rubric||lesson.rubric||[]);
+      setLinkedAssessmentId(latest?.id||null);
     });
     return()=>{cancelled=true;};
   },[lesson.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const rubric=linkedRubric;
   const chapterTitle=lesson.chapters?.title||lesson.chapter_title||"";
+  const RUBRIC_TYPES=[{id:"observation",label:"अवलोकन"},{id:"oral",label:"मौखिक"},{id:"practical",label:"व्यावहारिक"},{id:"project",label:"प्रोजेक्ट"},{id:"activity",label:"क्रियाकलाप"},{id:"portfolio",label:"पोर्टफोलियो"}];
+  const generateRubric=async()=>{
+    setRubricGenerating(true);setRubricError("");
+    try{
+      const ctx=await getMaterialContext(chapterTitle,classLabel);
+      setRubricMatchedCount(ctx.matchedCount||0);
+      const prompt=`नेपाल ${classContext} "${chapterTitle}" पाठ "${lesson.title}" का लागि ${rubricType} मूल्याङ्कन मापदण्ड भएको JSON array मात्र: [{"level":"उत्कृष्ट","desc":"..."},{"level":"राम्रो","desc":"..."},{"level":"सहयोग आवश्यक","desc":"..."}]`;
+      const gen=await gemini.generateRubric(prompt,ctx);
+      if(gen)setRubricText(gen.map((r)=>`${r.level}: ${r.desc}`).join("\n"));
+      else setRubricError("मूल्याङ्कन बनाउन सकिएन।");
+    }catch(e){setRubricError("AI त्रुटि: "+e.message);}
+    setRubricGenerating(false);
+  };
+  const saveRubric=async()=>{
+    setRubricSaving(true);setRubricError("");
+    const parsed=rubricText?rubricText.split("\n").filter(Boolean).map((line)=>{const[level,...rest]=line.split(":");return{level:level.trim(),desc:rest.join(":").trim()};}):[];
+    if(parsed.length===0){setRubricError("मूल्याङ्कन मापदण्ड लेख्नुहोस्।");setRubricSaving(false);return;}
+    const{data,error}=await db.upsertAssessment({id:linkedAssessmentId||undefined,title:`${lesson.title} — मूल्याङ्कन`,type:rubricType,rubric:parsed,due_date:rubricDueDate||null,status:"pending",chapter_id:lesson.chapter_id||null,lesson_id:lesson.id});
+    setRubricSaving(false);
+    if(error){setRubricError("सुरक्षित हुन सकेन: "+(error.message||""));return;}
+    setLinkedRubric(parsed);setLinkedAssessmentId(data?.id||linkedAssessmentId);setRubricForm(false);
+  };
+  const startRubricEdit=()=>{
+    setRubricText(rubric.map((r)=>`${r.level}: ${r.desc}`).join("\n"));
+    setRubricForm(true);
+  };
 
   // NEW — "प्रिन्ट" from the Planner list opens this lesson and prints it
   // immediately, in one click, with no extra tap needed once it's open.
@@ -1345,7 +1387,35 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
         );})}</div></div>}
         {tab==="simulation"&&<SimulationPanel lesson={lesson} chapterTitle={chapterTitle} classLabel={classLabel} classContext={classContext}/>}
         {tab==="homework"&&<div><SectionLabel icon={PenSquare} color={MARIGOLD_DARK}>दिने गृहकार्य</SectionLabel><Card><div style={{fontSize:17,color:INK,lineHeight:1.6}}>{lesson.homework||"गृहकार्य थपिएको छैन।"}</div></Card></div>}
-        {tab==="rubric"&&<div><SectionLabel icon={Layers} color={ROSE}>मूल्याङ्कन मापदण्ड</SectionLabel>{rubric.length===0?<div style={{color:INK_SOFT}}>मूल्याङ्कन मापदण्ड थपिएको छैन।</div>:<div style={{display:"flex",flexDirection:"column",gap:8}}>{rubric.map((r,i)=>{const c=r.level==="उत्कृष्ट"?ACCENT:r.level==="सहयोग आवश्यक"?ROSE:MARIGOLD_DARK;return<Card key={i} accentColor={c}><div style={{fontWeight:700,color:c,fontSize:16.5,marginBottom:3}}>{r.level}</div><div style={{fontSize:16.5,color:INK}}>{r.desc}</div></Card>;})}</div>}</div>}
+        {tab==="rubric"&&<div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginBottom:10}}>
+            <SectionLabel icon={Layers} color={ROSE}>मूल्याङ्कन मापदण्ड</SectionLabel>
+            {!rubricForm&&<button className="ss-btn" onClick={rubric.length===0?()=>setRubricForm(true):startRubricEdit} style={{display:"flex",alignItems:"center",gap:5,background:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"7px 12px",fontWeight:700,fontSize:14.5,color:INK,cursor:"pointer",flexShrink:0}}>{rubric.length===0?<><Plus size={14}/>बनाउनुहोस्</>:<><PenSquare size={13}/>सम्पादन</>}</button>}
+          </div>
+          {rubricForm?(
+            <Card style={{marginBottom:14}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div style={{fontWeight:700,fontSize:16.5}}>{lesson.title} — मूल्याङ्कन</div>
+                <AIButton label={rubricGenerating?"बनाउँदै...":"AI बाट rubric"} onClick={generateRubric} loading={rubricGenerating}/>
+              </div>
+              {rubricError&&<ErrorMsg msg={rubricError}/>}
+              <MaterialsHint count={rubricMatchedCount} chapterTitle={chapterTitle}/>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7}}>
+                  {RUBRIC_TYPES.map((t,i)=>{const c=PALETTE[i%PALETTE.length];const active=rubricType===t.id;return(
+                    <button key={t.id} onClick={()=>setRubricType(t.id)} style={{padding:"9px 6px",borderRadius:10,border:`1.5px solid ${active?c:`color-mix(in srgb, ${c} 25%, ${BORDER})`}`,background:active?`color-mix(in srgb, ${c} 14%, ${SURFACE})`:SURFACE,color:active?c:INK,fontWeight:600,fontSize:14,cursor:"pointer"}}>{t.label}</button>
+                  );})}
+                </div>
+                <textarea placeholder={"मापदण्ड:\nउत्कृष्ट: ...\nराम्रो: ...\nसहयोग आवश्यक: ..."} value={rubricText} onChange={(e)=>setRubricText(e.target.value)} rows={4} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
+                <input type="date" value={rubricDueDate} onChange={(e)=>setRubricDueDate(e.target.value)} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={()=>setRubricForm(false)} className="ss-btn" style={{flex:1,padding:"10px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer",boxShadow:SHADOW.sm}}>रद्द</button>
+                  <button className="ss-btn" onClick={saveRubric} disabled={rubricSaving} style={{flex:1,padding:"10px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}>{rubricSaving?"...":"सुरक्षित"}</button>
+                </div>
+              </div>
+            </Card>
+          ):rubric.length===0?<div style={{color:INK_SOFT}}>मूल्याङ्कन मापदण्ड थपिएको छैन।</div>:<div style={{display:"flex",flexDirection:"column",gap:8}}>{rubric.map((r,i)=>{const c=r.level==="उत्कृष्ट"?ACCENT:r.level==="सहयोग आवश्यक"?ROSE:MARIGOLD_DARK;return<Card key={i} accentColor={c}><div style={{fontWeight:700,color:c,fontSize:16.5,marginBottom:3}}>{r.level}</div><div style={{fontSize:16.5,color:INK}}>{r.desc}</div></Card>;})}</div>}
+        </div>}
         </div>
       </div>
 
@@ -3089,119 +3159,6 @@ function AIAssistant({ lessons, classContext, classLabel }) {
   );
 }
 
-function AssessmentBuilder({ classContext, classLabel }) {
-  const [assessments,setAssessments]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const [showForm,setShowForm]=useState(false);
-  const [saving,setSaving]=useState(false);
-  const [generating,setGenerating]=useState(false);
-  const [form,setForm]=useState({title:"",type:"observation",rubric_text:"",due_date:"",chapter_title:""});
-  const [error,setError]=useState("");
-  const [matchedCount,setMatchedCount]=useState(0);
-  const [printing,setPrinting]=useState(null);
-  const TYPES=[{id:"observation",label:"अवलोकन",icon:ClipboardList},{id:"oral",label:"मौखिक",icon:MessageSquare},{id:"practical",label:"व्यावहारिक",icon:NotebookPen},{id:"project",label:"प्रोजेक्ट",icon:FolderKanban},{id:"activity",label:"क्रियाकलाप",icon:Gamepad2},{id:"portfolio",label:"पोर्टफोलियो",icon:BookOpen}];
-  // FIX — db.getAssessments() took no class argument at all: मूल्याङ्कन
-  // from every class showed up together here, and their due-dates leaked
-  // into the calendar as exam markers for the wrong class too.
-  const load=useCallback(async()=>{setLoading(true);const{data}=await db.getAssessments(classLabel);setAssessments(data||[]);setLoading(false);},[classLabel]);
-  useEffect(()=>{load();},[load]);
-
-  const autoGenerate=async()=>{
-    const chapter=form.chapter_title||form.title;if(!chapter){setError("अध्याय लेख्नुहोस्।");return;}
-    setGenerating(true);setError("");
-    try{
-      const ctx=await getMaterialContext(chapter,classLabel);
-      setMatchedCount(ctx.matchedCount||0);
-      const prompt=`नेपाल ${classContext} "${chapter}" का लागि ${form.type} मूल्याङ्कन मापदण्ड भएको JSON array मात्र: [{"level":"उत्कृष्ट","desc":"..."},{"level":"राम्रो","desc":"..."},{"level":"सहयोग आवश्यक","desc":"..."}]`;
-      const rubric=await gemini.generateRubric(prompt,ctx);
-      if(rubric)setForm((prev)=>({...prev,rubric_text:rubric.map((r)=>`${r.level}: ${r.desc}`).join("\n")}));
-      else setError("मूल्याङ्कन बनाउन सकिएन।");
-    }catch(e){setError("AI त्रुटि: "+e.message);}
-    setGenerating(false);
-  };
-
-  const save=async()=>{
-    if(!form.title.trim())return;setSaving(true);
-    const rubric=form.rubric_text?form.rubric_text.split("\n").filter(Boolean).map((line)=>{const[level,...rest]=line.split(":");return{level:level.trim(),desc:rest.join(":").trim()};}):[];
-    // FIX — assessments never actually had a chapter_title column (only
-    // chapter_id, added by migration_path_structure.sql) — saving
-    // chapter_title here was silently failing against the database every
-    // time. Resolves the real chapter_id instead, same as every other
-    // screen.
-    const chapter_id=await resolveChapterId(form.chapter_title,classLabel);
-    await db.upsertAssessment({title:form.title,type:form.type,rubric,due_date:form.due_date||null,status:"pending",chapter_id});
-    setSaving(false);setShowForm(false);setForm({title:"",type:"observation",rubric_text:"",due_date:"",chapter_title:""});load();
-  };
-
-  return(<>
-    <div className={`${printing?"no-print":""} ss-page`} style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
-      <PageHeader icon={NotebookPen} title="मूल्याङ्कन" color={BLUE} action={
-        <Button size="sm" icon={Plus} onClick={()=>setShowForm(!showForm)} style={{background:`linear-gradient(160deg, ${BLUE} 0%, color-mix(in srgb, ${BLUE} 72%, black) 100%)`}}>नयाँ</Button>
-      }/>
-      {showForm&&(
-        <Card style={{marginBottom:14}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-            <div style={{fontWeight:700,fontSize:16.5}}>नयाँ मूल्याङ्कन</div>
-            <AIButton label={generating?"बनाउँदै...":"AI बाट rubric"} onClick={autoGenerate} loading={generating}/>
-          </div>
-          {error&&<ErrorMsg msg={error}/>}
-          <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title}/>
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            <input placeholder="शीर्षक *" value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
-            <ChapterPicker value={form.chapter_title} onChange={(v)=>setForm({...form,chapter_title:v})} placeholder="— अध्याय छान्नुहोस् (AI का लागि) —"/>
-            <MaterialAttach chapterTitle={form.chapter_title}/>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7}}>
-              {TYPES.map((t,i)=>{const Icon=t.icon;const c=PALETTE[i%PALETTE.length];const active=form.type===t.id;return(
-                <button key={t.id} onClick={()=>setForm({...form,type:t.id})} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6,padding:"11px 6px",borderRadius:12,border:`1.5px solid ${active?c:`color-mix(in srgb, ${c} 25%, ${BORDER})`}`,background:active?`color-mix(in srgb, ${c} 14%, ${SURFACE})`:SURFACE,color:active?c:INK,fontWeight:600,fontSize:14.5,cursor:"pointer",boxShadow:active?`0 6px 14px color-mix(in srgb, ${c} 30%, transparent)`:SHADOW.sm}}>
-                  <div style={{width:32,height:32,borderRadius:9,background:`linear-gradient(160deg, ${c} 0%, color-mix(in srgb, ${c} 70%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 3px 8px color-mix(in srgb, ${c} 40%, transparent)`}}><Icon size={15} color="#fff"/></div>
-                  {t.label}
-                </button>
-              );})}
-            </div>
-            <textarea placeholder={"मापदण्ड:\nउत्कृष्ट: ...\nराम्रो: ...\nसहयोग आवश्यक: ..."} value={form.rubric_text} onChange={(e)=>setForm({...form,rubric_text:e.target.value})} rows={4} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
-            <input type="date" value={form.due_date} onChange={(e)=>setForm({...form,due_date:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
-            <div style={{display:"flex",gap:8}}>
-              <button onClick={()=>setShowForm(false)} className="ss-btn" style={{flex:1,padding:"10px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer",boxShadow:SHADOW.sm}}>रद्द</button>
-              <button className="ss-btn" onClick={save} disabled={saving} style={{flex:1,padding:"10px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}>{saving?"...":"सुरक्षित"}</button>
-            </div>
-          </div>
-        </Card>
-      )}
-      {loading?<Spinner/>:assessments.length===0?(
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10}}>
-          {TYPES.map((t,i)=>{const Icon=t.icon;const c=PALETTE[i%PALETTE.length];return<Card key={t.id} accentColor={c} onClick={()=>{setForm({...form,type:t.id});setShowForm(true);}} style={{paddingTop:24,position:"relative",overflow:"visible"}}><PinBadge color={c}/><div style={{width:36,height:36,borderRadius:8,background:`linear-gradient(160deg, ${c} 0%, color-mix(in srgb, ${c} 70%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:8,boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 3px 8px color-mix(in srgb, ${c} 40%, transparent)`}}><Icon size={18} color="#fff"/></div><div style={{fontWeight:700,fontSize:16}}>{t.label}</div></Card>;})}
-        </div>
-      ):(
-        <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {assessments.map((a)=>{const typeIdx=TYPES.findIndex((t)=>t.id===a.type);const typeInfo=TYPES[typeIdx]||TYPES[0];const Icon=typeInfo.icon;const typeColor=PALETTE[Math.max(typeIdx,0)%PALETTE.length];return(
-            <Card key={a.id} accentColor={typeColor} style={{paddingTop:24,position:"relative",overflow:"visible"}}>
-              <PinBadge color={typeColor}/>
-              <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:8}}>
-                <div style={{width:36,height:36,borderRadius:8,background:`linear-gradient(160deg, ${typeColor} 0%, color-mix(in srgb, ${typeColor} 70%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 3px 8px color-mix(in srgb, ${typeColor} 40%, transparent)`}}><Icon size={17} color="#fff"/></div>
-                <div style={{minWidth:0,flex:1}}><div style={{fontSize:17,fontWeight:700,color:INK,overflowWrap:"break-word",wordBreak:"break-word"}}>{a.title}</div><div style={{fontSize:15,color:INK_SOFT}}>{typeInfo.label}{a.due_date?` · ${a.due_date}`:""}</div></div>
-                <button className="ss-icon-btn" onClick={(e)=>{e.stopPropagation();setPrinting(a);}} style={{flexShrink:0,background:"none",border:`1px solid ${BORDER}`,borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",gap:4,color:INK_SOFT,fontSize:13.5,fontWeight:600,cursor:"pointer"}}><Printer size={13}/>प्रिन्ट</button>
-              </div>
-              {a.rubric?.length>0&&a.rubric.map((r,i)=><div key={i} style={{background:SURFACE_2,borderRadius:7,padding:"6px 10px",fontSize:16,marginBottom:5}}><strong style={{color:ACCENT}}>{r.level}:</strong> {r.desc}</div>)}
-            </Card>
-          );})}
-        </div>
-      )}
-    </div>
-    {printing&&(
-      <PrintableSheet title={printing.title} subtitle={TYPES.find((t)=>t.id===printing.type)?.label} chip={printing.due_date} chipColor={MARIGOLD_DARK} onClose={()=>setPrinting(null)}>
-        {(printing.rubric||[]).map((r,i)=>{const c=r.level==="उत्कृष्ट"?ACCENT:r.level==="सहयोग आवश्यक"?ROSE:MARIGOLD_DARK;return(
-          <div key={i} style={{marginBottom:12}}>
-            <div style={{fontWeight:700,color:c,fontSize:16.5,marginBottom:3}}>{r.level}</div>
-            <div style={{fontSize:16.5,color:INK,lineHeight:1.6}}>{r.desc}</div>
-          </div>
-        );})}
-        {(!printing.rubric||printing.rubric.length===0)&&<div style={{color:INK_SOFT}}>मूल्याङ्कन मापदण्ड थपिएको छैन।</div>}
-      </PrintableSheet>
-    )}
-    </>
-  );
-}
-
 function SummaryPanel({ icon:Icon, color, title, subtitle, onOpen }) {
   return(
     <Card onClick={onOpen} accentColor={color} style={{cursor:"pointer",display:"flex",alignItems:"center",gap:12,paddingTop:22,position:"relative",overflow:"visible"}}>
@@ -3235,9 +3192,9 @@ function ManagerPopup({ title, onClose, children }) {
 function MoreHub({
   initialPanel,onInitialPanelConsumed,
   section,homework,hwLoading,onRefreshHomework,
-  lessons,classLabel,active,classContext,
+  lessons,classLabel,active,
 }) {
-  const [openPanel,setOpenPanel]=useState(null); // null | "homework" | "journal" | "assessment"
+  const [openPanel,setOpenPanel]=useState(null); // null | "homework" | "journal"
   useEffect(()=>{
     if(!initialPanel)return;
     setOpenPanel(initialPanel);
@@ -3251,14 +3208,11 @@ function MoreHub({
   // used to include entries from every class, not just the current one.
   useEffect(()=>{db.getJournalEntries(classLabel).then(({data})=>setJournalCount((data||[]).length));},[openPanel,classLabel]);
   const pendingHomework=homework.filter((h)=>h.checked_count<h.total_students).length;
-  // NEW — Assessment Builder used to be its own tab inside AI Sahayak,
-  // duplicating Yojana's per-lesson tabs in everything but this: it's
-  // actually the only place a rubric ever gets created (Yojana's rubric
-  // tab just displays it). That makes it record-keeping with a due date,
-  // same shape as गृहकार्य/डायरी below, not per-lesson AI generation —
-  // so it moved here instead of getting deleted.
-  const [assessmentCount,setAssessmentCount]=useState(null);
-  useEffect(()=>{db.getAssessments(classLabel).then(({data})=>setAssessmentCount((data||[]).length));},[openPanel,classLabel]);
+  // FIX — मूल्याङ्कन briefly lived here as its own screen, but that was
+  // still a duplicate: Yojana's rubric tab is where a teacher actually
+  // thinks about assessment (right there with the lesson it's for), so
+  // rubric creation moved into that tab directly instead. Nothing left
+  // here needs its own screen.
 
   return(
     <div className="ss-page" style={{padding:"20px 20px 130px",margin:"0 auto",width:"100%"}}>
@@ -3268,13 +3222,10 @@ function MoreHub({
           subtitle={hwLoading?"लोड हुँदै...":homework.length===0?"कुनै गृहकार्य छैन":`${homework.length} जम्मा · ${pendingHomework} जाँच बाँकी`}/>
         <SummaryPanel icon={Heart} color={ROSE} title="डायरी" onOpen={()=>setOpenPanel("journal")}
           subtitle={journalCount===null?"लोड हुँदै...":journalCount===0?"कुनै प्रविष्टि छैन":`${journalCount} प्रविष्टि`}/>
-        <SummaryPanel icon={NotebookPen} color={BLUE} title="मूल्याङ्कन" onOpen={()=>setOpenPanel("assessment")}
-          subtitle={assessmentCount===null?"लोड हुँदै...":assessmentCount===0?"कुनै मूल्याङ्कन छैन":`${assessmentCount} जम्मा`}/>
       </div>
       <CalendarView classLabel={classLabel} active={active}/>
       {openPanel==="homework"&&<ManagerPopup title="गृहकार्य" onClose={()=>setOpenPanel(null)}><HomeworkManager section={section} loading={hwLoading} homework={homework} onRefresh={onRefreshHomework} classLabel={classLabel}/></ManagerPopup>}
       {openPanel==="journal"&&<ManagerPopup title="डायरी" onClose={()=>setOpenPanel(null)}><TeachingJournal lessons={lessons} classLabel={classLabel}/></ManagerPopup>}
-      {openPanel==="assessment"&&<ManagerPopup title="मूल्याङ्कन" onClose={()=>setOpenPanel(null)}><AssessmentBuilder classContext={classContext} classLabel={classLabel}/></ManagerPopup>}
     </div>
   );
 }
@@ -3494,7 +3445,7 @@ function SavedResources({ classLabel }) {
   );
 }
 
-function DocumentSearch({ lessons, homework, classLabel, onOpenLesson, onGoMaterials, onGoHomework, onGoAssessment }) {
+function DocumentSearch({ lessons, homework, classLabel, onOpenLesson, onGoMaterials, onGoHomework }) {
   const [query,setQuery]=useState("");
   const [allMaterials,setAllMaterials]=useState([]);
   const [allAssessments,setAllAssessments]=useState([]);
@@ -3506,7 +3457,9 @@ function DocumentSearch({ lessons, homework, classLabel, onOpenLesson, onGoMater
     // NEW — प्रश्न/क्रियाकलाप results are gone along with Question Bank/
     // Activities Library (see AITools) — that content now lives per-lesson
     // inside Yojana and is found there, not through a standalone bank.
-    // मूल्याङ्कन results replace them, now that Assessment lives in थप.
+    // मूल्याङ्कन results now jump straight into the lesson they belong to
+    // (see onOpenLesson below), since rubrics are created there directly
+    // and there's no separate मूल्याङ्कन screen anymore.
     db.getAssessments(classLabel).then(({data})=>setAllAssessments(data||[]));
   },[classLabel]);
   // FIX — results were pure display, tapping one did nothing. Each result
@@ -3516,10 +3469,10 @@ function DocumentSearch({ lessons, homework, classLabel, onOpenLesson, onGoMater
     return[
       ...lessons.filter((l)=>l.title?.toLowerCase().includes(q)||(l.objectives||[]).some((o)=>o.toLowerCase().includes(q))).map((l)=>({kind:"पाठ",title:l.title,sub:l.chapters?.title||l.chapter_title||"",icon:ClipboardList,color:ACCENT,onClick:()=>onOpenLesson?.(l)})),
       ...allMaterials.filter((m)=>m.name?.toLowerCase().includes(q)||m.chapters?.title?.toLowerCase().includes(q)).map((m)=>({kind:"सामग्री",title:m.name,sub:(m.chapters?.title?m.chapters.title+" · ":"")+(m.file_type?.toUpperCase()||""),icon:FileText,color:DANGER,onClick:onGoMaterials})),
-      ...allAssessments.filter((a)=>a.title?.toLowerCase().includes(q)).map((a)=>({kind:"मूल्याङ्कन",title:a.title,sub:a.chapters?.title||"",icon:NotebookPen,color:BLUE,onClick:onGoAssessment})),
+      ...allAssessments.filter((a)=>a.title?.toLowerCase().includes(q)).map((a)=>{const l=lessons.find((x)=>x.id===a.lesson_id);return{kind:"मूल्याङ्कन",title:a.title,sub:a.chapters?.title||"",icon:NotebookPen,color:BLUE,onClick:l?()=>onOpenLesson?.(l,{tab:"rubric"}):undefined};}),
       ...homework.filter((h)=>h.title?.toLowerCase().includes(q)).map((h)=>({kind:"गृहकार्य",title:h.title,sub:`${h.checked_count}/${h.total_students}`,icon:ListChecks,color:WARN,onClick:onGoHomework})),
     ];
-  },[query,lessons,allMaterials,allAssessments,homework,onOpenLesson,onGoMaterials,onGoHomework,onGoAssessment]);
+  },[query,lessons,allMaterials,allAssessments,homework,onOpenLesson,onGoMaterials,onGoHomework]);
   return(
     <div className="ss-page-read" style={{padding:"20px 20px 130px",maxWidth:820,margin:"0 auto"}}>
       <div style={{marginBottom:4}}><PageHeader icon={Search} title="सबैतिर खोज" color={TEAL}/></div>
@@ -4199,6 +4152,10 @@ export default function App() {
   },[screen]);
   const [activeLesson,setActiveLesson]=useState(null);
   const [activeLessonAutoPrint,setActiveLessonAutoPrint]=useState(false);
+  // NEW — lets Search jump into a specific lesson's मूल्याङ्कन tab
+  // directly, now that rubrics are created there instead of a separate
+  // screen.
+  const [activeLessonTab,setActiveLessonTab]=useState(null);
   // FIX — this used to close whatever the teacher was looking at and
   // force-navigate to the Planner screen just to edit one lesson. Now it
   // opens the edit form as a popup on top of wherever they already were
@@ -4228,7 +4185,7 @@ export default function App() {
   const [searchOpen,setSearchOpen]=useState(false);
   // NEW — one-click print from the Planner list: open the lesson AND print
   // it immediately, no second tap required.
-  const openLesson=useCallback((l,opts)=>{setActiveLesson(l);setActiveLessonAutoPrint(!!opts?.autoPrint);},[]);
+  const openLesson=useCallback((l,opts)=>{setActiveLesson(l);setActiveLessonAutoPrint(!!opts?.autoPrint);setActiveLessonTab(opts?.tab||null);},[]);
   const [sections,setSections]=useState([]);
   const [currentSection,setCurrentSection]=useState(null);
   const [lessons,setLessons]=useState([]);
@@ -4780,7 +4737,7 @@ export default function App() {
         {visitedScreens.has("more")&&<div style={{display:screen==="more"?undefined:"none"}}>
           <MoreHub initialPanel={moreTab} onInitialPanelConsumed={()=>setMoreTab(null)}
             section={currentSection} homework={homework} hwLoading={hwLoading} onRefreshHomework={loadHomework}
-            lessons={lessons} classLabel={classLabel} active={screen==="more"} classContext={classContext}
+            lessons={lessons} classLabel={classLabel} active={screen==="more"}
           />
         </div>}
         {visitedScreens.has("aitools")&&<div style={{display:screen==="aitools"?undefined:"none"}}>
@@ -4799,10 +4756,9 @@ export default function App() {
               <button className="ss-icon-btn" onClick={()=>setSearchOpen(false)} style={{background:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,cursor:"pointer",color:INK_SOFT}}><X size={19}/></button>
             </div>
             <DocumentSearch lessons={lessons} homework={homework} classLabel={classLabel}
-              onOpenLesson={(l)=>{setSearchOpen(false);openLesson(l);}}
+              onOpenLesson={(l,opts)=>{setSearchOpen(false);openLesson(l,opts);}}
               onGoMaterials={()=>{setSearchOpen(false);setScreen("materials");}}
               onGoHomework={()=>{setSearchOpen(false);goMore("homework");}}
-              onGoAssessment={()=>{setSearchOpen(false);goMore("assessment");}}
             />
           </div>
         </div>
@@ -4842,7 +4798,7 @@ export default function App() {
         );})}
       </div>
 
-      {activeLesson&&<LessonMode lesson={activeLesson} onClose={()=>{setActiveLesson(null);setActiveLessonAutoPrint(false);}} onEdit={editLessonFromViewer} autoPrint={activeLessonAutoPrint} classLabel={classLabel} classContext={classContext} teacherName={teacherName}/>}
+      {activeLesson&&<LessonMode lesson={activeLesson} onClose={()=>{setActiveLesson(null);setActiveLessonAutoPrint(false);setActiveLessonTab(null);}} onEdit={editLessonFromViewer} autoPrint={activeLessonAutoPrint} classLabel={classLabel} classContext={classContext} teacherName={teacherName} initialTab={activeLessonTab}/>}
       {editingLessonPopup&&<LessonEditModal lesson={editingLessonPopup} classContext={classContext} classLabel={classLabel}
         onClose={()=>setEditingLessonPopup(null)}
         onSaved={(updated,deleted)=>{
