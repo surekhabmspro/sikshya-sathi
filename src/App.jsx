@@ -1645,9 +1645,13 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
     <SectionLabel icon={Gamepad2} color={VIOLET}>इन्टरएक्टिभ सिमुलेसन</SectionLabel>
     <div style={{fontSize:15.5,color:INK_SOFT,marginBottom:12,lineHeight:1.5}}>यस पाठका लागि AI ले प्रोजेक्टरमा देखाई कक्षालाई खेलाउन मिल्ने अन्तरक्रियात्मक अभ्यास बनाउँछ — तपाईंले ल्यापटपमा माउसले चलाउनुहुन्छ। हरेक पटक "नयाँ बनाउनुहोस्" थिच्दा फरक-फरक शैली प्रयास गरिन्छ, र पुरानोहरू पनि सुरक्षित रहन्छन्।</div>
     {error&&<ErrorMsg msg={error}/>}
-    <button className="ss-btn" onClick={generate} disabled={generating} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,width:"100%",padding:"13px",borderRadius:12,border:"none",background:`linear-gradient(180deg, ${VIOLET} 0%, color-mix(in srgb, ${VIOLET} 75%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:16.5,cursor:generating?"default":"pointer",boxShadow:SHADOW.accent,marginBottom:16}}>
+    <button className="ss-btn" onClick={generate} disabled={generating} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,width:"100%",padding:"13px",borderRadius:12,border:"none",background:`linear-gradient(180deg, ${VIOLET} 0%, color-mix(in srgb, ${VIOLET} 75%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:16.5,cursor:generating?"default":"pointer",boxShadow:SHADOW.accent,marginBottom:generating?6:16}}>
       {generating?<><Loader size={17} style={{animation:"spin 1s linear infinite"}}/>सिमुलेसन बनाउँदै...</>:<><Wand2 size={17}/>{sims.length?"नयाँ सिमुलेसन बनाउनुहोस्":"AI बाट सिमुलेसन बनाउनुहोस्"}</>}
     </button>
+    {/* NEW — this generation genuinely takes a while (large, detailed
+        output) — saying so up front avoids a teacher assuming it's stuck
+        and refreshing/retrying mid-generation. */}
+    {generating&&<div style={{fontSize:13.5,color:INK_SOFT,textAlign:"center",marginBottom:16}}>यसमा १-२ मिनेटसम्म लाग्न सक्छ — कृपया पर्खनुहोस्...</div>}
     {loading?<Spinner/>:sims.length===0?<EmptyState icon={Gamepad2} text="अझै कुनै सिमुलेसन बनाइएको छैन। माथिको बटनबाट पहिलो बनाउनुहोस्।"/>:(
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         {sims.map((s,i)=>{const color=PALETTE[i%PALETTE.length];return(
@@ -1842,7 +1846,17 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoMaterials, onGoAITools, onG
   // the daily-glance dashboard (today's lesson, stats), so these belong
   // here instead: one destination for "how's today/this week going"
   // rather than two. Removing थप also takes bottom nav from 5 items to 4.
-  const [openPanel,setOpenPanel]=useState(null); // null | "homework" | "journal"
+  // FIX — पात्रो (Calendar) used to render inline, in full, directly on
+  // this dashboard: its own header, upload/add buttons, a full row of 6
+  // category filter chips, and the whole month grid — permanently taking
+  // up most of the screen and, on a phone, crowding right up against the
+  // "कार्यक्रम थप्नुहोस्" flow that shows those same 6 category buttons
+  // again inside its own form, which read as duplicated buttons. It's a
+  // popup now, opened from one compact tile below (same pattern already
+  // used for गृहकार्य/डायरी), so the category chips only ever appear in
+  // one place at a time — inside the calendar itself, not permanently
+  // sitting on the dashboard too.
+  const [openPanel,setOpenPanel]=useState(null); // null | "homework" | "journal" | "calendar"
   useEffect(()=>{
     if(!initialPanel)return;
     setOpenPanel(initialPanel);
@@ -1941,10 +1955,12 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoMaterials, onGoAITools, onG
           subtitle={hwLoading?"लोड हुँदै...":homework.length===0?"कुनै गृहकार्य छैन":`${homework.length} जम्मा · ${pendingHomework} जाँच बाँकी`}/>
         <SummaryPanel icon={Heart} color={ROSE} title="डायरी" onOpen={()=>setOpenPanel("journal")}
           subtitle={journalCount===null?"लोड हुँदै...":journalCount===0?"कुनै प्रविष्टि छैन":`${journalCount} प्रविष्टि`}/>
+        <SummaryPanel icon={CalendarDays} color={VIOLET} title="पात्रो" onOpen={()=>setOpenPanel("calendar")}
+          subtitle="कार्यक्रम, बिदा, परीक्षा मिति हेर्नुहोस्"/>
       </div>
-      <CalendarView classLabel={classLabel} active={active}/>
       {openPanel==="homework"&&<ManagerPopup title="गृहकार्य" onClose={()=>setOpenPanel(null)}><HomeworkManager section={section} loading={hwLoading} homework={homework} onRefresh={onRefreshHomework} classLabel={classLabel}/></ManagerPopup>}
       {openPanel==="journal"&&<ManagerPopup title="डायरी" onClose={()=>setOpenPanel(null)}><TeachingJournal lessons={lessons} classLabel={classLabel}/></ManagerPopup>}
+      {openPanel==="calendar"&&<ManagerPopup title="पात्रो" onClose={()=>setOpenPanel(null)}><CalendarView classLabel={classLabel} active={true}/></ManagerPopup>}
     </div>
   );
 }

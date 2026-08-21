@@ -736,7 +736,14 @@ export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, 
 14. कोड लेखिसकेपछि आफैं जाँच्नुहोस् (यी सबै "हो" नभएसम्म अन्तिम जवाफ नदिनुहोस्): के html/body मा overflow:hidden र width/height 100vw/100vh छ? के लेआउट पूर्णतः flex/grid मा आधारित छ, hardcoded absolute left/top होइन? के कुनै तत्व अर्कोमाथि ओभरल्याप वा काटिएको छैन? के 1280×720 जत्रो landscape स्क्रिनमा जुम/स्क्रोल नगरी सबै देखिन्छ? के फन्ट-साइज प्रोजेक्टरबाट टाढैबाट पढ्न सकिने ठूलो छ? के हरेक तानिने तत्वमा pointer events र touch-action: none छ? के कम्तिमा ८ वटा वस्तु/चरण छन्? के कुनै <img> ट्याग छैन? के स्रोत-वस्तुहरू एउटै लामो ठाडो स्तम्भमा छैनन् (multi-column grid प्रयोग भएको छ)? के लक्ष्य/कोठा/श्रेणी भएको ढाँचा हो भने ती लक्ष्यहरू सबै स्रोत-वस्तुसँगै, स्क्रोल नगरी, सुरुमै देखिन्छन्, र हरेकमा स्पष्ट लेबल छ? **के प्रतिक्रिया/सन्देश कम्तिमा ३५००ms सम्म रहन्छ? के "फेरि खेल्नुहोस्" बटन सधैं स्थिर/देखिने ठाउँमा छ? के अन्त्यमा उत्सव-एनिमेसन छ?**
 
 अब माथिको JSON/व्याख्या नराखी, सिधै HTML कागजात मात्र सुरु गर्नुहोस्।`;
-  const raw = await runPrompt(prompt, ctx, { maxOutputTokens: 16000, timeoutMs: 75000 });
+  // FIX — this call asks for a large (16000-token), highly-detailed,
+  // self-contained HTML/CSS/JS game, which routinely takes longer to
+  // finish than the app's normal 45s call timeout — that's what was
+  // producing "Gemini ले समयमा जवाफ दिएन (75 सेकेन्डभित्र)" even when
+  // Gemini was working fine, just still generating. Raised to 150s
+  // (2.5 min) specifically for this one call, so a genuinely slow — but
+  // successful — generation gets a fair chance instead of being cut off.
+  const raw = await runPrompt(prompt, ctx, { maxOutputTokens: 16000, timeoutMs: 150000 });
   let html = (raw || "").trim();
   // Strip a ```html ... ``` fence if Gemini wrapped it despite instructions.
   html = html.replace(/^```html\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
