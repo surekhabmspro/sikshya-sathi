@@ -460,6 +460,33 @@ function Button({ children, onClick, variant="primary", size="md", disabled, sty
 // left accent-color rail (when given) is now thicker (5px) and the whole
 // card gets a soft matching glow on hover, not just a lift, so color-coded
 // lists (materials, activities...) feel lively while scanning.
+// NEW — UI overhaul, pass 1: every filter/tab/toggle chip in the app (class
+// sections, category filters, calendar categories, AI Sahayak tabs, theme
+// toggle, event-category picker) was hand-rolled per screen with its own
+// padding/font-size/border-width, close but never quite matching its
+// neighbors. One Chip now backs all of them, and its active state carries
+// the same small lift+glow the rest of the app already uses for "this is
+// the selected one" (PageHeader's icon badge, EmptyState's icon) — a
+// consistent little "stamped" tell instead of each screen inventing its own.
+function Chip({ children, icon:Icon, active, onClick, color=ACCENT, size="md", dashed, type="button", style }) {
+  const sizes = { sm:{padding:"7px 12px",fontSize:14}, md:{padding:"8px 14px",fontSize:15.5}, lg:{padding:"13px 16px",fontSize:16} };
+  return (
+    <button type={type} onClick={onClick} className="ss-chip ss-btn" style={{
+      display:"flex",alignItems:"center",gap:5,borderRadius:999,flexShrink:0,
+      border:`1.5px ${dashed?"dashed":"solid"} ${active?color:BORDER}`,
+      background:active?color:(dashed?"none":SURFACE),
+      color:active?"#fff":INK_SOFT,
+      fontWeight:700,whiteSpace:"nowrap",cursor:"pointer",fontFamily:"'Hind','Baloo 2',sans-serif",
+      boxShadow:active?`0 4px 10px color-mix(in srgb, ${color} 35%, transparent)`:"none",
+      transform:active?"translateY(-1px)":"none",transition:"all .15s ease",
+      ...sizes[size], ...style,
+    }}>
+      {Icon&&<Icon size={size==="lg"?15:13}/>}
+      {children}
+    </button>
+  );
+}
+
 function Card({ children, onClick, style, accentColor }) {
   return (
     <div onClick={onClick}
@@ -931,7 +958,7 @@ function SectionSelector({ sections, current, onChange, onAdd }) {
     <div style={{padding:"11px 16px",background:SURFACE,borderBottom:`1px solid ${BORDER}`}}>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
         {sections.map((s)=>(
-          <button key={s.id} onClick={()=>onChange(s)} className="ss-chip" style={{padding:"7px 16px",borderRadius:999,border:`1.5px solid ${current?.id===s.id?ACCENT:BORDER}`,fontWeight:700,fontSize:15.5,whiteSpace:"nowrap",cursor:"pointer",background:current?.id===s.id?ACCENT:SURFACE_2,color:current?.id===s.id?"#fff":INK_SOFT,boxShadow:current?.id===s.id?SHADOW.sm:"none"}}>{s.name}</button>
+          <Chip key={s.id} onClick={()=>onChange(s)} active={current?.id===s.id} size="lg">{s.name}</Chip>
         ))}
         {adding?(
           <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
@@ -940,7 +967,7 @@ function SectionSelector({ sections, current, onChange, onAdd }) {
             <button className="ss-icon-btn" onClick={()=>setAdding(false)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><X size={16}/></button>
           </div>
         ):(
-          <button onClick={()=>setAdding(true)} className="ss-chip" style={{display:"flex",alignItems:"center",gap:4,padding:"7px 12px",borderRadius:999,border:`1.5px dashed ${BORDER}`,background:"none",color:INK_SOFT,fontSize:15,fontWeight:700,cursor:"pointer",flexShrink:0}}><Plus size={13}/>नयाँ सेक्सन</button>
+          <Chip onClick={()=>setAdding(true)} icon={Plus} dashed>नयाँ सेक्सन</Chip>
         )}
       </div>
     </div>
@@ -1751,7 +1778,7 @@ function ChapterMaterialsList({ materials, onGoMaterials }) {
 // own uploaded lesson plan/PPT and the textbook as its source, never
 // replacing them. This is meant to be the only screen a teacher needs to
 // touch on a normal day.
-function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, onGoAITools, onGoSettings, section, homework, loading, teacherName, classContext, classLabel }) {
+function HomeScreen({ onOpenLesson, onGoPlanner, onGoMaterials, onGoAITools, onGoSettings, section, homework, hwLoading, onRefreshHomework, loading, teacherName, classContext, classLabel, initialPanel, onInitialPanelConsumed, active }) {
   const { chapters, lessons, materials } = useData();
   // FIX — "today's lesson" was permanently whichever lesson happened to be
   // first "ready" (or just lessons[0]), with no way to change it — so once
@@ -1778,6 +1805,22 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, on
   const materialsCount=(materials||[]).length;
   const [textbookReady,setTextbookReady]=useState(false);
   useEffect(()=>{ let cancelled=false; getTextbookPDF(classLabel).then((part)=>{if(!cancelled)setTextbookReady(!!part);}); return ()=>{cancelled=true;}; },[classLabel]);
+
+  // NEW — थप used to be its own nav tab holding just गृहकार्य, डायरी, and
+  // पात्रो — three things with no shared identity of their own, sitting
+  // behind a tap most of a screen's height ended up empty. आज is already
+  // the daily-glance dashboard (today's lesson, stats), so these belong
+  // here instead: one destination for "how's today/this week going"
+  // rather than two. Removing थप also takes bottom nav from 5 items to 4.
+  const [openPanel,setOpenPanel]=useState(null); // null | "homework" | "journal"
+  useEffect(()=>{
+    if(!initialPanel)return;
+    setOpenPanel(initialPanel);
+    onInitialPanelConsumed?.();
+  },[initialPanel,onInitialPanelConsumed]);
+  const [journalCount,setJournalCount]=useState(null);
+  useEffect(()=>{db.getJournalEntries(classLabel).then(({data})=>setJournalCount((data||[]).length));},[openPanel,classLabel]);
+  const pendingHomework=homework.filter((h)=>h.checked_count<h.total_students).length;
 
   if(loading)return<Spinner/>;
   const hour=new Date().getHours();
@@ -1858,10 +1901,20 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoHomework, onGoMaterials, on
         <StatCard icon={BookOpen} value={chapters?.length||0} label="अध्यायहरू" color={ACCENT} accent onClick={onGoMaterials}/>
         <StatCard icon={FileText} value={materialsCount} label="सामग्री फाइल" color={ROSE} accent onClick={onGoMaterials}/>
         <StatCard icon={CheckCircle2} value={lessons.filter((l)=>l.status==="ready").length} label="तयार पाठ" color={TEAL} accent onClick={onGoPlanner}/>
-        <StatCard icon={ListChecks} value={homework.length} label="गृहकार्य" color={VIOLET} accent onClick={onGoHomework}/>
+        <StatCard icon={ListChecks} value={homework.length} label="गृहकार्य" color={VIOLET} accent onClick={()=>setOpenPanel("homework")}/>
       </div>
 
       <GetStartedCard chapters={chapters||[]} materialsCount={materialsCount} lessons={lessons} onGoMaterials={onGoMaterials} onGoPlanner={onGoPlanner}/>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:12,marginTop:18,marginBottom:18}}>
+        <SummaryPanel icon={ListChecks} color={BLUE} title="गृहकार्य" onOpen={()=>setOpenPanel("homework")}
+          subtitle={hwLoading?"लोड हुँदै...":homework.length===0?"कुनै गृहकार्य छैन":`${homework.length} जम्मा · ${pendingHomework} जाँच बाँकी`}/>
+        <SummaryPanel icon={Heart} color={ROSE} title="डायरी" onOpen={()=>setOpenPanel("journal")}
+          subtitle={journalCount===null?"लोड हुँदै...":journalCount===0?"कुनै प्रविष्टि छैन":`${journalCount} प्रविष्टि`}/>
+      </div>
+      <CalendarView classLabel={classLabel} active={active}/>
+      {openPanel==="homework"&&<ManagerPopup title="गृहकार्य" onClose={()=>setOpenPanel(null)}><HomeworkManager section={section} loading={hwLoading} homework={homework} onRefresh={onRefreshHomework} classLabel={classLabel}/></ManagerPopup>}
+      {openPanel==="journal"&&<ManagerPopup title="डायरी" onClose={()=>setOpenPanel(null)}><TeachingJournal lessons={lessons} classLabel={classLabel}/></ManagerPopup>}
     </div>
   );
 }
@@ -2215,21 +2268,13 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
               <input autoFocus={!form.chapter_title} placeholder="जस्तै: सडक सुरक्षा र ट्राफिक नियम" value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"12px 14px",fontSize:17,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
             </div>
 
-            {/* FIX — THE single door: one big, obvious button, generates
-                the lesson plan AND questions AND activities AND a rubric
-                together, all tied to this exact Path. Materials are tucked
-                behind an optional toggle below instead of always taking up
-                space — most of the time a teacher just wants to type a
-                name and tap this. */}
-            <div>
-              <AIButton label={generating?"बनाउँदै...":"✨ AI ले यो पाठ बनाओस्"} onClick={autoGenerate} loading={generating} style={{width:"100%",justifyContent:"center",fontSize:17,padding:"14px"}}/>
-              {(generating||Object.keys(stepState).length>0)&&(
-                <div style={{marginTop:10,borderTop:`1px solid ${BORDER}`,paddingTop:6}}>
-                  {PREP_STEPS.map((s)=><PrepStepRow key={s.id} label={s.label} state={stepState[s.id]?.state||"idle"} message={stepState[s.id]?.message}/>)}
-                </div>
-              )}
-            </div>
-
+            {/* FIX — this used to sit below the AI generate button, so a
+                teacher who already had a lesson plan/PPT ready to attach
+                would tap generate first, then notice the attach option
+                after — generating from nothing when material to generate
+                *from* was one tap away. Attaching material first (if any
+                exists) means the generate button below can actually use
+                it. */}
             <button className="ss-icon-btn" type="button" onClick={()=>setShowMaterials((v)=>!v)} style={{display:"flex",alignItems:"center",gap:5,background:"none",border:"none",color:INK_SOFT,fontWeight:600,fontSize:14.5,cursor:"pointer",padding:"2px 0",alignSelf:"flex-start"}}>
               {showMaterials?<ChevronDown size={14}/>:<ChevronRight size={14}/>}📎 पहिले नै लेसन प्लान/PPT छ भने यहाँ थप्नुहोस् (वैकल्पिक)
             </button>
@@ -2245,6 +2290,21 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
                 )}
               </div>
             )}
+
+            {/* FIX — THE single door: one big, obvious button, generates
+                the lesson plan AND questions AND activities AND a rubric
+                together, all tied to this exact Path. Now sits after the
+                attach-materials option above, so if a plan/PPT is already
+                attached, this button can draw on it — attach first,
+                generate second, not the other way around. */}
+            <div>
+              <AIButton label={generating?"बनाउँदै...":"✨ AI ले यो पाठ बनाओस्"} onClick={autoGenerate} loading={generating} style={{width:"100%",justifyContent:"center",fontSize:17,padding:"14px"}}/>
+              {(generating||Object.keys(stepState).length>0)&&(
+                <div style={{marginTop:10,borderTop:`1px solid ${BORDER}`,paddingTop:6}}>
+                  {PREP_STEPS.map((s)=><PrepStepRow key={s.id} label={s.label} state={stepState[s.id]?.state||"idle"} message={stepState[s.id]?.message}/>)}
+                </div>
+              )}
+            </div>
 
             <button className="ss-icon-btn" type="button" onClick={()=>setShowDetails((v)=>!v)} style={{display:"flex",alignItems:"center",gap:5,background:"none",border:"none",color:INK_SOFT,fontWeight:600,fontSize:14.5,cursor:"pointer",padding:"2px 0",alignSelf:"flex-start"}}>
               {showDetails?<ChevronDown size={14}/>:<ChevronRight size={14}/>}✏️ हातैले सम्पादन गर्नुहोस् (उद्देश्य, शब्दावली, गृहकार्य...)
@@ -2361,7 +2421,7 @@ function CategoryPicker({ value, onChange }) {
 // state from App(), same source of truth every other screen reads from —
 // no separate copies left anywhere to fall out of sync.
 function Materials({ classLabel }) {
-  const { chapters, lessons, materials, materialsLoading, renameChapter: renameChapterCtx, deleteChapter: deleteChapterCtx, refreshMaterials, uploadMaterial, retagMaterial: retagMaterialCtx, deleteMaterial } = useData();
+  const { chapters, lessons, materials, materialsLoading, refreshMaterials, uploadMaterial, retagMaterial: retagMaterialCtx, deleteMaterial } = useData();
   const [uploading,setUploading]=useState(false);
   const [query,setQuery]=useState("");
   const [preview,setPreview]=useState(null);
@@ -2390,15 +2450,13 @@ function Materials({ classLabel }) {
   // concept instead of feeling like separate apps.
   const [chapterFilter,setChapterFilter]=useState("all"); // "all" | "untagged" | chapter id
   const [sortBy,setSortBy]=useState("newest");
-  const [showChapterManage,setShowChapterManage]=useState(false);
-  const [editingChapterId,setEditingChapterId]=useState(null);
-  const [chapterEditValue,setChapterEditValue]=useState("");
-  const [chapterBusy,setChapterBusy]=useState(null);
-  // NEW — per-chapter counts of lessons/questions/activities, shown inside
-  // "अध्याय व्यवस्थापन" so a teacher can see, right from Materials, whether a
-  // chapter already has a lesson plan / questions / activities elsewhere in
-  // the app — the same cross-screen link the Planner now shows in reverse.
-  const [chapterLinks,setChapterLinks]=useState({});
+  // FIX — "अध्याय व्यवस्थापन" (rename/delete a chapter) used to be its own
+  // collapsible card here too, duplicating what योजना's own chapter list
+  // already does (rename, delete, same underlying single-door functions).
+  // Two places to rename or delete the same chapter, with no reason to
+  // prefer one over the other, is confusing rather than convenient —
+  // chapter administration lives in योजना now; here below is just the
+  // अध्याय filter for browsing files, which is a materials-specific job.
   // NEW — multi-file upload progress ("3 / 7 अपलोड हुँदै"), since the file
   // picker below now accepts several files at once instead of one at a time.
   const [uploadProgress,setUploadProgress]=useState(null);
@@ -2406,46 +2464,6 @@ function Materials({ classLabel }) {
   const loading=materialsLoading;
   const load=refreshMaterials;
   const sync=async()=>{setSyncing(true);await load();setSyncing(false);};
-
-
-  // NEW — fetch lesson/question/activity counts for every chapter, once,
-  // when the management panel opens (not on every render).
-  useEffect(()=>{
-    if(!showChapterManage||!chapters?.length)return;
-    let cancelled=false;
-    (async()=>{
-      const entries=await Promise.all(chapters.map(async(c)=>[c.id,await getChapterLinkedCounts(c.id)]));
-      if(!cancelled)setChapterLinks(Object.fromEntries(entries));
-    })();
-    return()=>{cancelled=true;};
-  },[showChapterManage,chapters]);
-
-  // NEW — chapters are now created in exactly one place (the shared
-  // addChapter() from context, used by ChapterPicker wherever it appears);
-  // this screen no longer needs its own copy of that logic.
-  // NEW — rename/delete an existing chapter, through the exact same single
-  // door Planner uses (useData().renameChapter/deleteChapter) — see
-  // App.jsx's describeChapterDeletion/deleteChapterEverywhere. Chapters
-  // were previously add-only (no way to fix a typo or remove a duplicate);
-  // this lets a teacher edit the title in place or delete it entirely.
-  // Deleting a chapter that still has materials tagged to it clears their
-  // tag rather than silently orphaning them, and warns the teacher first —
-  // and, since this is the same function Planner calls, the warning always
-  // covers everything affected (materials/paths/questions/activities/
-  // assessments), not just whichever this screen happened to track itself.
-  const renameChapter=async(chapter)=>{
-    const title=chapterEditValue.trim();
-    if(!title||title===chapter.title){setEditingChapterId(null);return;}
-    setChapterBusy(chapter.id);
-    await renameChapterCtx(chapter,title);
-    setChapterBusy(null);setEditingChapterId(null);
-  };
-
-  const deleteChapter=async(chapter)=>{
-    setChapterBusy(chapter.id);
-    await deleteChapterCtx(chapter);
-    setChapterBusy(null);
-  };
 
   // NEW — file selection no longer uploads immediately. It builds one
   // review row per file with category + chapter pre-filled by
@@ -2684,50 +2702,12 @@ function Materials({ classLabel }) {
         </div>
       )}
 
-      <Card style={{marginBottom:16}}>
-        <div onClick={()=>setShowChapterManage((v)=>!v)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer"}}>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <BookOpen size={17} color={ACCENT}/>
-            <div style={{fontSize:16.5,fontWeight:700,color:INK}}>अध्याय व्यवस्थापन ({(chapters||[]).length})</div>
-          </div>
-          <ChevronDown size={18} color={INK_SOFT} style={{transform:showChapterManage?"rotate(180deg)":"none",transition:"transform 0.15s"}}/>
-        </div>
-        {showChapterManage&&(
-          <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:6}}>
-            {(chapters||[]).length===0&&<div style={{fontSize:15,color:INK_SOFT,padding:"8px 2px"}}>अझै कुनै अध्याय थपिएको छैन।</div>}
-            {(chapters||[]).map((c)=>(
-              <div key={c.id} style={{display:"flex",alignItems:"center",gap:8,background:SURFACE_2,borderRadius:10,padding:"8px 10px"}}>
-                {editingChapterId===c.id?(
-                  <>
-                    <input autoFocus value={chapterEditValue} onChange={(e)=>setChapterEditValue(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&renameChapter(c)} className="ss-field" style={{flex:1,minWidth:0,borderRadius:8,padding:"7px 10px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE}}/>
-                    <button className="ss-btn" onClick={()=>renameChapter(c)} disabled={chapterBusy===c.id} style={{background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:8,padding:"7px 11px",fontWeight:700,fontSize:14.5,cursor:"pointer",flexShrink:0,boxShadow:SHADOW.accent}}>✓</button>
-                    <button className="ss-icon-btn" onClick={()=>setEditingChapterId(null)} style={{background:"none",border:"none",color:INK_SOFT,fontSize:14.5,cursor:"pointer",flexShrink:0}}>✕</button>
-                  </>
-                ):(
-                  <>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:15.5,color:INK,fontWeight:600}}>{c.title}</div>
-                      {chapterLinks[c.id]&&(
-                        <div style={{fontSize:12.5,color:INK_SOFT,marginTop:2}}>📎{chapterLinks[c.id].materials} ❓{chapterLinks[c.id].questions} 🎲{chapterLinks[c.id].activities}</div>
-                      )}
-                    </div>
-                    <button className="ss-icon-btn" onClick={()=>{setChapterFilter(c.id);setShowChapterManage(false);}} disabled={chapterBusy===c.id} style={{background:"none",border:"none",color:INK_SOFT,cursor:"pointer",padding:4,flexShrink:0,display:"flex"}} title="यो अध्यायका फाइल हेर्नुहोस्"><Search size={15}/></button>
-                    <button className="ss-icon-btn" onClick={()=>{setEditingChapterId(c.id);setChapterEditValue(c.title);}} disabled={chapterBusy===c.id} style={{background:"none",border:"none",color:INK_SOFT,cursor:"pointer",padding:4,flexShrink:0,display:"flex"}} title="नाम बदल्नुहोस्"><PenSquare size={15}/></button>
-                    <button className="ss-icon-btn" onClick={()=>deleteChapter(c)} disabled={chapterBusy===c.id} style={{background:"none",border:"none",color:DANGER,cursor:"pointer",padding:4,flexShrink:0,display:"flex"}} title="मेटाउनुहोस्"><Trash2 size={15}/></button>
-                  </>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-
       <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:12}}>
-        <button onClick={()=>setCategoryFilter("all")} className="ss-chip" style={{padding:"8px 14px",borderRadius:999,background:categoryFilter==="all"?ACCENT:SURFACE,color:categoryFilter==="all"?"#fff":INK,fontWeight:700,fontSize:16,whiteSpace:"nowrap",cursor:"pointer",border:`1.5px solid ${categoryFilter==="all"?ACCENT:BORDER}`,boxShadow:categoryFilter==="all"?SHADOW.sm:"none"}}>सबै ({materials.length})</button>
+        <Chip onClick={()=>setCategoryFilter("all")} active={categoryFilter==="all"} size="lg">सबै ({materials.length})</Chip>
         {CATEGORY_ORDER.map((key)=>{
           const meta=CATEGORY_META[key];const Icon=meta.icon;const active=categoryFilter===key;
           return(
-            <button key={key} onClick={()=>setCategoryFilter(key)} className="ss-chip" style={{display:"flex",alignItems:"center",gap:5,padding:"8px 14px",borderRadius:999,background:active?meta.color:SURFACE,color:active?"#fff":INK,fontWeight:700,fontSize:16,whiteSpace:"nowrap",cursor:"pointer",border:`1.5px solid ${active?meta.color:BORDER}`,boxShadow:active?SHADOW.sm:"none"}}><Icon size={13}/>{meta.label} ({categoryCounts[key]||0})</button>
+            <Chip key={key} onClick={()=>setCategoryFilter(key)} active={active} color={meta.color} icon={Icon} size="lg">{meta.label} ({categoryCounts[key]||0})</Chip>
           );
         })}
       </div>
@@ -3189,92 +3169,6 @@ function ManagerPopup({ title, onClose, children }) {
   );
 }
 
-function MoreHub({
-  initialPanel,onInitialPanelConsumed,
-  section,homework,hwLoading,onRefreshHomework,
-  lessons,classLabel,active,
-}) {
-  const [openPanel,setOpenPanel]=useState(null); // null | "homework" | "journal"
-  useEffect(()=>{
-    if(!initialPanel)return;
-    setOpenPanel(initialPanel);
-    onInitialPanelConsumed?.();
-  },[initialPanel,onInitialPanelConsumed]);
-  // NEW — a lightweight count so the Diary panel can show something useful
-  // (like Homework already can via the props App() already passes down)
-  // without opening the full journal just to see if there's anything in it.
-  const [journalCount,setJournalCount]=useState(null);
-  // FIX — no classLabel here either: the count on the डायरी summary card
-  // used to include entries from every class, not just the current one.
-  useEffect(()=>{db.getJournalEntries(classLabel).then(({data})=>setJournalCount((data||[]).length));},[openPanel,classLabel]);
-  const pendingHomework=homework.filter((h)=>h.checked_count<h.total_students).length;
-  // FIX — मूल्याङ्कन briefly lived here as its own screen, but that was
-  // still a duplicate: Yojana's rubric tab is where a teacher actually
-  // thinks about assessment (right there with the lesson it's for), so
-  // rubric creation moved into that tab directly instead.
-  // NEW — यो हप्ता: the top of थप used to be just two small cards before a
-  // long scroll down to the calendar grid to find out what's actually
-  // coming up. This pulls the next 7 days' calendar events (already the
-  // job of this screen — it owns the calendar) into a glance-able strip,
-  // so opening थप answers "what's this week" immediately instead of
-  // requiring a scroll-and-scan of the month grid.
-  const [weekEvents,setWeekEvents]=useState(null); // null = loading
-  useEffect(()=>{
-    let cancelled=false;
-    db.getCalendarEvents(classLabel).then(({data})=>{
-      if(cancelled)return;
-      const today=new Date();today.setHours(0,0,0,0);
-      const weekEnd=new Date(today);weekEnd.setDate(weekEnd.getDate()+7);
-      const upcoming=(data||[])
-        .filter((e)=>{const d=new Date(e.start_date);return d>=today&&d<=weekEnd;})
-        .sort((a,b)=>new Date(a.start_date)-new Date(b.start_date));
-      setWeekEvents(upcoming);
-    });
-    return()=>{cancelled=true;};
-  },[classLabel]);
-  const WEEKDAY_NE=["आइत","सोम","मंगल","बुध","बिहि","शुक्र","शनि"];
-
-  return(
-    <div className="ss-page" style={{padding:"20px 20px 130px",margin:"0 auto",width:"100%"}}>
-      <PageHeader icon={Layers} title="थप" color={ROSE}/>
-      <Card style={{marginBottom:14}}>
-        <SectionLabel icon={CalendarDays} color={VIOLET}>यो हप्ता</SectionLabel>
-        {weekEvents===null?(
-          <div style={{color:INK_SOFT,fontSize:15}}>लोड हुँदै...</div>
-        ):weekEvents.length===0?(
-          <div style={{color:INK_SOFT,fontSize:15}}>आउँदो ७ दिनमा पात्रोमा कुनै कार्यक्रम छैन।</div>
-        ):(
-          <div style={{display:"flex",flexDirection:"column",gap:6}}>
-            {weekEvents.map((e)=>{
-              const meta=EVENT_CATEGORY_META[e.category]||EVENT_CATEGORY_META.event;const Icon=meta.icon;
-              const d=new Date(e.start_date);
-              return(
-                <div key={e.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:`1px solid ${BORDER}`}}>
-                  <div style={{width:34,textAlign:"center",flexShrink:0}}>
-                    <div style={{fontSize:11.5,color:INK_SOFT,fontWeight:700}}>{WEEKDAY_NE[d.getDay()]}</div>
-                    <div style={{fontSize:16.5,fontWeight:800,color:meta.color}}>{d.getDate()}</div>
-                  </div>
-                  <div style={{width:26,height:26,borderRadius:8,background:`color-mix(in srgb, ${meta.color} 16%, ${SURFACE})`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={13} color={meta.color}/></div>
-                  <div style={{fontSize:15.5,color:INK,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.title}</div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </Card>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:12,marginBottom:18}}>
-        <SummaryPanel icon={ListChecks} color={BLUE} title="गृहकार्य" onOpen={()=>setOpenPanel("homework")}
-          subtitle={hwLoading?"लोड हुँदै...":homework.length===0?"कुनै गृहकार्य छैन":`${homework.length} जम्मा · ${pendingHomework} जाँच बाँकी`}/>
-        <SummaryPanel icon={Heart} color={ROSE} title="डायरी" onOpen={()=>setOpenPanel("journal")}
-          subtitle={journalCount===null?"लोड हुँदै...":journalCount===0?"कुनै प्रविष्टि छैन":`${journalCount} प्रविष्टि`}/>
-      </div>
-      <CalendarView classLabel={classLabel} active={active}/>
-      {openPanel==="homework"&&<ManagerPopup title="गृहकार्य" onClose={()=>setOpenPanel(null)}><HomeworkManager section={section} loading={hwLoading} homework={homework} onRefresh={onRefreshHomework} classLabel={classLabel}/></ManagerPopup>}
-      {openPanel==="journal"&&<ManagerPopup title="डायरी" onClose={()=>setOpenPanel(null)}><TeachingJournal lessons={lessons} classLabel={classLabel}/></ManagerPopup>}
-    </div>
-  );
-}
-
 function AITools({ lessons, classContext, classLabel, initialTab, onInitialTabConsumed }) {
   // FIX — "AI च्याट" used to be its own top-level screen, separate from
   // every other AI feature (resources/saved), even though it draws on
@@ -3313,13 +3207,10 @@ function AITools({ lessons, classContext, classLabel, initialTab, onInitialTabCo
       <div className="no-print" style={{position:"sticky",top:0,zIndex:8,background:SURFACE,borderBottom:`1px solid ${BORDER}`,padding:"10px 14px"}}>
         <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
           {TABS.map((t)=>{const Icon=t.icon;const active=tab===t.id;return(
-            <button key={t.id} onClick={()=>setTab(t.id)} className="ss-chip ai-tools-tab" style={{display:"flex",alignItems:"center",gap:6,padding:"8px 13px",borderRadius:999,border:`1.5px solid ${active?t.color:BORDER}`,background:active?t.color:SURFACE,color:active?"#fff":INK_SOFT,fontWeight:700,fontSize:14.5,whiteSpace:"nowrap",cursor:"pointer",boxShadow:active?SHADOW.sm:"none"}}><Icon size={14}/>{t.label}</button>
+            <Chip key={t.id} onClick={()=>setTab(t.id)} active={active} color={t.color} icon={Icon} size="sm">{t.label}</Chip>
           );})}
         </div>
       </div>
-      <style>{`
-        @media(max-width:420px){.ai-tools-tab{padding:7px 11px !important;font-size:13.5px !important;}}
-      `}</style>
       {tab==="chat"&&<AIAssistant lessons={lessons} classContext={classContext} classLabel={classLabel}/>}
       {tab==="resources"&&<ResourceCreator lessons={lessons} classContext={classContext} classLabel={classLabel}/>}
     </div>
@@ -3731,7 +3622,6 @@ function CalendarView({ classLabel, active }) {
           .cal-header-actions{width:100%;}
           .cal-header-actions>*{flex:1 1 100%;justify-content:center;}
         }
-        @media(max-width:420px){.cal-cat-chip{padding:6px 11px !important;font-size:13.5px !important;}}
       `}</style>
       <PageHeader icon={CalendarDays} title="पात्रो" color={VIOLET} action={
         <div className="cal-header-actions">
@@ -3759,7 +3649,7 @@ function CalendarView({ classLabel, active }) {
         {EVENT_CATEGORY_ORDER.map((key)=>{
           const meta=EVENT_CATEGORY_META[key];const Icon=meta.icon;const active=activeCats.has(key);
           return(
-            <button key={key} onClick={()=>toggleCat(key)} className="ss-chip cal-cat-chip" style={{display:"flex",alignItems:"center",gap:5,padding:"7px 13px",borderRadius:999,background:active?meta.color:SURFACE,color:active?"#fff":INK_SOFT,fontWeight:700,fontSize:14.5,whiteSpace:"nowrap",cursor:"pointer",border:`1.5px solid ${active?meta.color:BORDER}`,boxShadow:active?SHADOW.sm:"none",flexShrink:0}}><Icon size={13}/>{meta.label}</button>
+            <Chip key={key} onClick={()=>toggleCat(key)} active={active} color={meta.color} icon={Icon} size="sm">{meta.label}</Chip>
           );
         })}
       </div>
@@ -3837,7 +3727,7 @@ function CalendarView({ classLabel, active }) {
             <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:12}}>
               {EVENT_CATEGORY_ORDER.map((key)=>{
                 const meta=EVENT_CATEGORY_META[key];const Icon=meta.icon;const active=form.category===key;
-                return<button key={key} onClick={()=>setForm({...form,category:key})} className="ss-chip" style={{display:"flex",alignItems:"center",gap:5,padding:"7px 12px",borderRadius:999,background:active?meta.color:SURFACE,color:active?"#fff":INK_SOFT,fontWeight:700,fontSize:14,whiteSpace:"nowrap",cursor:"pointer",border:`1.5px solid ${active?meta.color:BORDER}`}}><Icon size={12}/>{meta.label}</button>;
+                return<Chip key={key} onClick={()=>setForm({...form,category:key})} active={active} color={meta.color} icon={Icon} size="sm">{meta.label}</Chip>;
               })}
             </div>
             <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
@@ -4247,8 +4137,10 @@ export default function App() {
   // click around to find what they searched for.
   const [aiToolsTab,setAiToolsTab]=useState(null);
   const goAITools=useCallback((tab)=>{setAiToolsTab(typeof tab==="string"?tab:null);setScreen("aitools");},[]);
-  const [moreTab,setMoreTab]=useState(null);
-  const goMore=useCallback((tab)=>{setMoreTab(typeof tab==="string"?tab:null);setScreen("more");},[]);
+  // NEW — गृहकार्य/डायरी now live on आज (Home) instead of a separate थप
+  // tab. Same jump-straight-to-panel pattern as AI Sahayak above.
+  const [homePanel,setHomePanel]=useState(null);
+  const goHomePanel=useCallback((tab)=>{setHomePanel(typeof tab==="string"?tab:null);setScreen("dashboard");},[]);
   const [settingsOpen,setSettingsOpen]=useState(false);
   const [searchOpen,setSearchOpen]=useState(false);
   // NEW — one-click print from the Planner list: open the lesson AND print
@@ -4541,16 +4433,16 @@ export default function App() {
   // sheet. A teacher generating a question bank had no way to know it
   // wasn't under the visible "AI च्याट" icon. They're now one screen
   // ("AI सहायक", chat is just its first tab — see AITools) reached one way.
-  // The old two-tier nav+navMore split (a always-visible row plus a sheet
-  // you had to open first to reach AI Tools or More) added a tap to two of
-  // the app's most-used destinations for no organizational benefit — five
-  // flat destinations fit one row fine, so everything is direct now.
+  // FIX — थप itself is gone now too: it only ever held गृहकार्य, डायरी,
+  // and पात्रो — three things with no shared identity, and a whole nav
+  // slot for a screen that was mostly empty space above the calendar.
+  // They're on आज (Home) now, the screen that's already the daily-glance
+  // dashboard. Four flat destinations, each one worth its own tap.
   const nav=[
     {id:"dashboard",label:"आज",icon:Home,color:ACCENT},
     {id:"planner",label:"योजना",icon:CalendarDays,color:TEAL},
     {id:"materials",label:"सामग्री",icon:BookOpen,color:MARIGOLD_DARK},
     {id:"aitools",label:"AI सहायक",icon:Wand2,color:VIOLET},
-    {id:"more",label:"थप",icon:Layers,color:ROSE},
   ];
 
   if(authLoading)return<div style={{minHeight:"100vh",background:"var(--bg,#F7F4EC)",display:"flex",alignItems:"center",justifyContent:"center"}}><Spinner/></div>;
@@ -4794,19 +4686,13 @@ export default function App() {
 
       <div className="main-content">
         {visitedScreens.has("dashboard")&&<div style={{display:screen==="dashboard"?undefined:"none"}}>
-          <HomeScreen onOpenLesson={openLesson} onGoPlanner={goPlanner} onGoHomework={()=>goMore("homework")} onGoMaterials={()=>setScreen("materials")} onGoAITools={goAITools} onGoSettings={()=>setSettingsOpen(true)} section={currentSection} homework={homework} loading={lessonsLoading} teacherName={teacherName} classContext={classContext} classLabel={classLabel}/>
+          <HomeScreen onOpenLesson={openLesson} onGoPlanner={goPlanner} onGoMaterials={()=>setScreen("materials")} onGoAITools={goAITools} onGoSettings={()=>setSettingsOpen(true)} section={currentSection} homework={homework} hwLoading={hwLoading} onRefreshHomework={loadHomework} loading={lessonsLoading} teacherName={teacherName} classContext={classContext} classLabel={classLabel} initialPanel={homePanel} onInitialPanelConsumed={()=>setHomePanel(null)} active={screen==="dashboard"}/>
         </div>}
         {visitedScreens.has("planner")&&<div style={{display:screen==="planner"?undefined:"none"}}>
           <Planner onOpenLesson={openLesson} section={currentSection} loading={lessonsLoading} onRefresh={loadLessons} classContext={classContext} classLabel={classLabel} editLessonId={editLessonId} onEditConsumed={()=>setEditLessonId(null)} prefillChapter={prefillChapter} onPrefillConsumed={()=>setPrefillChapter(null)}/>
         </div>}
         {visitedScreens.has("materials")&&<div style={{display:screen==="materials"?undefined:"none"}}>
           <Materials classLabel={classLabel}/>
-        </div>}
-        {visitedScreens.has("more")&&<div style={{display:screen==="more"?undefined:"none"}}>
-          <MoreHub initialPanel={moreTab} onInitialPanelConsumed={()=>setMoreTab(null)}
-            section={currentSection} homework={homework} hwLoading={hwLoading} onRefreshHomework={loadHomework}
-            lessons={lessons} classLabel={classLabel} active={screen==="more"}
-          />
         </div>}
         {visitedScreens.has("aitools")&&<div style={{display:screen==="aitools"?undefined:"none"}}>
           <AITools lessons={lessons} classContext={classContext} classLabel={classLabel} initialTab={aiToolsTab} onInitialTabConsumed={()=>setAiToolsTab(null)}/>
@@ -4826,7 +4712,7 @@ export default function App() {
             <DocumentSearch lessons={lessons} homework={homework} classLabel={classLabel}
               onOpenLesson={(l,opts)=>{setSearchOpen(false);openLesson(l,opts);}}
               onGoMaterials={()=>{setSearchOpen(false);setScreen("materials");}}
-              onGoHomework={()=>{setSearchOpen(false);goMore("homework");}}
+              onGoHomework={()=>{setSearchOpen(false);goHomePanel("homework");}}
             />
           </div>
         </div>

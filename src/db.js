@@ -1,6 +1,46 @@
 // db.js — all Supabase database calls in one place
 import { supabase } from "./lib/supabase";
 
+// ─── OFFLINE CACHE ──────────────────────────────────────────────────────────
+// NEW — the app shell (JS/CSS/icons) was already precached by sw.js, so it
+// opened offline, but every screen was still empty: चयाट history aside,
+// every list (chapters, lessons, materials, homework, calendar, diary...)
+// comes from Supabase over the network, and a failed fetch offline just
+// returned {data:null,error}, which every screen already renders as "कुनै
+// ... छैन" — indistinguishable from "you genuinely have nothing yet". A
+// teacher who'd already built out their materials would open the app on a
+// bus/in a village with no signal and see a blank slate.
+// cachedFetch wraps a Supabase read: on success it mirrors the result into
+// localStorage (last-known-good, per class/scope via `key`); on failure —
+// network down, request thrown/timed out — it serves that mirror instead of
+// surfacing the error, so "offline" degrades to "showing what was last
+// synced" instead of "showing nothing". Writes (upsert/delete) still need a
+// connection, same as before — this only covers reading what's already
+// there, which is what "not even showing already-created content" was about.
+const CACHE_PREFIX = "ss-cache:";
+const cacheRead = (key) => {
+  try {
+    const raw = localStorage.getItem(CACHE_PREFIX + key);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+};
+const cacheWrite = (key, data) => {
+  try { localStorage.setItem(CACHE_PREFIX + key, JSON.stringify(data)); }
+  catch { /* storage full or unavailable — fetch still worked, just skip mirroring */ }
+};
+async function cachedFetch(key, fetcher) {
+  try {
+    const { data, error } = await fetcher();
+    if (error) throw error;
+    cacheWrite(key, data);
+    return { data, error: null };
+  } catch (error) {
+    const cached = cacheRead(key);
+    if (cached !== null) return { data: cached, error: null, fromCache: true };
+    return { data: null, error };
+  }
+}
+
 // ─── AUTH ────────────────────────────────────────────────────────────────────
 export const signIn = (email, password) =>
   supabase.auth.signInWithPassword({ email, password });
@@ -13,13 +53,13 @@ export const signOut = () => supabase.auth.signOut();
 export const getSession = () => supabase.auth.getSession();
 
 // ─── SECTIONS ────────────────────────────────────────────────────────────────
-export const getSections = async () => {
+export const getSections = async () => cachedFetch("sections", async () => {
   const { data, error } = await supabase
     .from("sections")
     .select("*")
     .order("name");
   return { data, error };
-};
+});
 
 export const createSection = async (name) => {
   const { data: { user } } = await supabase.auth.getUser();
@@ -53,12 +93,11 @@ export const deleteSection = async (id) => {
 // changes year to year — so chapters/textbook need to key off the class, not
 // be one shared pool forever. classLabel is optional so nothing breaks for
 // any code path that hasn't been updated yet, but always pass it going forward.
-export const getChapters = async (classLabel = null) => {
+export const getChapters = async (classLabel = null) => cachedFetch(`chapters:${classLabel || "all"}`, async () => {
   let query = supabase.from("chapters").select("*").order("order_index");
   if (classLabel) query = query.eq("class_label", classLabel);
-  const { data, error } = await query;
-  return { data, error };
-};
+  return await query;
+});
 
 export const upsertChapter = async (chapter) => {
   const { data: { user } } = await supabase.auth.getUser();
@@ -173,16 +212,15 @@ export const clearTextbookChapterTextCache = async (classLabel = null) => {
 // Class 5 lesson plan shouldn't show up while a teacher is looking at
 // Class 6. classLabel is optional so nothing breaks if it's ever called
 // without one.
-export const getLessons = async (sectionId = null, classLabel = null) => {
+export const getLessons = async (sectionId = null, classLabel = null) => cachedFetch(`lessons:${sectionId || "all"}:${classLabel || "all"}`, async () => {
   let query = supabase
     .from("lessons")
     .select("*, chapters(title)")
     .order("scheduled_date", { ascending: true });
   if (sectionId) query = query.eq("section_id", sectionId);
   if (classLabel) query = query.eq("class_label", classLabel);
-  const { data, error } = await query;
-  return { data, error };
-};
+  return await query;
+});
 
 export const upsertLesson = async (lesson) => {
   const { data: { user } } = await supabase.auth.getUser();
@@ -219,12 +257,11 @@ export const deleteLesson = async (id) => {
 // ─── MATERIALS ───────────────────────────────────────────────────────────────
 // NEW — scoped to class_label, same reasoning as chapters: a Class 5 file
 // shouldn't clutter the list once you've moved on to teaching Class 6.
-export const getMaterials = async (classLabel = null) => {
+export const getMaterials = async (classLabel = null) => cachedFetch(`materials:${classLabel || "all"}`, async () => {
   let query = supabase.from("materials").select("*, chapters(title), lessons(title)").order("created_at", { ascending: false });
   if (classLabel) query = query.eq("class_label", classLabel);
-  const { data, error } = await query;
-  return { data, error };
-};
+  return await query;
+});
 
 // NEW — fetch only the materials linked to one chapter (by chapter_id).
 // This is the piece that lets an AI button pull in just the right files
@@ -407,12 +444,11 @@ export const repairChapterTagging = async (onProgress) => {
 // (teacher_id, external_id) to avoid ever creating duplicates on re-sync,
 // without any change needed here. See the migration note at the bottom of
 // this file for the table definition.
-export const getCalendarEvents = async (classLabel = null) => {
+export const getCalendarEvents = async (classLabel = null) => cachedFetch(`calendar_events:${classLabel || "all"}`, async () => {
   let query = supabase.from("calendar_events").select("*").order("start_date", { ascending: true });
   if (classLabel) query = query.or(`class_label.eq.${classLabel},class_label.is.null`);
-  const { data, error } = await query;
-  return { data, error };
-};
+  return await query;
+});
 
 export const upsertCalendarEvent = async (event) => {
   const { data: { user } } = await supabase.auth.getUser();
@@ -506,15 +542,14 @@ export const repairDuplicateChapters = async (onProgress) => {
 // same "null = applies everywhere" convention as calendar_events, so
 // existing rows saved before this fix (class_label still null) stay
 // visible instead of silently disappearing.
-export const getQuestions = async (classLabel = null) => {
+export const getQuestions = async (classLabel = null) => cachedFetch(`questions:${classLabel || "all"}`, async () => {
   let query = supabase
     .from("questions")
     .select("*, chapters(title)")
     .order("created_at", { ascending: false });
   if (classLabel) query = query.or(`class_label.eq.${classLabel},class_label.is.null`);
-  const { data, error } = await query;
-  return { data, error };
-};
+  return await query;
+});
 
 export const upsertQuestion = async (question) => {
   const { data: { user } } = await supabase.auth.getUser();
@@ -569,7 +604,7 @@ export const deleteQuestionSet = async (id) => {
 // the chapter's own class_label (assessments has no class_label column of
 // its own) — an assessment with no chapter attached still shows
 // everywhere, same "unlinked = visible always" rule used across the app.
-export const getAssessments = async (classLabel = null) => {
+export const getAssessments = async (classLabel = null) => cachedFetch(`assessments:${classLabel || "all"}`, async () => {
   const { data, error } = await supabase
     .from("assessments")
     .select("*, chapters(title, class_label)")
@@ -577,7 +612,7 @@ export const getAssessments = async (classLabel = null) => {
   if (error || !classLabel) return { data, error };
   const filtered = (data || []).filter((a) => !a.chapters || a.chapters.class_label === classLabel);
   return { data: filtered, error: null };
-};
+});
 
 export const upsertAssessment = async (assessment) => {
   const { data: { user } } = await supabase.auth.getUser();
@@ -601,12 +636,14 @@ export const upsertAssessment = async (assessment) => {
 // actually lives.
 export const getAssessmentsByLesson = async (lessonId) => {
   if (!lessonId) return { data: [], error: null };
-  const { data, error } = await supabase
-    .from("assessments")
-    .select("*")
-    .eq("lesson_id", lessonId)
-    .order("created_at", { ascending: false });
-  return { data, error };
+  return cachedFetch(`assessments_by_lesson:${lessonId}`, async () => {
+    const { data, error } = await supabase
+      .from("assessments")
+      .select("*")
+      .eq("lesson_id", lessonId)
+      .order("created_at", { ascending: false });
+    return { data, error };
+  });
 };
 
 // ─── HOMEWORK ─────────────────────────────────────────────────────────────────
@@ -614,16 +651,15 @@ export const getAssessmentsByLesson = async (lessonId) => {
 // to a class). Requires the migration in add_class_scoping_homework_resources.sql
 // to be run first — see that file for why. Same "null = every class"
 // convention as calendar_events/questions/activities.
-export const getHomework = async (sectionId = null, classLabel = null) => {
+export const getHomework = async (sectionId = null, classLabel = null) => cachedFetch(`homework:${sectionId || "all"}:${classLabel || "all"}`, async () => {
   let query = supabase
     .from("homework")
     .select("*, lessons(title)")
     .order("assigned_date", { ascending: false });
   if (sectionId) query = query.eq("section_id", sectionId);
   if (classLabel) query = query.or(`class_label.eq.${classLabel},class_label.is.null`);
-  const { data, error } = await query;
-  return { data, error };
-};
+  return await query;
+});
 
 export const upsertHomework = async (hw) => {
   const { data: { user } } = await supabase.auth.getUser();
@@ -641,7 +677,7 @@ export const upsertHomework = async (hw) => {
 // out even after moving to a new class. Filtered via the linked lesson's
 // class_label; an entry with no lesson attached (the "आजको पाठ" field is
 // optional) still shows everywhere, same rule as elsewhere in the app.
-export const getJournalEntries = async (classLabel = null) => {
+export const getJournalEntries = async (classLabel = null) => cachedFetch(`journal_entries:${classLabel || "all"}`, async () => {
   const { data, error } = await supabase
     .from("journal_entries")
     .select("*, lessons(title, class_label)")
@@ -649,7 +685,7 @@ export const getJournalEntries = async (classLabel = null) => {
   if (error || !classLabel) return { data, error };
   const filtered = (data || []).filter((e) => !e.lessons || e.lessons.class_label === classLabel);
   return { data: filtered, error: null };
-};
+});
 
 export const upsertJournalEntry = async (entry) => {
   const { data: { user } } = await supabase.auth.getUser();
@@ -665,15 +701,14 @@ export const upsertJournalEntry = async (entry) => {
 // FIX — same class-leak as questions above: class_label already exists on
 // this table (repairChapterTagging has always read it) but nothing wrote
 // or filtered on it, so क्रियाकलाप from every class showed up together.
-export const getActivities = async (classLabel = null) => {
+export const getActivities = async (classLabel = null) => cachedFetch(`activities:${classLabel || "all"}`, async () => {
   let query = supabase
     .from("activities")
     .select("*, chapters(title)")
     .order("created_at", { ascending: false });
   if (classLabel) query = query.or(`class_label.eq.${classLabel},class_label.is.null`);
-  const { data, error } = await query;
-  return { data, error };
-};
+  return await query;
+});
 
 export const upsertActivity = async (activity) => {
   const { data: { user } } = await supabase.auth.getUser();
@@ -743,15 +778,14 @@ export const saveAIMessage = async (lessonId, role, content) => {
 // instead of only living in local component state.
 // FIX — no class scoping at all. Requires the migration in
 // add_class_scoping_homework_resources.sql to be run first.
-export const getSavedResources = async (classLabel = null) => {
+export const getSavedResources = async (classLabel = null) => cachedFetch(`saved_resources:${classLabel || "all"}`, async () => {
   let query = supabase
     .from("saved_resources")
     .select("*")
     .order("created_at", { ascending: false });
   if (classLabel) query = query.or(`class_label.eq.${classLabel},class_label.is.null`);
-  const { data, error } = await query;
-  return { data, error };
-};
+  return await query;
+});
 
 export const saveResource = async (resource) => {
   const { data: { user } } = await supabase.auth.getUser();
