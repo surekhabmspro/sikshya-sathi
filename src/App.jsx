@@ -487,6 +487,36 @@ function Chip({ children, icon:Icon, active, onClick, color=ACCENT, size="md", d
   );
 }
 
+// NEW — UI overhaul, pass 2: the two clearest repeated icon-button
+// families collapse into one IconButton. Before: 11 near-identical copies
+// of "plain X to close this popup" (each re-typing background:none,
+// border:none, color:INK_SOFT) plus 7 copies of the translucent
+// "on a dark hero panel" action button (LessonMode/quiz headers —
+// back/edit/print/refresh/close, each re-typing the same
+// rgba(255,255,255,0.15) pill). One component now backs both, as three
+// named variants instead of three ad-hoc style objects:
+//   ghost   — plain, no background (default modal/drawer close button)
+//   surface — same close action sitting on a bordered pill (drawers that
+//             float over varied/scrolling content, e.g. search/settings)
+//   hero    — translucent white-on-color, for action buttons on a
+//             colored hero panel
+function IconButton({ icon:Icon, onClick, title, disabled, color, size=19, variant="ghost", spin, type="button", style }) {
+  const variants = {
+    ghost:   { background:"none", border:"none", color:color||INK_SOFT, padding:6 },
+    surface: { background:SURFACE_2, border:`1px solid ${BORDER}`, borderRadius:10, color:color||INK_SOFT, padding:9 },
+    hero:    { background:"rgba(255,255,255,0.15)", border:"none", borderRadius:10, color:"#fff", padding:10 },
+  };
+  return (
+    <button type={type} className="ss-icon-btn" onClick={onClick} disabled={disabled} title={title} style={{
+      display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0,
+      cursor:disabled?"default":"pointer",
+      ...variants[variant], ...style,
+    }}>
+      <Icon size={size} style={spin?{animation:"spin 1s linear infinite"}:undefined}/>
+    </button>
+  );
+}
+
 function Card({ children, onClick, style, accentColor }) {
   return (
     <div onClick={onClick}
@@ -964,7 +994,7 @@ function SectionSelector({ sections, current, onChange, onAdd }) {
           <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
             <input autoFocus value={name} onChange={(e)=>setName(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&save()} placeholder="जस्तै: ५ क" style={{border:`1.5px solid ${BORDER}`,borderRadius:10,padding:"7px 11px",fontSize:15.5,width:100}}/>
             <button className="ss-btn" onClick={save} disabled={loading} style={{background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"7px 13px",fontWeight:700,fontSize:15.5,cursor:"pointer",boxShadow:SHADOW.accent}}>{loading?"...":"थप"}</button>
-            <button className="ss-icon-btn" onClick={()=>setAdding(false)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><X size={16}/></button>
+            <IconButton icon={X} onClick={()=>setAdding(false)} size={16}/>
           </div>
         ):(
           <Chip onClick={()=>setAdding(true)} icon={Plus} dashed>नयाँ सेक्सन</Chip>
@@ -982,12 +1012,12 @@ function PrintableSheet({ title, subtitle, chip, chipColor, onClose, children })
   return (
     <div className="print-area" style={{position:"fixed",inset:0,background:PAPER,zIndex:70,display:"flex",flexDirection:"column"}}>
       <div className="no-print" style={{background:`linear-gradient(120deg, ${MARIGOLD} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",padding:"14px 16px",display:"flex",alignItems:"center",gap:10}}>
-        <button className="ss-icon-btn" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:10,display:"flex",cursor:"pointer"}}><ChevronLeft size={20}/></button>
+        <IconButton icon={ChevronLeft} onClick={onClose} variant="hero" size={20}/>
         <div style={{flex:1,minWidth:0}}>
           {subtitle&&<div style={{fontSize:14,opacity:0.75}}>{subtitle}</div>}
           <div style={{fontSize:18.5,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{title}</div>
         </div>
-        <button className="ss-icon-btn" onClick={()=>window.print()} title="प्रिन्ट गर्नुहोस्" style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:10,display:"flex",cursor:"pointer",flexShrink:0}}><Printer size={19}/></button>
+        <IconButton icon={Printer} onClick={()=>window.print()} title="प्रिन्ट गर्नुहोस्" variant="hero" size={19}/>
       </div>
       <div style={{flex:1,overflowY:"auto",padding:20,maxWidth:720,margin:"0 auto",width:"100%"}}>
         {chip&&<span style={{fontSize:13.5,background:tint(chipColor||ACCENT,15),color:chipColor||ACCENT,padding:"4px 10px",borderRadius:999,fontWeight:700,display:"inline-block",marginBottom:12}}>{chip}</span>}
@@ -1073,7 +1103,7 @@ function LessonEditModal({ lesson, classContext, classLabel, onClose, onSaved })
       <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,padding:20,maxWidth:560,width:"100%",maxHeight:"88vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
           <div style={{fontWeight:800,fontSize:18,color:INK}}>पाठ सम्पादन गर्नुहोस्</div>
-          <button className="ss-icon-btn" onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><X size={20}/></button>
+          <IconButton icon={X} onClick={onClose} size={20}/>
         </div>
         {error&&<ErrorMsg msg={error}/>}
         <div style={{display:"flex",flexDirection:"column",gap:9}}>
@@ -1312,13 +1342,13 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
         }
       `}</style>
       <div className="no-print" style={{background:`linear-gradient(120deg, ${MARIGOLD} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",padding:"12px 16px",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-        <button className="ss-icon-btn" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:10,display:"flex",cursor:"pointer"}}><ChevronLeft size={20}/></button>
+        <IconButton icon={ChevronLeft} onClick={onClose} variant="hero" size={20}/>
         <div style={{flex:1,minWidth:0}}>
           <div style={{fontSize:13.5,opacity:0.75}}>{chapterTitle}</div>
           <div style={{fontSize:18,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{lesson.title}</div>
         </div>
-        {onEdit&&<button className="ss-icon-btn" onClick={()=>onEdit(lesson)} title="सम्पादन गर्नुहोस्" style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:10,display:"flex",cursor:"pointer",flexShrink:0}}><PenSquare size={19}/></button>}
-        <button className="ss-icon-btn" onClick={()=>window.print()} title="पूरा पाठ योजना प्रिन्ट गर्नुहोस्" style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:10,display:"flex",cursor:"pointer",flexShrink:0}}><Printer size={19}/></button>
+        {onEdit&&<IconButton icon={PenSquare} onClick={()=>onEdit(lesson)} title="सम्पादन गर्नुहोस्" variant="hero" size={19}/>}
+        <IconButton icon={Printer} onClick={()=>window.print()} title="पूरा पाठ योजना प्रिन्ट गर्नुहोस्" variant="hero" size={19}/>
       </div>
 
       <div className="no-print lesson-shell">
@@ -1452,7 +1482,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
           <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:16,padding:22,maxWidth:440,width:"100%",maxHeight:"80vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
               <div style={{fontSize:18,fontWeight:800,color:INK}}>आजको उद्देश्य</div>
-              <button className="ss-icon-btn" onClick={()=>setObjPopup(false)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><X size={19}/></button>
+              <IconButton icon={X} onClick={()=>setObjPopup(false)}/>
             </div>
             <ul style={{margin:0,paddingLeft:18,fontSize:16.5,color:INK,lineHeight:1.6}}>{objectives.map((o,i)=><li key={i}>{o}</li>)}</ul>
             {vocabulary.length>0&&(
@@ -1642,8 +1672,8 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
               phone would otherwise think something's broken, replaces
               confusion with a clear expectation. */}
           <span style={{fontSize:13,color:"rgba(255,255,255,0.6)",fontWeight:600,whiteSpace:"nowrap"}}>🖥️ ल्यापटप/प्रोजेक्टरका लागि डिजाइन गरिएको</span>
-          <button className="ss-icon-btn" onClick={generate} disabled={generating} title="अर्को नयाँ सिमुलेसन बनाउनुहोस्" style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:8,display:"flex",cursor:generating?"default":"pointer",flexShrink:0}}>{generating?<Loader size={17} style={{animation:"spin 1s linear infinite"}}/>:<RefreshCw size={17}/>}</button>
-          <button className="ss-icon-btn" onClick={()=>setViewing(null)} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:8,display:"flex",cursor:"pointer",flexShrink:0}}><X size={19}/></button>
+          <IconButton icon={generating?Loader:RefreshCw} spin={generating} onClick={generate} disabled={generating} title="अर्को नयाँ सिमुलेसन बनाउनुहोस्" variant="hero" size={17} style={{borderRadius:8,padding:8}}/>
+          <IconButton icon={X} onClick={()=>setViewing(null)} variant="hero" size={19} style={{borderRadius:8,padding:8}}/>
         </div>
         <SimulationStage html={viewing.html_content} title={viewing.title}/>
       </div>
@@ -2649,7 +2679,7 @@ function Materials({ classLabel }) {
           <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:"20px 20px 0 0",padding:20,maxWidth:640,width:"100%",maxHeight:"85vh",overflowY:"auto",boxShadow:SHADOW.lg}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
               <div style={{fontSize:19,fontWeight:800,color:INK}}>{pendingFiles.length} फाइल — समीक्षा गर्नुहोस्</div>
-              <button className="ss-icon-btn" onClick={()=>!uploading&&setPendingFiles(null)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><X size={20}/></button>
+              <IconButton icon={X} onClick={()=>!uploading&&setPendingFiles(null)} size={20}/>
             </div>
             <div style={{fontSize:14.5,color:INK_SOFT,marginBottom:14}}>फाइलनामबाट पत्ता लागेका प्रकार/अध्याय <Sparkles size={11} style={{display:"inline",verticalAlign:"-1px"}}/> चिन्हसहित देखिन्छन्। पत्ता नलागेकालाई आफैं छान्नुहोस्।</div>
             <div style={{display:"flex",flexDirection:"column",gap:14}}>
@@ -2784,7 +2814,7 @@ function Materials({ classLabel }) {
           <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,padding:20,maxWidth:640,width:"100%",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:SHADOW.lg}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
               <div style={{fontSize:18,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",paddingRight:10}}>{preview.name}</div>
-              <button className="ss-icon-btn" onClick={()=>setPreview(null)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,flexShrink:0}}><X size={20}/></button>
+              <IconButton icon={X} onClick={()=>setPreview(null)} size={20}/>
             </div>
             {!previewUrl&&!previewError?(
               <div style={{textAlign:"center",padding:20,color:INK_SOFT,display:"flex",flexDirection:"column",alignItems:"center",gap:10}}><Spinner small/>लिङ्क तयार गर्दै...</div>
@@ -2816,7 +2846,7 @@ function Materials({ classLabel }) {
           <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,padding:24,maxWidth:420,width:"100%",maxHeight:"85vh",overflowY:"auto",WebkitOverflowScrolling:"touch",boxShadow:SHADOW.lg}}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
               <div style={{fontSize:18,fontWeight:700}}>अध्याय र प्रकार तोक्नुहोस्</div>
-              <button className="ss-icon-btn" onClick={()=>setTagging(null)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><X size={20}/></button>
+              <IconButton icon={X} onClick={()=>setTagging(null)} size={20}/>
             </div>
             <div style={{fontSize:16,color:INK_SOFT,marginBottom:14}}>{tagging.name}</div>
             {tagError&&<ErrorMsg msg={tagError}/>}
@@ -3161,7 +3191,7 @@ function ManagerPopup({ title, onClose, children }) {
     <div className="no-print" onClick={onClose} style={{position:"fixed",inset:0,zIndex:88,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",padding:16}}>
       <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:18,width:"100%",maxWidth:820,maxHeight:"88vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative"}}>
         <div style={{position:"sticky",top:0,zIndex:2,display:"flex",justifyContent:"flex-end",padding:"14px 14px 0",background:PAPER}}>
-          <button className="ss-icon-btn" onClick={onClose} style={{background:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,cursor:"pointer",color:INK_SOFT}}><X size={19}/></button>
+          <IconButton icon={X} onClick={onClose} variant="surface"/>
         </div>
         <div style={{padding:"0 4px 10px"}}>{children}</div>
       </div>
@@ -3721,7 +3751,7 @@ function CalendarView({ classLabel, active }) {
           <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:"20px 20px 0 0",padding:20,maxWidth:520,width:"100%",maxHeight:"85vh",overflowY:"auto",boxShadow:SHADOW.lg}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
               <div style={{fontSize:19,fontWeight:800,color:INK}}>{editing?"कार्यक्रम सम्पादन":"नयाँ कार्यक्रम"}</div>
-              <button className="ss-icon-btn" onClick={()=>setShowForm(false)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><X size={20}/></button>
+              <IconButton icon={X} onClick={()=>setShowForm(false)} size={20}/>
             </div>
             <input autoFocus value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} placeholder="कार्यक्रमको नाम" className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,marginBottom:10}}/>
             <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:12}}>
@@ -3772,7 +3802,7 @@ function CalendarView({ classLabel, active }) {
           <div style={{background:SURFACE,borderRadius:18,padding:20,maxWidth:640,width:"100%",maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
               <div style={{fontSize:19,fontWeight:800,color:INK}}>{reviewEvents.length} घटना फेला पर्यो</div>
-              <button className="ss-icon-btn" onClick={()=>setReviewEvents(null)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><X size={20}/></button>
+              <IconButton icon={X} onClick={()=>setReviewEvents(null)} size={20}/>
             </div>
             <div style={{fontSize:14.5,color:INK_SOFT,marginBottom:12,lineHeight:1.5}}>मिति र विवरण जाँच गर्नुहोस् — गलत भए सच्याउनुहोस् वा नचाहिने भए ✕ थिच्नुहोस्, त्यसपछि मात्र सुरक्षित हुनेछ।</div>
             <div style={{overflowY:"auto",display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
@@ -4707,7 +4737,7 @@ export default function App() {
         <div className="no-print" onClick={()=>setSearchOpen(false)} style={{position:"fixed",inset:0,zIndex:89,display:"flex",alignItems:"flex-start",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",padding:"8vh 16px 16px"}}>
           <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:24,width:"100%",maxWidth:640,maxHeight:"80vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative"}}>
             <div style={{position:"sticky",top:0,zIndex:2,display:"flex",justifyContent:"flex-end",padding:"10px 10px 0",background:PAPER}}>
-              <button className="ss-icon-btn" onClick={()=>setSearchOpen(false)} style={{background:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,cursor:"pointer",color:INK_SOFT}}><X size={19}/></button>
+              <IconButton icon={X} onClick={()=>setSearchOpen(false)} variant="surface"/>
             </div>
             <DocumentSearch lessons={lessons} homework={homework} classLabel={classLabel}
               onOpenLesson={(l,opts)=>{setSearchOpen(false);openLesson(l,opts);}}
@@ -4724,7 +4754,7 @@ export default function App() {
         <div className="no-print" onClick={()=>setSettingsOpen(false)} style={{position:"fixed",inset:0,zIndex:90,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",padding:20}}>
           <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:24,width:"100%",maxWidth:760,maxHeight:"88vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative"}}>
             <div style={{position:"sticky",top:0,zIndex:2,display:"flex",justifyContent:"flex-end",padding:"14px 14px 0",background:PAPER}}>
-              <button className="ss-icon-btn" onClick={()=>setSettingsOpen(false)} style={{background:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,cursor:"pointer",color:INK_SOFT}}><X size={19}/></button>
+              <IconButton icon={X} onClick={()=>setSettingsOpen(false)} variant="surface"/>
             </div>
             <div style={{padding:"0 4px 10px"}}>
               <Settings session={session} sections={sections} currentSection={currentSection}
