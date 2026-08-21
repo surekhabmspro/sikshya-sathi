@@ -327,12 +327,28 @@ async function fetchWordImage(word) {
 // automated source is perfect for a children's app, which is why the UI
 // also now requires a teacher to explicitly tap "तस्बिर हेर्नुहोस्" before
 // any picture renders, instead of showing it automatically.
+// SAFETY FIX #2 — even scoped to Wikipedia, the previous version used
+// fuzzy full-text search ("gsrsearch"), which ranks by best text match
+// across ALL articles — so a common word like "साइरन" (a warning siren)
+// matched a Nepali actress's biography article ("साइरन (अभिनेत्री)")
+// instead, because search has no way to know which sense of the word the
+// lesson meant. Ambiguous words are common in a language-learning context
+// and this kind of wrong-sense match can't be filtered by keyword lists.
+//
+// Fix: look up the word as an EXACT article title only (with redirects
+// for spelling/capitalization variants), never a fuzzy search match. If
+// no article exists at exactly that title, or the title resolves to a
+// Wikipedia disambiguation page (meaning the word is itself ambiguous —
+// exactly the "साइरन" situation), this returns nothing rather than
+// guessing. Showing no picture is always safer than showing the wrong one.
 async function wikipediaLeadImage(word, lang) {
-  const searchUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&generator=search&gsrnamespace=0&gsrsearch=${encodeURIComponent(word)}&gsrlimit=1&prop=pageimages&piprop=thumbnail&pithumbsize=480&format=json&origin=*`;
-  const res = await fetch(searchUrl);
+  const url = `https://${lang}.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(word)}&redirects=1&prop=pageimages|pageprops&piprop=thumbnail&pithumbsize=480&format=json&origin=*`;
+  const res = await fetch(url);
   const data = await res.json();
   const pages = data?.query?.pages;
   const page = pages ? Object.values(pages)[0] : null;
+  if (!page || page.missing !== undefined) return null; // no exact-title article
+  if (page.pageprops && "disambiguation" in page.pageprops) return null; // word is ambiguous
   const thumb = page?.thumbnail?.source;
   if (!thumb) return null;
   return { thumburl: thumb, credit: `Wikipedia (${lang}) — ${page.title}` };
