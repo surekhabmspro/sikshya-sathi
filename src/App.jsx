@@ -929,7 +929,7 @@ function SectionSelector({ sections, current, onChange, onAdd }) {
   };
   return(
     <div style={{padding:"11px 16px",background:SURFACE,borderBottom:`1px solid ${BORDER}`}}>
-      <div style={{display:"flex",gap:8,overflowX:"auto",alignItems:"center"}}>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
         {sections.map((s)=>(
           <button key={s.id} onClick={()=>onChange(s)} className="ss-chip" style={{padding:"7px 16px",borderRadius:999,border:`1.5px solid ${current?.id===s.id?ACCENT:BORDER}`,fontWeight:700,fontSize:15.5,whiteSpace:"nowrap",cursor:"pointer",background:current?.id===s.id?ACCENT:SURFACE_2,color:current?.id===s.id?"#fff":INK_SOFT,boxShadow:current?.id===s.id?SHADOW.sm:"none"}}>{s.name}</button>
         ))}
@@ -2722,7 +2722,7 @@ function Materials({ classLabel }) {
         )}
       </Card>
 
-      <div style={{display:"flex",gap:7,overflowX:"auto",marginBottom:12,paddingBottom:2}}>
+      <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:12}}>
         <button onClick={()=>setCategoryFilter("all")} className="ss-chip" style={{padding:"8px 14px",borderRadius:999,background:categoryFilter==="all"?ACCENT:SURFACE,color:categoryFilter==="all"?"#fff":INK,fontWeight:700,fontSize:16,whiteSpace:"nowrap",cursor:"pointer",border:`1.5px solid ${categoryFilter==="all"?ACCENT:BORDER}`,boxShadow:categoryFilter==="all"?SHADOW.sm:"none"}}>सबै ({materials.length})</button>
         {CATEGORY_ORDER.map((key)=>{
           const meta=CATEGORY_META[key];const Icon=meta.icon;const active=categoryFilter===key;
@@ -3147,7 +3147,7 @@ function AIAssistant({ lessons, classContext, classLabel }) {
         <div ref={bottomRef}/>
       </div>
       {messages.length>1&&(
-        <div style={{padding:"8px 16px",display:"flex",gap:7,overflowX:"auto"}}>
+        <div style={{padding:"8px 16px",display:"flex",gap:7,flexWrap:"wrap"}}>
           {QUICK.map((q)=><button className="ss-btn" key={q} onClick={()=>send(q)} style={{flexShrink:0,background:WARN_BG,color:MARIGOLD_DARK,border:"none",borderRadius:999,padding:"7px 12px",fontSize:15,fontWeight:600,whiteSpace:"nowrap",cursor:"pointer"}}>{q}</button>)}
         </div>
       )}
@@ -3211,12 +3211,57 @@ function MoreHub({
   // FIX — मूल्याङ्कन briefly lived here as its own screen, but that was
   // still a duplicate: Yojana's rubric tab is where a teacher actually
   // thinks about assessment (right there with the lesson it's for), so
-  // rubric creation moved into that tab directly instead. Nothing left
-  // here needs its own screen.
+  // rubric creation moved into that tab directly instead.
+  // NEW — यो हप्ता: the top of थप used to be just two small cards before a
+  // long scroll down to the calendar grid to find out what's actually
+  // coming up. This pulls the next 7 days' calendar events (already the
+  // job of this screen — it owns the calendar) into a glance-able strip,
+  // so opening थप answers "what's this week" immediately instead of
+  // requiring a scroll-and-scan of the month grid.
+  const [weekEvents,setWeekEvents]=useState(null); // null = loading
+  useEffect(()=>{
+    let cancelled=false;
+    db.getCalendarEvents(classLabel).then(({data})=>{
+      if(cancelled)return;
+      const today=new Date();today.setHours(0,0,0,0);
+      const weekEnd=new Date(today);weekEnd.setDate(weekEnd.getDate()+7);
+      const upcoming=(data||[])
+        .filter((e)=>{const d=new Date(e.start_date);return d>=today&&d<=weekEnd;})
+        .sort((a,b)=>new Date(a.start_date)-new Date(b.start_date));
+      setWeekEvents(upcoming);
+    });
+    return()=>{cancelled=true;};
+  },[classLabel]);
+  const WEEKDAY_NE=["आइत","सोम","मंगल","बुध","बिहि","शुक्र","शनि"];
 
   return(
     <div className="ss-page" style={{padding:"20px 20px 130px",margin:"0 auto",width:"100%"}}>
       <PageHeader icon={Layers} title="थप" color={ROSE}/>
+      <Card style={{marginBottom:14}}>
+        <SectionLabel icon={CalendarDays} color={VIOLET}>यो हप्ता</SectionLabel>
+        {weekEvents===null?(
+          <div style={{color:INK_SOFT,fontSize:15}}>लोड हुँदै...</div>
+        ):weekEvents.length===0?(
+          <div style={{color:INK_SOFT,fontSize:15}}>आउँदो ७ दिनमा पात्रोमा कुनै कार्यक्रम छैन।</div>
+        ):(
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {weekEvents.map((e)=>{
+              const meta=EVENT_CATEGORY_META[e.category]||EVENT_CATEGORY_META.event;const Icon=meta.icon;
+              const d=new Date(e.start_date);
+              return(
+                <div key={e.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:`1px solid ${BORDER}`}}>
+                  <div style={{width:34,textAlign:"center",flexShrink:0}}>
+                    <div style={{fontSize:11.5,color:INK_SOFT,fontWeight:700}}>{WEEKDAY_NE[d.getDay()]}</div>
+                    <div style={{fontSize:16.5,fontWeight:800,color:meta.color}}>{d.getDate()}</div>
+                  </div>
+                  <div style={{width:26,height:26,borderRadius:8,background:`color-mix(in srgb, ${meta.color} 16%, ${SURFACE})`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={13} color={meta.color}/></div>
+                  <div style={{fontSize:15.5,color:INK,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.title}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:12,marginBottom:18}}>
         <SummaryPanel icon={ListChecks} color={BLUE} title="गृहकार्य" onOpen={()=>setOpenPanel("homework")}
           subtitle={hwLoading?"लोड हुँदै...":homework.length===0?"कुनै गृहकार्य छैन":`${homework.length} जम्मा · ${pendingHomework} जाँच बाँकी`}/>
@@ -3241,7 +3286,7 @@ function AITools({ lessons, classContext, classLabel, initialTab, onInitialTabCo
   // relevant sub-tab instead of always opening on chat.
   useEffect(()=>{
     if(!initialTab)return;
-    setTab(initialTab);
+    setTab(initialTab==="saved"?"resources":initialTab);
     onInitialTabConsumed?.();
   },[initialTab,onInitialTabConsumed]);
   // FIX — Question Bank, Activities Library, and Assessment used to sit
@@ -3252,41 +3297,31 @@ function AITools({ lessons, classContext, classLabel, initialTab, onInitialTabCo
   // pick one over the other. Question Bank and Activities are dropped
   // entirely (Yojana's per-lesson tabs cover that job now). Assessment
   // wasn't a real duplicate — it's the only place a rubric ever gets
-  // created, Yojana's rubric tab just displays it — so instead of deleting
-  // it, it moved to थप (More), next to गृहकार्य and डायरी, since it's
-  // record-keeping with due dates that feed the calendar, not
-  // per-lesson AI content generation like the tabs left here.
+  // created — so rubric creation moved into Yojana's rubric tab directly
+  // instead of getting deleted.
+  // FIX — सुरक्षित was its own tab too, usually just a short list (or an
+  // empty state) with nothing else on the whole screen — a tab switch for
+  // one thin list. It's embedded inside स्रोत निर्माता now (generate, then
+  // see everything you've generated, same screen), so AI Sahayak is down
+  // to 2 tabs, each one worth switching to.
   const TABS=[
     {id:"chat",label:"च्याट",icon:Bot,color:ACCENT,bg:ACCENT_LIGHT},
     {id:"resources",label:"स्रोत",icon:Wand2,color:MARIGOLD_DARK,bg:WARN_BG},
-    {id:"saved",label:"सुरक्षित",icon:BookMarked,color:ROSE,bg:ROSE_LIGHT},
   ];
   return(
     <div>
-      {/* FIX — this was 5 wide underline-style tabs (padding 13px 18px,
-          font 16) in a plain overflow-x:auto row with no visual hint that
-          there was more to scroll to. On a ~360-390px phone that's easily
-          700px+ of tabs, so it looked like the row was cut off / broken
-          rather than scrollable. Switched to the same compact pill-chip
-          language already used everywhere else in the app (calendar
-          filters, materials categories), which is narrower per-tab, wraps
-          its own background so nothing bleeds past the card edge, and
-          reads clearly as "more chips this way" instead of a cut-off bar.
-          A soft edge fade hints at the scroll on narrow screens. */}
-      <div className="no-print ai-tools-tabs" style={{position:"sticky",top:0,zIndex:8,background:SURFACE,borderBottom:`1px solid ${BORDER}`,padding:"10px 14px"}}>
-        <div style={{display:"flex",gap:7,overflowX:"auto",paddingBottom:2}}>
+      <div className="no-print" style={{position:"sticky",top:0,zIndex:8,background:SURFACE,borderBottom:`1px solid ${BORDER}`,padding:"10px 14px"}}>
+        <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
           {TABS.map((t)=>{const Icon=t.icon;const active=tab===t.id;return(
-            <button key={t.id} onClick={()=>setTab(t.id)} className="ss-chip ai-tools-tab" style={{display:"flex",alignItems:"center",gap:6,padding:"8px 13px",borderRadius:999,border:`1.5px solid ${active?t.color:BORDER}`,background:active?t.color:SURFACE,color:active?"#fff":INK_SOFT,fontWeight:700,fontSize:14.5,whiteSpace:"nowrap",cursor:"pointer",boxShadow:active?SHADOW.sm:"none",flexShrink:0}}><Icon size={14}/>{t.label}</button>
+            <button key={t.id} onClick={()=>setTab(t.id)} className="ss-chip ai-tools-tab" style={{display:"flex",alignItems:"center",gap:6,padding:"8px 13px",borderRadius:999,border:`1.5px solid ${active?t.color:BORDER}`,background:active?t.color:SURFACE,color:active?"#fff":INK_SOFT,fontWeight:700,fontSize:14.5,whiteSpace:"nowrap",cursor:"pointer",boxShadow:active?SHADOW.sm:"none"}}><Icon size={14}/>{t.label}</button>
           );})}
         </div>
       </div>
       <style>{`
         @media(max-width:420px){.ai-tools-tab{padding:7px 11px !important;font-size:13.5px !important;}}
-        .ai-tools-tabs{-webkit-mask-image:linear-gradient(to right, transparent 0, black 14px, black calc(100% - 14px), transparent 100%);mask-image:linear-gradient(to right, transparent 0, black 14px, black calc(100% - 14px), transparent 100%);}
       `}</style>
       {tab==="chat"&&<AIAssistant lessons={lessons} classContext={classContext} classLabel={classLabel}/>}
       {tab==="resources"&&<ResourceCreator lessons={lessons} classContext={classContext} classLabel={classLabel}/>}
-      {tab==="saved"&&<SavedResources classLabel={classLabel}/>}
     </div>
   );
 }
@@ -3311,6 +3346,10 @@ function ResourceCreator({ lessons, classContext, classLabel }) {
   const [matchedCount,setMatchedCount]=useState(0);
   const [saving,setSaving]=useState(false);
   const [saved,setSaved]=useState(false);
+  // NEW — bumped after every successful save so the सुरक्षित list embedded
+  // below (see SavedResources' embedded/refreshKey props) picks up the
+  // new item immediately instead of only refreshing on next visit.
+  const [savedRefreshKey,setSavedRefreshKey]=useState(0);
   // FIX — this used to hard-pick lessons[0] with no way to change it, same
   // bug AI च्याट had (see the FIX comment on AIAssistant above) — a
   // teacher generating a worksheet had no way to tell, or change, which
@@ -3351,7 +3390,7 @@ function ResourceCreator({ lessons, classContext, classLabel }) {
     // you generate shows up under सुरक्षित स्रोत regardless of class.
     const{error}=await db.saveResource({title,template_id:active.id,chapter_title:chapterTitle||null,content:generatedText,class_label:classLabel});
     setSaving(false);
-    if(!error)setSaved(true);
+    if(!error){setSaved(true);setSavedRefreshKey((k)=>k+1);}
   };
 
   return(
@@ -3378,6 +3417,12 @@ function ResourceCreator({ lessons, classContext, classLabel }) {
           )}
         </Card>
       )}
+      {/* NEW — साझा गरिएको सुरक्षित स्रोतहरू लगेको ठाउँ यहाँ नै छ, अलग
+          सुरक्षित ट्याब चाहिँदैन: के बनाइयो र पहिले के बनाइसकिएको छ दुवै
+          एउटै स्क्रोलमा देखिन्छ। */}
+      <div className="no-print" style={{marginTop:24,paddingTop:20,borderTop:`1px solid ${BORDER}`}}>
+        <SavedResources classLabel={classLabel} embedded refreshKey={savedRefreshKey}/>
+      </div>
     </div>
   );
 }
@@ -3385,7 +3430,13 @@ function ResourceCreator({ lessons, classContext, classLabel }) {
 // NEW — the library of previously-saved AI resources (worksheets, flashcards,
 // mindmaps, etc.) so a generated document survives navigating away instead
 // of vanishing. Decorated the same corkboard-pin way as the Materials library.
-function SavedResources({ classLabel }) {
+// FIX — used to be its own AI Sahayak tab, sitting mostly empty on its own
+// (a plain list, or nothing at all, with a whole tab switch just to see
+// it). Generating and reviewing what you've generated are the same task,
+// so this now renders embedded directly under स्रोत निर्माता's generator
+// instead — `embedded` drops the page header/padding since it's nested,
+// and `refreshKey` lets the parent force a reload right after a save.
+function SavedResources({ classLabel, embedded, refreshKey }) {
   const [items,setItems]=useState([]);
   const [loading,setLoading]=useState(true);
   const [viewing,setViewing]=useState(null);
@@ -3404,7 +3455,7 @@ function SavedResources({ classLabel }) {
     if(error){setLoadError("सुरक्षित स्रोतहरू लोड गर्न सकिएन — देखिएको सूची पुरानो हुन सक्छ।");setLoading(false);return;}
     setLoadError("");setItems(data||[]);setLoading(false);
   },[classLabel]);
-  useEffect(()=>{load();},[load]);
+  useEffect(()=>{load();},[load,refreshKey]);
 
   const remove=async(id,e)=>{
     e.stopPropagation();
@@ -3413,12 +3464,16 @@ function SavedResources({ classLabel }) {
   };
 
   return(
-    <div className="ss-page" style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
-      <div style={{marginBottom:4}}><PageHeader icon={BookMarked} title="सुरक्षित स्रोतहरू" color={ROSE}/></div>
-      <div style={{fontSize:16,color:INK_SOFT,marginBottom:16}}>AI बाट बनाएका र सुरक्षित गरेका कार्यपत्र, फ्ल्यासकार्ड, पुनरावलोकन पाना — पछि हेर्न वा प्रिन्ट गर्न।</div>
+    <div className={embedded?"":"ss-page"} style={embedded?{}:{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
+      {embedded?(
+        <div className="no-print" style={{marginBottom:12}}><SectionLabel icon={BookMarked} color={ROSE}>सुरक्षित स्रोतहरू</SectionLabel></div>
+      ):(<>
+        <div style={{marginBottom:4}}><PageHeader icon={BookMarked} title="सुरक्षित स्रोतहरू" color={ROSE}/></div>
+        <div style={{fontSize:16,color:INK_SOFT,marginBottom:16}}>AI बाट बनाएका र सुरक्षित गरेका कार्यपत्र, फ्ल्यासकार्ड, पुनरावलोकन पाना — पछि हेर्न वा प्रिन्ट गर्न।</div>
+      </>)}
       {loadError&&<ErrorMsg msg={loadError}/>}
       {loading?<Spinner/>:items.length===0?(
-        <EmptyState icon={BookMarked} text="अझै कुनै स्रोत सुरक्षित गरिएको छैन। स्रोत निर्माताबाट बनाएर 'सुरक्षित गर्नुहोस्' थिच्नुहोस्।"/>
+        <EmptyState icon={BookMarked} text="अझै कुनै स्रोत सुरक्षित गरिएको छैन। माथिबाट बनाएर 'सुरक्षित गर्नुहोस्' थिच्नुहोस्।"/>
       ):(
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:12}}>
           {items.map((r)=>{
@@ -3444,6 +3499,7 @@ function SavedResources({ classLabel }) {
     </div>
   );
 }
+
 
 function DocumentSearch({ lessons, homework, classLabel, onOpenLesson, onGoMaterials, onGoHomework }) {
   const [query,setQuery]=useState("");
@@ -3675,7 +3731,6 @@ function CalendarView({ classLabel, active }) {
           .cal-header-actions{width:100%;}
           .cal-header-actions>*{flex:1 1 100%;justify-content:center;}
         }
-        .cal-cat-tabs{-webkit-mask-image:linear-gradient(to right, transparent 0, black 14px, black calc(100% - 14px), transparent 100%);mask-image:linear-gradient(to right, transparent 0, black 14px, black calc(100% - 14px), transparent 100%);}
         @media(max-width:420px){.cal-cat-chip{padding:6px 11px !important;font-size:13.5px !important;}}
       `}</style>
       <PageHeader icon={CalendarDays} title="पात्रो" color={VIOLET} action={
@@ -3695,13 +3750,12 @@ function CalendarView({ classLabel, active }) {
 
       {/* NEW — category filter chips, same visual language as Materials'
           category chips: tap to hide/show that category's dots on the
-          grid and entries in the day list. FIX — this row used to just
-          overflow-scroll with no visual hint of more content, so on a
-          phone-width screen the cut-off edge (बिदा sliced on the left,
-          म्याद... sliced on the right) read as broken rather than
-          scrollable — same problem AI Sahayak's tab row had. Same fix:
-          a soft edge fade plus a touch less padding on narrow screens. */}
-      <div className="cal-cat-tabs" style={{display:"flex",gap:7,overflowX:"auto",marginBottom:14,paddingBottom:2}}>
+          grid and entries in the day list. FIX — this row used to
+          horizontal-scroll with the far chips cut off at the edge and no
+          hint there was more — easy to miss on a phone. Wrapping onto as
+          many lines as needed means every chip is visible up front, no
+          scrolling required. */}
+      <div style={{display:"flex",flexWrap:"wrap",gap:7,marginBottom:14}}>
         {EVENT_CATEGORY_ORDER.map((key)=>{
           const meta=EVENT_CATEGORY_META[key];const Icon=meta.icon;const active=activeCats.has(key);
           return(
@@ -3780,7 +3834,7 @@ function CalendarView({ classLabel, active }) {
               <button className="ss-icon-btn" onClick={()=>setShowForm(false)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><X size={20}/></button>
             </div>
             <input autoFocus value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} placeholder="कार्यक्रमको नाम" className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,marginBottom:10}}/>
-            <div style={{display:"flex",gap:7,overflowX:"auto",marginBottom:12,paddingBottom:2}}>
+            <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:12}}>
               {EVENT_CATEGORY_ORDER.map((key)=>{
                 const meta=EVENT_CATEGORY_META[key];const Icon=meta.icon;const active=form.category===key;
                 return<button key={key} onClick={()=>setForm({...form,category:key})} className="ss-chip" style={{display:"flex",alignItems:"center",gap:5,padding:"7px 12px",borderRadius:999,background:active?meta.color:SURFACE,color:active?"#fff":INK_SOFT,fontWeight:700,fontSize:14,whiteSpace:"nowrap",cursor:"pointer",border:`1.5px solid ${active?meta.color:BORDER}`}}><Icon size={12}/>{meta.label}</button>;
