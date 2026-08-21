@@ -447,7 +447,7 @@ function Button({ children, onClick, variant="primary", size="md", disabled, sty
       className="ss-btn"
       style={{
         display:"flex", alignItems:"center", justifyContent:"center", gap:8,
-        borderRadius:999, fontWeight:700, letterSpacing:"-0.005em", fontFamily:"'Hind','Baloo 2',sans-serif",
+        borderRadius:999, fontWeight:700, letterSpacing:"-0.005em", fontFamily:"'SSText','Kalimati','Times New Roman',serif",
         cursor:disabled?"wait":"pointer", opacity:disabled?0.65:1,
         ...variants[variant], ...sizes[size], ...style,
       }}>
@@ -478,7 +478,7 @@ function Chip({ children, icon:Icon, active, onClick, color=ACCENT, size="md", d
       border:`1.5px ${dashed?"dashed":"solid"} ${active?color:BORDER}`,
       background:active?color:(dashed?"none":SURFACE),
       color:active?"#fff":INK_SOFT,
-      fontWeight:700,whiteSpace:"nowrap",cursor:"pointer",fontFamily:"'Hind','Baloo 2',sans-serif",
+      fontWeight:700,whiteSpace:"nowrap",cursor:"pointer",fontFamily:"'SSText','Kalimati','Times New Roman',serif",
       boxShadow:active?`0 4px 10px color-mix(in srgb, ${color} 35%, transparent)`:"none",
       transform:active?"translateY(-1px)":"none",transition:"all .15s ease",
       ...sizes[size], ...style,
@@ -536,7 +536,7 @@ function Card({ children, onClick, style, accentColor }) {
 }
 function SectionLabel({ children, icon:Icon, color }) {
   return (
-    <div style={{ display:"flex",alignItems:"center",gap:7, fontSize:15, letterSpacing:"0.08em", textTransform:"uppercase", color:color||ACCENT_DARK, marginBottom:11, fontWeight:800, fontFamily:"'Baloo 2','Hind',sans-serif" }}>
+    <div style={{ display:"flex",alignItems:"center",gap:7, fontSize:15, letterSpacing:"0.08em", textTransform:"uppercase", color:color||ACCENT_DARK, marginBottom:11, fontWeight:800, fontFamily:"'SSText','Kalimati','Times New Roman',serif" }}>
       {Icon&&<Icon size={14} color={color||ACCENT}/>}
       {children}
     </div>
@@ -609,7 +609,7 @@ function PageHeader({ icon:Icon, title, subtitle, action, color=ACCENT }) {
       <div style={{display:"flex",alignItems:"center",gap:13,minWidth:0}}>
         {Icon&&<div style={{width:44,height:44,borderRadius:13,background:`linear-gradient(160deg, ${color} 0%, color-mix(in srgb, ${color} 72%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:`0 3px 10px color-mix(in srgb, ${color} 32%, transparent)`}}><Icon size={21} color="#fff"/></div>}
         <div style={{minWidth:0}}>
-          <div style={{fontSize:23,fontWeight:800,color:INK,letterSpacing:"-0.01em",lineHeight:1.2,fontFamily:"'Baloo 2','Hind',sans-serif"}}>{title}</div>
+          <div style={{fontSize:23,fontWeight:800,color:INK,letterSpacing:"-0.01em",lineHeight:1.2,fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}>{title}</div>
           {subtitle&&<div style={{fontSize:14.5,color:INK_SOFT,fontWeight:600,marginTop:2}}>{subtitle}</div>}
         </div>
       </div>
@@ -629,7 +629,7 @@ function AIButton({ label, onClick, loading, style }) {
       borderRadius:999, fontWeight:700, fontSize:16, padding:"11px 20px",
       cursor:loading?"wait":"pointer", opacity:loading?0.75:1,
       boxShadow:`0 4px 12px color-mix(in srgb, ${VIOLET} 22%, transparent)`,
-      fontFamily:"'Hind','Baloo 2',sans-serif", ...style,
+      fontFamily:"'SSText','Kalimati','Times New Roman',serif", ...style,
     }}>
       {loading?<Spinner small/>:<Zap size={16}/>} {label}
     </button>
@@ -918,14 +918,14 @@ function LoginScreen({ onLogin }) {
   const fieldStyle={width:"100%",border:`1.5px solid ${BORDER}`,borderRadius:12,padding:"13px 42px 13px 42px",fontSize:16.5,outline:"none",background:SURFACE_2,color:INK,caretColor:ACCENT};
 
   return(
-    <div style={{minHeight:"100vh",position:"relative",overflow:"hidden",background:`radial-gradient(1000px 560px at 15% -10%, ${ACCENT_LIGHT}, ${PAPER} 55%)`,display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'Hind','Baloo 2',sans-serif"}}>
+    <div style={{minHeight:"100vh",position:"relative",overflow:"hidden",background:`radial-gradient(1000px 560px at 15% -10%, ${ACCENT_LIGHT}, ${PAPER} 55%)`,display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}>
       <div style={{position:"absolute",top:-120,right:-100,width:340,height:340,borderRadius:"50%",background:`radial-gradient(circle, ${tint(MARIGOLD,20)}, transparent 70%)`,pointerEvents:"none"}}/>
       <div style={{position:"absolute",bottom:-140,left:-110,width:360,height:360,borderRadius:"50%",background:`radial-gradient(circle, ${tint(ROSE,16)}, transparent 70%)`,pointerEvents:"none"}}/>
 
       <div style={{width:"100%",maxWidth:408,position:"relative"}}>
         <div style={{textAlign:"center",marginBottom:32}}>
           <img src="/icons/icon-192.png" alt="शिक्षा साथी" width={76} height={76} style={{borderRadius:26,margin:"0 auto 18px",display:"block",boxShadow:SHADOW.marigold,transform:"rotate(-4deg)"}}/>
-          <div style={{fontSize:32,fontWeight:800,color:INK,letterSpacing:"-0.01em",fontFamily:"'Baloo 2','Hind',sans-serif"}}>शिक्षा साथी</div>
+          <div style={{fontSize:32,fontWeight:800,color:INK,letterSpacing:"-0.01em",fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}>शिक्षा साथी</div>
           <div style={{fontSize:16.5,color:INK_SOFT,marginTop:6,fontWeight:600}}>जुनसुकै कक्षा र विषयका शिक्षकको साथी</div>
         </div>
 
@@ -1540,7 +1540,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
           printable handout: bordered header block, a byline row (class/
           teacher/date), and consistent section rules — not just a plain
           dump of text. */}
-      <div className="print-only" style={{fontFamily:"'Hind','Baloo 2',sans-serif",color:"#111",maxWidth:"18cm",margin:"0 auto"}}>
+      <div className="print-only" style={{fontFamily:"'SSText','Kalimati','Times New Roman',serif",color:"#111",maxWidth:"18cm",margin:"0 auto"}}>
         <div style={{border:"1.5px solid #111",borderRadius:6,padding:"14px 18px",marginBottom:16}}>
           {chapterTitle&&<div style={{fontSize:12.5,letterSpacing:"0.06em",textTransform:"uppercase",color:"#444",fontWeight:700,marginBottom:3}}>{chapterTitle}</div>}
           <div style={{fontSize:23,fontWeight:800,marginBottom:8,lineHeight:1.25}}>{lesson.title}</div>
@@ -1754,7 +1754,7 @@ function StatCard({ icon:Icon, value, label, color, onClick, accent }) {
           <Icon size={19} color="#fff"/>
         </div>
         <div style={{minWidth:0}}>
-          <div style={{fontSize:24,fontWeight:800,color:INK,lineHeight:1.05,fontFamily:"'Baloo 2','Hind',sans-serif"}}>{value}</div>
+          <div style={{fontSize:24,fontWeight:800,color:INK,lineHeight:1.05,fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}>{value}</div>
           <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:600,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{label}</div>
         </div>
       </div>
@@ -1896,7 +1896,7 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoMaterials, onGoAITools, onG
     <div className="ss-page" style={{padding:"20px 18px 130px",maxWidth:760,margin:"0 auto"}}>
       {teacherName&&(
         <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:16,flexWrap:"wrap"}}>
-          <div style={{fontSize:24,fontWeight:800,color:INK,fontFamily:"'Baloo 2','Hind',sans-serif",letterSpacing:"-0.01em"}}>{timeGreeting}, {teacherName} जी</div>
+          <div style={{fontSize:24,fontWeight:800,color:INK,fontFamily:"'SSText','Kalimati','Times New Roman',serif",letterSpacing:"-0.01em"}}>{timeGreeting}, {teacherName} जी</div>
           <span style={{fontSize:22}}>👋</span>
         </div>
       )}
@@ -1924,7 +1924,7 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoMaterials, onGoAITools, onG
                 <button className="ss-btn" onClick={()=>setPickingToday((v)=>!v)} style={{background:"rgba(255,255,255,0.2)",border:"none",color:"#fff",borderRadius:999,padding:"4px 11px",fontSize:13,fontWeight:700,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"}}>बदल्नुहोस्</button>
               )}
             </div>
-            <div style={{fontSize:21,fontWeight:800,margin:"8px 0 14px",letterSpacing:"-0.01em",overflowWrap:"break-word",fontFamily:"'Baloo 2','Hind',sans-serif"}}>{today.title}</div>
+            <div style={{fontSize:21,fontWeight:800,margin:"8px 0 14px",letterSpacing:"-0.01em",overflowWrap:"break-word",fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}>{today.title}</div>
             {pickingToday?(
               <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:16,padding:8,marginBottom:4,maxHeight:220,overflowY:"auto",boxShadow:SHADOW.lg}}>
                 {lessons.map((l)=>(
@@ -2423,7 +2423,7 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
                     <>
                       <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0,flex:1}}>
                         <div style={{width:30,height:30,borderRadius:10,flexShrink:0,background:`linear-gradient(155deg, ${chapColor} 0%, color-mix(in srgb, ${chapColor} 65%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",transform:"rotate(-3deg)"}}>{isOpen?<ChevronDown size={15} color="#fff" style={{transform:"rotate(3deg)"}}/>:<ChevronRight size={15} color="#fff" style={{transform:"rotate(3deg)"}}/>}</div>
-                        <div style={{fontWeight:700,fontSize:17,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:"'Baloo 2','Hind',sans-serif"}}>{chapter.title}</div>
+                        <div style={{fontWeight:700,fontSize:17,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}>{chapter.title}</div>
                       </div>
                       <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
                         <span style={{fontSize:13.5,background:paths.length?`color-mix(in srgb, ${chapColor} 18%, transparent)`:SURFACE_2,color:paths.length?chapColor:INK_SOFT,padding:"3px 10px",borderRadius:999,fontWeight:700}}>{paths.length} पाठ</span>
@@ -2783,16 +2783,16 @@ function Materials({ classLabel }) {
       <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
         <div style={{flex:1,minWidth:180,display:"flex",alignItems:"center",gap:8,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"11px 14px"}}>
           <Search size={16} color={INK_SOFT}/>
-          <input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="फाइल खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:16.5,flex:1,minWidth:0,background:"transparent",color:INK,caretColor:ACCENT,fontFamily:"'Hind','Baloo 2',sans-serif"}}/>
+          <input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="फाइल खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:16.5,flex:1,minWidth:0,background:"transparent",color:INK,caretColor:ACCENT,fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}/>
         </div>
         {/* NEW — browse materials by chapter, same concept the Planner now
             uses, instead of only being able to filter by file category. */}
-        <select value={chapterFilter} onChange={(e)=>setChapterFilter(e.target.value)} style={{border:`1px solid ${chapterFilter!=="all"?ACCENT:BORDER}`,borderRadius:12,padding:"11px 14px",fontSize:16,fontFamily:"'Hind','Baloo 2',sans-serif",background:chapterFilter!=="all"?ACCENT_LIGHT:SURFACE,color:chapterFilter!=="all"?ACCENT:INK,fontWeight:600}}>
+        <select value={chapterFilter} onChange={(e)=>setChapterFilter(e.target.value)} style={{border:`1px solid ${chapterFilter!=="all"?ACCENT:BORDER}`,borderRadius:12,padding:"11px 14px",fontSize:16,fontFamily:"'SSText','Kalimati','Times New Roman',serif",background:chapterFilter!=="all"?ACCENT_LIGHT:SURFACE,color:chapterFilter!=="all"?ACCENT:INK,fontWeight:600}}>
           <option value="all">सबै अध्याय</option>
           <option value="untagged">अध्याय नतोकिएका</option>
           {(chapters||[]).map((c)=><option key={c.id} value={c.id}>{c.title}</option>)}
         </select>
-        <select value={sortBy} onChange={(e)=>setSortBy(e.target.value)} style={{border:`1px solid ${BORDER}`,borderRadius:12,padding:"11px 14px",fontSize:16,fontFamily:"'Hind','Baloo 2',sans-serif",background:SURFACE,color:INK,fontWeight:600}}>
+        <select value={sortBy} onChange={(e)=>setSortBy(e.target.value)} style={{border:`1px solid ${BORDER}`,borderRadius:12,padding:"11px 14px",fontSize:16,fontFamily:"'SSText','Kalimati','Times New Roman',serif",background:SURFACE,color:INK,fontWeight:600}}>
           <option value="newest">नयाँ पहिले</option>
           <option value="name">नाम अनुसार (क-ज्ञ)</option>
         </select>
@@ -3009,7 +3009,7 @@ function TeachingJournal({ lessons, classLabel }) {
               {(lessons||[]).length===0?(
                 <div style={{fontSize:15,color:INK_SOFT,background:SURFACE_2,borderRadius:10,padding:"9px 12px"}}>अझै कुनै पाठ योजना बनाइएको छैन — पाठ योजनामा एउटा थपेपछि यहाँ छान्न सकिन्छ।</div>
               ):(
-                <select value={form.lesson_id} onChange={(e)=>setForm({...form,lesson_id:e.target.value})} style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontFamily:"'Hind','Baloo 2',sans-serif"}}>
+                <select value={form.lesson_id} onChange={(e)=>setForm({...form,lesson_id:e.target.value})} style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}>
                   <option value="">— कुनै पाठसँग नजोडी —</option>
                   {lessons.map((l)=><option key={l.id} value={l.id}>{lessonOptionLabel(l)}</option>)}
                 </select>
@@ -3138,9 +3138,9 @@ function AIAssistant({ lessons, classContext, classLabel }) {
   return(
     <div className="ss-page-read" style={{display:"flex",flexDirection:"column",height:"calc(100vh - 170px)",maxWidth:720,margin:"0 auto",width:"100%"}}>
       <div style={{padding:"14px 16px 8px"}}>
-        <div style={{fontSize:19,fontWeight:800,color:INK,display:"flex",alignItems:"center",gap:9,fontFamily:"'Baloo 2','Hind',sans-serif"}}><div style={{width:34,height:34,borderRadius:10,background:`linear-gradient(160deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:`0 3px 8px color-mix(in srgb, ${ACCENT} 30%, transparent)`}}><Bot size={17} color="#fff"/></div>AI शिक्षण सहायक</div>
+        <div style={{fontSize:19,fontWeight:800,color:INK,display:"flex",alignItems:"center",gap:9,fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}><div style={{width:34,height:34,borderRadius:10,background:`linear-gradient(160deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:`0 3px 8px color-mix(in srgb, ${ACCENT} 30%, transparent)`}}><Bot size={17} color="#fff"/></div>AI शिक्षण सहायक</div>
         {lessons.length>0&&(
-          <select value={lessonId} onChange={(e)=>setLessonId(e.target.value)} style={{marginTop:8,width:"100%",borderRadius:10,padding:"8px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontWeight:600,fontFamily:"'Hind','Baloo 2',sans-serif"}}>
+          <select value={lessonId} onChange={(e)=>setLessonId(e.target.value)} style={{marginTop:8,width:"100%",borderRadius:10,padding:"8px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontWeight:600,fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}>
             {lessons.map((l)=><option key={l.id} value={l.id}>{lessonOptionLabel(l)}</option>)}
           </select>
         )}
@@ -3200,7 +3200,7 @@ function AIAssistant({ lessons, classContext, classLabel }) {
         </div>
       )}
       <div style={{display:"flex",gap:8,padding:"8px 16px 16px"}}>
-        <input value={input} onChange={(e)=>setInput(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&send(input)} placeholder="आफ्नो प्रश्न लेख्नुहोस्..." style={{flex:1,minWidth:0,border:`1px solid ${BORDER}`,borderRadius:999,padding:"12px 16px",fontSize:16.5,outline:"none",background:SURFACE_2,color:INK,caretColor:ACCENT,fontFamily:"'Hind','Baloo 2',sans-serif"}}/>
+        <input value={input} onChange={(e)=>setInput(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&send(input)} placeholder="आफ्नो प्रश्न लेख्नुहोस्..." style={{flex:1,minWidth:0,border:`1px solid ${BORDER}`,borderRadius:999,padding:"12px 16px",fontSize:16.5,outline:"none",background:SURFACE_2,color:INK,caretColor:ACCENT,fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}/>
         <button className="ss-btn" onClick={()=>send(input)} style={{background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:"50%",width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,boxShadow:SHADOW.accent}}><Send size={17}/></button>
       </div>
     </div>
@@ -3372,7 +3372,7 @@ function ResourceCreator({ lessons, classContext, classLabel }) {
             )}
           </div>
           {generating?<div style={{display:"flex",alignItems:"center",gap:8,color:INK_SOFT,fontSize:16.5,padding:20}}><Spinner small/>AI बनाउँदैछ...</div>:(
-            <pre style={{background:SURFACE_2,borderRadius:10,padding:14,fontSize:16,color:INK,lineHeight:1.7,whiteSpace:"pre-wrap",fontFamily:"'Hind','Baloo 2',sans-serif",maxHeight:400,overflowY:"auto"}}>{generatedText}</pre>
+            <pre style={{background:SURFACE_2,borderRadius:10,padding:14,fontSize:16,color:INK,lineHeight:1.7,whiteSpace:"pre-wrap",fontFamily:"'SSText','Kalimati','Times New Roman',serif",maxHeight:400,overflowY:"auto"}}>{generatedText}</pre>
           )}
         </Card>
       )}
@@ -3452,7 +3452,7 @@ function SavedResources({ classLabel, embedded, refreshKey }) {
       )}
       {viewing&&(
         <PrintableSheet title={viewing.title} subtitle={resourceTemplateMeta(viewing.template_id).title} chip={viewing.chapter_title} chipColor={resourceTemplateMeta(viewing.template_id).color} onClose={()=>setViewing(null)}>
-          <pre style={{background:SURFACE_2,borderRadius:10,padding:14,fontSize:16,color:INK,lineHeight:1.7,whiteSpace:"pre-wrap",fontFamily:"'Hind','Baloo 2',sans-serif"}}>{viewing.content}</pre>
+          <pre style={{background:SURFACE_2,borderRadius:10,padding:14,fontSize:16,color:INK,lineHeight:1.7,whiteSpace:"pre-wrap",fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}>{viewing.content}</pre>
         </PrintableSheet>
       )}
     </div>
@@ -3493,7 +3493,7 @@ function DocumentSearch({ lessons, homework, classLabel, onOpenLesson, onGoMater
       <div style={{marginBottom:4}}><PageHeader icon={Search} title="सबैतिर खोज" color={TEAL}/></div>
       <div style={{display:"flex",alignItems:"center",gap:8,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:14,padding:"12px 14px",marginBottom:14,marginTop:10}}>
         <Search size={17} color={INK_SOFT}/>
-        <input autoFocus autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false" value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="खोज्नुहोस्..." style={{border:"none",outline:"none",boxShadow:"none",WebkitAppearance:"none",appearance:"none",fontSize:17,flex:1,minWidth:0,background:"transparent",color:INK,caretColor:ACCENT,fontFamily:"'Hind','Baloo 2',sans-serif"}}/>
+        <input autoFocus autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false" value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="खोज्नुहोस्..." style={{border:"none",outline:"none",boxShadow:"none",WebkitAppearance:"none",appearance:"none",fontSize:17,flex:1,minWidth:0,background:"transparent",color:INK,caretColor:ACCENT,fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}/>
       </div>
       {!query.trim()?<EmptyState icon={Search} text="टाइप गर्नुहोस्..."/>:results.length===0?<EmptyState icon={Search} text={`"${query}" फेला परेन।`}/>:(
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -3740,10 +3740,10 @@ function CalendarView({ classLabel, active }) {
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
           <button className="ss-btn" onClick={()=>{if(month===0){setMonth(11);setYear((y)=>y-1);}else setMonth((m)=>m-1);}} style={{background:`linear-gradient(135deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`,border:"none",borderRadius:999,width:34,height:34,fontWeight:700,cursor:"pointer",color:"#fff",fontSize:18,boxShadow:SHADOW.sm}}>‹</button>
           <div style={{textAlign:"center"}}>
-            <select value={month} onChange={(e)=>setMonth(Number(e.target.value))} style={{border:"none",fontWeight:800,fontSize:19,color:INK,cursor:"pointer",background:"transparent",fontFamily:"'Baloo 2','Hind',sans-serif"}}>
+            <select value={month} onChange={(e)=>setMonth(Number(e.target.value))} style={{border:"none",fontWeight:800,fontSize:19,color:INK,cursor:"pointer",background:"transparent",fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}>
               {MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}
             </select>
-            <select value={year} onChange={(e)=>setYear(Number(e.target.value))} style={{border:"none",fontWeight:800,fontSize:19,color:INK,cursor:"pointer",background:"transparent",fontFamily:"'Baloo 2','Hind',sans-serif",marginLeft:4}}>
+            <select value={year} onChange={(e)=>setYear(Number(e.target.value))} style={{border:"none",fontWeight:800,fontSize:19,color:INK,cursor:"pointer",background:"transparent",fontFamily:"'SSText','Kalimati','Times New Roman',serif",marginLeft:4}}>
               {Array.from({length:5},(_,i)=>today.getFullYear()-1+i).map((y)=><option key={y} value={y}>{y}</option>)}
             </select>
           </div>
@@ -4564,11 +4564,30 @@ export default function App() {
 
   return(
     <DataProvider value={dataValue}>
-    <div data-theme={theme} style={{fontFamily:"'Hind','Baloo 2',sans-serif",background:PAPER,minHeight:"100vh",color:INK,fontSize:17,transition:"background .2s ease, color .2s ease"}}>
+    <div data-theme={theme} style={{fontFamily:"'SSText','Kalimati','Times New Roman',serif",background:PAPER,minHeight:"100vh",color:INK,fontSize:17,transition:"background .2s ease, color .2s ease"}}>
       <style>{`
         *{box-sizing:border-box;}body{margin:0;-webkit-font-smoothing:antialiased;}
-        @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Hind:wght@400;500;600;700&display=swap');
-        .ss-display{font-family:'Baloo 2','Hind',sans-serif;}
+        @font-face{
+          /* Devanagari (Nepali) text — Kalimati. Uses the copy already
+             installed on this computer (the standard Nepali-government
+             Unicode font); since it's Unicode, whatever you copy out of
+             the app and paste elsewhere carries the real Devanagari
+             characters, and Kalimati is just how they're drawn here. */
+          font-family:'SSText';
+          src:local('Kalimati'),local('Kalimati Regular');
+          unicode-range:U+0900-097F,U+0980-09FF,U+1CD0-1CFF,U+A8E0-A8FF,U+11B00-11B5F;
+          font-display:swap;
+        }
+        @font-face{
+          /* Latin (English) text — Times New Roman, with the closest
+             cross-platform serif as a fallback for computers that only
+             have the Linux/older-Mac substitute installed. */
+          font-family:'SSText';
+          src:local('Times New Roman'),local('Times'),local('Liberation Serif'),local('Nimbus Roman');
+          unicode-range:U+0000-024F,U+0300-036F,U+2000-206F,U+2070-209F;
+          font-display:swap;
+        }
+        .ss-display{font-family:'SSText','Kalimati','Times New Roman',serif;}
 
         /* NEW — light/dark color tokens. Everything in the component tree
            reads these via var(--x), so toggling data-theme instantly
@@ -4657,7 +4676,7 @@ export default function App() {
            inline styles win over these defaults anyway. */
         input:not([type=file]),select,textarea{
           transition:border-color .15s ease, box-shadow .15s ease, background .15s ease;
-          font-family:'Hind','Baloo 2',sans-serif;
+          font-family:'SSText','Kalimati','Times New Roman',serif;
         }
         input::placeholder,textarea::placeholder{color:${INK_SOFT};opacity:0.75;}
         input:focus,select:focus,textarea:focus{outline:none;border-color:${ACCENT} !important;box-shadow:0 0 0 3px ${ACCENT_LIGHT};}
@@ -4744,7 +4763,7 @@ export default function App() {
 
       <div className="no-print ss-topbar" style={{background:`linear-gradient(120deg, color-mix(in srgb, color-mix(in srgb, ${ACCENT} 8%, ${SURFACE}) 88%, transparent) 0%, color-mix(in srgb, color-mix(in srgb, ${TEAL} 7%, ${SURFACE}) 88%, transparent) 100%)`,backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",borderBottom:`1px solid ${BORDER}`,display:"flex",alignItems:"center",gap:12,position:"sticky",top:0,zIndex:10,boxShadow:"0 4px 16px rgba(var(--shadow-rgb),0.09)"}}>
         <img src="/icons/icon-64.png" alt="शिक्षा साथी" width={40} height={40} style={{borderRadius:14,boxShadow:SHADOW.marigold,flexShrink:0,transform:"rotate(-4deg)"}}/>
-        <div style={{minWidth:0,overflow:"hidden"}}><div style={{fontWeight:800,fontSize:19,letterSpacing:"-0.01em",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",fontFamily:"'Baloo 2','Hind',sans-serif",background:`linear-gradient(100deg, ${MARIGOLD_DARK} 0%, ${ACCENT} 100%)`,WebkitBackgroundClip:"text",backgroundClip:"text",color:"transparent"}}>शिक्षा साथी</div><div style={{fontSize:14.5,color:`color-mix(in srgb, ${ACCENT} 35%, ${INK_SOFT})`,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{classLabel} · {subjectLabel}</div></div>
+        <div style={{minWidth:0,overflow:"hidden"}}><div style={{fontWeight:800,fontSize:19,letterSpacing:"-0.01em",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",fontFamily:"'SSText','Kalimati','Times New Roman',serif",background:`linear-gradient(100deg, ${MARIGOLD_DARK} 0%, ${ACCENT} 100%)`,WebkitBackgroundClip:"text",backgroundClip:"text",color:"transparent"}}>शिक्षा साथी</div><div style={{fontSize:14.5,color:`color-mix(in srgb, ${ACCENT} 35%, ${INK_SOFT})`,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{classLabel} · {subjectLabel}</div></div>
         <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
           {/* FIX — this used to be a plain text pill ("सिंक भयो ✓") sitting
               oddly next to three proper icon buttons (search/theme/
