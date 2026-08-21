@@ -270,9 +270,9 @@ async function fetchWordImage(word) {
   if (!key) return null;
 
   // 1) Ask Supabase first — it's the source of truth and is what makes a
-  // picture (or a "not appropriate" decision) follow the teacher between
-  // devices. Falls through to the local mirror below if this fails
-  // (offline) rather than surfacing an error.
+  // picture already SAVED by a teacher (or a "not appropriate" decision)
+  // follow the teacher between devices. Falls through to the local mirror
+  // below if this fails (offline) rather than surfacing an error.
   try {
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
@@ -289,13 +289,16 @@ async function fetchWordImage(word) {
             const blob = await imgRes.blob();
             const dataUrl = await blobToDataUrl(blob);
             await saveLocalVocabImage(key, { dataUrl, credit: row.credit });
-            return { url: dataUrl, credit: row.credit || "Wikipedia" };
+            return { url: dataUrl, credit: row.credit || "Wikipedia", saved: true };
           }
         }
         if (row === null) {
-          // No row yet for this word on any device — look it up below and
-          // create one, so every other device benefits next time.
-          return await lookUpAndShareWordImage(key, user.id);
+          // No saved row yet for this word on any device — look one up as
+          // a PREVIEW only (see previewWordImage below). It is NOT written
+          // to Supabase or the local mirror here; the teacher has to
+          // explicitly tap "बचत गर्नुहोस्" for that to happen, so nothing
+          // is kept for reuse without a human choosing to keep it.
+          return await previewWordImage(key);
         }
       }
     }
@@ -303,17 +306,18 @@ async function fetchWordImage(word) {
     // network/Supabase unreachable — fall through to local mirror
   }
 
-  // 2) Offline fallback — whatever this device already saw before.
+  // 2) Offline fallback — whatever this device already had saved before.
   const local = await getLocalVocabImage(key);
   if (local) {
     if (local.rejected) return null;
-    if (local.dataUrl) return { url: local.dataUrl, credit: local.credit || "Wikipedia" };
+    if (local.dataUrl) return { url: local.dataUrl, credit: local.credit || "Wikipedia", saved: true };
   }
   return null;
 }
-// Looks up a fresh picture for a word, uploads it to the shared Supabase
-// bucket + table (so every device sees it from now on), and mirrors it
-// locally for offline access on this device.
+// Looks up a fresh picture for a word — PREVIEW ONLY. Nothing is written
+// to Supabase or the local mirror here; the returned object carries the
+// raw blob so saveWordImageForReuse (below) can persist it later, but
+// only once the teacher explicitly asks to keep it.
 //
 // SAFETY FIX — this used to search Wikimedia Commons directly by keyword,
 // which searches loosely-matched file names/descriptions across millions
@@ -325,8 +329,8 @@ async function fetchWordImage(word) {
 // appears at the top of the encyclopedia entry for that exact word/topic,
 // not an arbitrary file-search hit. Far narrower and safer, though no
 // automated source is perfect for a children's app, which is why the UI
-// also now requires a teacher to explicitly tap "तस्बिर हेर्नुहोस्" before
-// any picture renders, instead of showing it automatically.
+// also requires a teacher to explicitly tap "तस्बिर हेर्नुहोस्" before any
+// picture renders, and now also to tap "बचत गर्नुहोस्" before it's kept.
 // SAFETY FIX #2 — even scoped to Wikipedia, the previous version used
 // fuzzy full-text search ("gsrsearch"), which ranks by best text match
 // across ALL articles — so a common word like "साइरन" (a warning siren)
@@ -353,22 +357,32 @@ async function wikipediaLeadImage(word, lang) {
   if (!thumb) return null;
   return { thumburl: thumb, credit: `Wikipedia (${lang}) — ${page.title}` };
 }
-async function lookUpAndShareWordImage(word, teacherId) {
+async function previewWordImage(word) {
   try {
     const info = (await wikipediaLeadImage(word, "ne")) || (await wikipediaLeadImage(word, "en"));
     if (!info?.thumburl) return null;
     const imgRes = await fetch(info.thumburl);
     const blob = await imgRes.blob();
-    const credit = info.credit;
-    const { path, error: upErr } = await db.uploadVocabImageFile(word, blob, teacherId);
-    if (!upErr) {
-      await db.upsertVocabImage(word, { rejected: false, storage_path: path, credit });
-    }
     const dataUrl = await blobToDataUrl(blob);
-    await saveLocalVocabImage(word, { dataUrl, credit });
-    return { url: dataUrl, credit };
+    return { url: dataUrl, credit: info.credit, blob, saved: false };
   } catch (e) {
     return null;
+  }
+}
+// Explicit "keep this for reuse" action — only called when the teacher
+// taps the save button. Uploads to the shared Supabase bucket + table (so
+// every device sees it from now on) and mirrors it locally for offline
+// access on this device.
+async function saveWordImageForReuse(word, blob, credit, teacherId) {
+  try {
+    const { path, error: upErr } = await db.uploadVocabImageFile(word, blob, teacherId);
+    if (upErr) return false;
+    await db.upsertVocabImage(word, { rejected: false, storage_path: path, credit });
+    const dataUrl = await blobToDataUrl(blob);
+    await saveLocalVocabImage(word, { dataUrl, credit });
+    return true;
+  } catch (e) {
+    return false;
   }
 }
 
@@ -1356,6 +1370,9 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
   // pop into view unexpectedly (in front of students, or at all) before a
   // human has chosen to look. Resets whenever a different word opens.
   const [vocabImageRevealed,setVocabImageRevealed]=useState(false);
+  // NEW — tracks the in-progress "बचत गर्नुहोस्" (save/keep) tap so the
+  // button can show a brief loading state and can't be double-tapped.
+  const [vocabImageSaving,setVocabImageSaving]=useState(false);
   useEffect(()=>{
     if(!vocabPopup){setVocabImage(null);setVocabImageRevealed(false);return;}
     let cancelled=false;
@@ -1741,8 +1758,42 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
             {!vocabImageLoading&&vocabImage&&vocabImageRevealed&&(
               <div style={{marginTop:16,position:"relative"}}>
                 <img src={vocabImage.url} alt={vocabPopup.word} style={{width:"100%",maxHeight:260,objectFit:"cover",borderRadius:12,border:`1px solid ${BORDER}`,display:"block"}} onError={()=>setVocabImage(null)}/>
-                <button className="ss-btn" onClick={async()=>{await rejectVocabImage(vocabPopup.word);setVocabImage(null);}} title="यो तस्बिर उपयुक्त छैन — हटाउनुहोस्" style={{position:"absolute",top:8,right:8,background:"rgba(20,18,14,0.65)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)",border:"none",borderRadius:8,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}><Trash2 size={15}/></button>
-                <div style={{fontSize:11.5,color:INK_SOFT,marginTop:4,textAlign:"right"}}>तस्बिर: {vocabImage.credit||"Wikipedia"} — अफलाइनका लागि सुरक्षित</div>
+                <div style={{position:"absolute",top:8,right:8,display:"flex",gap:6}}>
+                  {/* NEW — teacher asked to save the picture to their own
+                      phone/PC (to reuse in a printed worksheet, share, etc.),
+                      not just keep it cached inside the app. The image is
+                      already a data URL, so a plain download link is enough
+                      — no server round-trip needed. */}
+                  <a
+                    href={vocabImage.url}
+                    download={`${(vocabPopup.word||"tasbir").replace(/[\\/:*?"<>|]/g,"").trim()||"tasbir"}.jpg`}
+                    title="यो तस्बिर फोन/पीसीमा सुरक्षित गर्नुहोस्"
+                    style={{background:"rgba(20,18,14,0.65)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)",border:"none",borderRadius:8,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff",textDecoration:"none"}}
+                  ><Download size={15}/></a>
+                  <button className="ss-btn" onClick={async()=>{await rejectVocabImage(vocabPopup.word);setVocabImage(null);}} title="यो तस्बिर उपयुक्त छैन — हटाउनुहोस्" style={{background:"rgba(20,18,14,0.65)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)",border:"none",borderRadius:8,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}><Trash2 size={15}/></button>
+                </div>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginTop:6}}>
+                  {/* NEW — a freshly-fetched picture is a PREVIEW only; it
+                      is not written to the app's shared library until the
+                      teacher explicitly taps this, so nothing gets kept
+                      for reuse without a human choosing to keep it. Once
+                      saved (or if it was already saved from an earlier
+                      session/device), this button is gone. */}
+                  {!vocabImage.saved?(
+                    <button className="ss-btn" disabled={vocabImageSaving} onClick={async()=>{
+                      setVocabImageSaving(true);
+                      const { data:{ user } } = await supabase.auth.getUser();
+                      const ok = user && await saveWordImageForReuse(vocabPopup.word, vocabImage.blob, vocabImage.credit, user.id);
+                      if(ok) setVocabImage({...vocabImage, saved:true});
+                      setVocabImageSaving(false);
+                    }} style={{padding:"7px 12px",borderRadius:9,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,fontSize:13,cursor:vocabImageSaving?"default":"pointer",display:"flex",alignItems:"center",gap:6,opacity:vocabImageSaving?0.7:1}}>
+                      <CheckCircle2 size={14}/> {vocabImageSaving?"बचत हुँदैछ...":"पछि प्रयोगको लागि बचत गर्नुहोस्"}
+                    </button>
+                  ):(
+                    <div style={{fontSize:12.5,color:INK_SOFT,display:"flex",alignItems:"center",gap:5}}><CheckCircle2 size={13} color={ACCENT}/> बचत भयो — अफलाइनका लागि सुरक्षित</div>
+                  )}
+                  <div style={{fontSize:11.5,color:INK_SOFT,textAlign:"right"}}>तस्बिर: {vocabImage.credit||"Wikipedia"}</div>
+                </div>
               </div>
             )}
             <button className="ss-btn" onClick={()=>setVocabPopup(null)} style={{marginTop:16,width:"100%",padding:"10px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}>बुझें</button>
