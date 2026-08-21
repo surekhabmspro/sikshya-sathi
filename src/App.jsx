@@ -1101,8 +1101,8 @@ function LessonEditModal({ lesson, classContext, classLabel, onClose, onSaved })
   };
 
   return(
-    <div className="no-print" onClick={onClose} style={{position:"fixed",inset:0,zIndex:88,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",padding:16}}>
-      <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,padding:20,maxWidth:560,width:"100%",maxHeight:"88vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`}}>
+    <div className="no-print" onClick={onClose} style={{position:"fixed",inset:0,zIndex:88,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:16}}>
+      <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,padding:"24px 28px",maxWidth:"min(94vw, 820px)",width:"100%",maxHeight:"94vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,fontSize:"clamp(15px, 1.6vw, 17px)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
           <div style={{fontWeight:800,fontSize:18,color:INK}}>पाठ सम्पादन गर्नुहोस्</div>
           <IconButton icon={X} onClick={onClose} size={20}/>
@@ -1500,13 +1500,13 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
 
 
       {objPopup&&(
-        <div className="no-print" onClick={()=>setObjPopup(false)} style={{position:"fixed",inset:0,zIndex:80,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.5)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",padding:20}}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:16,padding:22,maxWidth:440,width:"100%",maxHeight:"80vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-              <div style={{fontSize:18,fontWeight:800,color:INK}}>आजको उद्देश्य</div>
+        <div className="no-print" onClick={()=>setObjPopup(false)} style={{position:"fixed",inset:0,zIndex:80,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.5)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:20}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:"28px 30px",maxWidth:"min(92vw, 640px)",width:"100%",maxHeight:"86vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <div style={{fontSize:"clamp(20px, 2.4vw, 24px)",fontWeight:800,color:INK}}>आजको उद्देश्य</div>
               <IconButton icon={X} onClick={()=>setObjPopup(false)}/>
             </div>
-            <ul style={{margin:0,paddingLeft:18,fontSize:16.5,color:INK,lineHeight:1.6}}>{objectives.map((o,i)=><li key={i}>{o}</li>)}</ul>
+            <ul style={{margin:0,paddingLeft:20,fontSize:"clamp(16.5px, 1.9vw, 19px)",color:INK,lineHeight:1.7}}>{objectives.map((o,i)=><li key={i}>{o}</li>)}</ul>
             {vocabulary.length>0&&(
               <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:12}}>
                 {vocabulary.map((v)=>{
@@ -1526,10 +1526,10 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
       )}
 
       {vocabPopup&&(
-        <div className="no-print" onClick={()=>setVocabPopup(null)} style={{position:"fixed",inset:0,zIndex:80,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.5)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",padding:20}}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:16,padding:20,maxWidth:320,width:"100%",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`}}>
-            <div style={{fontSize:19,fontWeight:800,color:MARIGOLD_DARK,marginBottom:8}}>{vocabPopup.word}</div>
-            <div style={{fontSize:16.5,color:INK,lineHeight:1.6}}>{vocabPopup.meaning}</div>
+        <div className="no-print" onClick={()=>setVocabPopup(null)} style={{position:"fixed",inset:0,zIndex:80,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.5)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:20}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:"30px 32px",maxWidth:"min(90vw, 520px)",width:"100%",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`}}>
+            <div style={{fontSize:"clamp(22px, 2.6vw, 27px)",fontWeight:800,color:MARIGOLD_DARK,marginBottom:12}}>{vocabPopup.word}</div>
+            <div style={{fontSize:"clamp(17px, 2vw, 20px)",color:INK,lineHeight:1.7}}>{vocabPopup.meaning}</div>
             <button className="ss-btn" onClick={()=>setVocabPopup(null)} style={{marginTop:16,width:"100%",padding:"10px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}>बुझें</button>
           </div>
         </div>
@@ -2713,8 +2713,8 @@ function Materials({ classLabel }) {
       </Card>
 
       {pendingFiles&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.55)",backdropFilter:"blur(3px)",WebkitBackdropFilter:"blur(3px)",zIndex:70,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={()=>!uploading&&setPendingFiles(null)}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:"20px 20px 0 0",padding:20,maxWidth:640,width:"100%",maxHeight:"85vh",overflowY:"auto",boxShadow:SHADOW.lg}}>
+        <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.55)",backdropFilter:"blur(22px)",WebkitBackdropFilter:"blur(22px)",zIndex:70,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>!uploading&&setPendingFiles(null)}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:"24px 26px",maxWidth:"min(94vw, 880px)",width:"100%",maxHeight:"90vh",overflowY:"auto",boxShadow:SHADOW.lg,fontSize:"clamp(15px, 1.6vw, 17px)"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
               <div style={{fontSize:19,fontWeight:800,color:INK}}>{pendingFiles.length} फाइल — समीक्षा गर्नुहोस्</div>
               <IconButton icon={X} onClick={()=>!uploading&&setPendingFiles(null)} size={20}/>
@@ -2848,8 +2848,8 @@ function Materials({ classLabel }) {
         </div>
       )}
       {preview&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.6)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)",zIndex:60,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setPreview(null)}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,padding:20,maxWidth:640,width:"100%",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:SHADOW.lg}}>
+        <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.6)",backdropFilter:"blur(28px)",WebkitBackdropFilter:"blur(28px)",zIndex:60,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setPreview(null)}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,padding:24,maxWidth:"min(95vw, 1100px)",width:"100%",maxHeight:"95vh",display:"flex",flexDirection:"column",boxShadow:SHADOW.lg,fontSize:"clamp(15px, 1.6vw, 17px)"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
               <div style={{fontSize:18,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",paddingRight:10}}>{preview.name}</div>
               <IconButton icon={X} onClick={()=>setPreview(null)} size={20}/>
@@ -2880,8 +2880,8 @@ function Materials({ classLabel }) {
         </div>
       )}
       {tagging&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.6)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)",zIndex:65,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setTagging(null)}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,padding:24,maxWidth:420,width:"100%",maxHeight:"85vh",overflowY:"auto",WebkitOverflowScrolling:"touch",boxShadow:SHADOW.lg}}>
+        <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.6)",backdropFilter:"blur(28px)",WebkitBackdropFilter:"blur(28px)",zIndex:65,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setTagging(null)}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,padding:28,maxWidth:"min(92vw, 620px)",width:"100%",maxHeight:"90vh",overflowY:"auto",WebkitOverflowScrolling:"touch",boxShadow:SHADOW.lg,fontSize:"clamp(15px, 1.6vw, 17px)"}}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
               <div style={{fontSize:18,fontWeight:700}}>अध्याय र प्रकार तोक्नुहोस्</div>
               <IconButton icon={X} onClick={()=>setTagging(null)} size={20}/>
@@ -3226,8 +3226,8 @@ function SummaryPanel({ icon:Icon, color, title, subtitle, onOpen }) {
 // Settings popup, instead of being its own dedicated screen.
 function ManagerPopup({ title, onClose, children }) {
   return(
-    <div className="no-print" onClick={onClose} style={{position:"fixed",inset:0,zIndex:88,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",padding:16}}>
-      <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:18,width:"100%",maxWidth:820,maxHeight:"88vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative"}}>
+    <div className="no-print" onClick={onClose} style={{position:"fixed",inset:0,zIndex:88,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:16}}>
+      <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:18,width:"100%",maxWidth:"min(95vw, 1080px)",maxHeight:"95vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative"}}>
         <div style={{position:"sticky",top:0,zIndex:2,display:"flex",justifyContent:"flex-end",padding:"14px 14px 0",background:PAPER}}>
           <IconButton icon={X} onClick={onClose} variant="surface"/>
         </div>
@@ -3831,8 +3831,8 @@ function CalendarView({ classLabel, active }) {
       </Card>
 
       {showForm&&form&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.55)",backdropFilter:"blur(3px)",WebkitBackdropFilter:"blur(3px)",zIndex:70,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={()=>setShowForm(false)}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:"20px 20px 0 0",padding:20,maxWidth:520,width:"100%",maxHeight:"85vh",overflowX:"hidden",overflowY:"auto",boxSizing:"border-box",boxShadow:SHADOW.lg}}>
+        <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.55)",backdropFilter:"blur(22px)",WebkitBackdropFilter:"blur(22px)",zIndex:70,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowForm(false)}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:24,maxWidth:"min(94vw, 720px)",width:"100%",maxHeight:"90vh",overflowX:"hidden",overflowY:"auto",boxSizing:"border-box",boxShadow:SHADOW.lg,fontSize:"clamp(15px, 1.6vw, 17px)"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
               <div style={{fontSize:19,fontWeight:800,color:INK}}>{editing?"कार्यक्रम सम्पादन":"नयाँ कार्यक्रम"}</div>
               <IconButton icon={X} onClick={()=>setShowForm(false)} size={20}/>
@@ -3882,8 +3882,8 @@ function CalendarView({ classLabel, active }) {
           calendar (and possibly converting BS dates to AD) won't always
           be perfect. */}
       {reviewEvents&&(
-        <div className="no-print" style={{position:"fixed",inset:0,zIndex:85,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",padding:16}}>
-          <div style={{background:SURFACE,borderRadius:18,padding:20,maxWidth:640,width:"100%",maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`}}>
+        <div className="no-print" style={{position:"fixed",inset:0,zIndex:85,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:16}}>
+          <div style={{background:SURFACE,borderRadius:18,padding:24,maxWidth:"min(94vw, 880px)",width:"100%",maxHeight:"93vh",display:"flex",flexDirection:"column",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,fontSize:"clamp(15px, 1.6vw, 17px)"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
               <div style={{fontSize:19,fontWeight:800,color:INK}}>{reviewEvents.length} घटना फेला पर्यो</div>
               <IconButton icon={X} onClick={()=>setReviewEvents(null)} size={20}/>
@@ -4818,8 +4818,8 @@ export default function App() {
           are, and its result actions (open a lesson, jump to Materials/AI
           tools) close the popup first so you land on a clean screen. */}
       {searchOpen&&(
-        <div className="no-print" onClick={()=>setSearchOpen(false)} style={{position:"fixed",inset:0,zIndex:89,display:"flex",alignItems:"flex-start",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",padding:"8vh 16px 16px"}}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:24,width:"100%",maxWidth:640,maxHeight:"80vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative"}}>
+        <div className="no-print" onClick={()=>setSearchOpen(false)} style={{position:"fixed",inset:0,zIndex:89,display:"flex",alignItems:"flex-start",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:"8vh 16px 16px"}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:24,width:"100%",maxWidth:"min(94vw, 900px)",maxHeight:"92vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative",fontSize:"clamp(15px, 1.6vw, 17px)"}}>
             <div style={{position:"sticky",top:0,zIndex:2,display:"flex",justifyContent:"flex-end",padding:"10px 10px 0",background:PAPER}}>
               <IconButton icon={X} onClick={()=>setSearchOpen(false)} variant="surface"/>
             </div>
@@ -4835,8 +4835,8 @@ export default function App() {
       {/* NEW — Settings as a popup instead of a full screen: opens on top
           of whatever screen you're already on, closes right back to it. */}
       {settingsOpen&&(
-        <div className="no-print" onClick={()=>setSettingsOpen(false)} style={{position:"fixed",inset:0,zIndex:90,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",padding:20}}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:24,width:"100%",maxWidth:760,maxHeight:"88vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative"}}>
+        <div className="no-print" onClick={()=>setSettingsOpen(false)} style={{position:"fixed",inset:0,zIndex:90,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:20}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:24,width:"100%",maxWidth:"min(94vw, 980px)",maxHeight:"94vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative",fontSize:"clamp(15px, 1.6vw, 17px)"}}>
             <div style={{position:"sticky",top:0,zIndex:2,display:"flex",justifyContent:"flex-end",padding:"14px 14px 0",background:PAPER}}>
               <IconButton icon={X} onClick={()=>setSettingsOpen(false)} variant="surface"/>
             </div>
