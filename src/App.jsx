@@ -1161,7 +1161,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
   // sitting in the rail, so the rail stays a slim tab list and the actual
   // content gets the space (see the "empty space on PC" fix below).
   const [objPopup,setObjPopup]=useState(false);
-  const tabs=[{id:"sequence",label:"पढाउने",icon:ClipboardList},{id:"questions",label:"प्रश्नहरू",icon:MessageSquare},{id:"activities",label:"क्रियाकलाप",icon:Users},{id:"simulation",label:"सिमुलेसन",icon:Gamepad2},{id:"homework",label:"गृहकार्य",icon:PenSquare},{id:"rubric",label:"मूल्याङ्कन",icon:Layers}];
+  const tabs=[{id:"sequence",label:"पढाउने",icon:ClipboardList},{id:"questions",label:"प्रश्नहरू",icon:MessageSquare},{id:"activities",label:"क्रियाकलाप",icon:Users},{id:"simulation",label:"सिमुलेसन",icon:Gamepad2},{id:"rubric",label:"मूल्याङ्कन",icon:Layers},{id:"homework",label:"गृहकार्य",icon:PenSquare}];
   const objectives=lesson.objectives||[];
   const vocabulary=lesson.vocabulary||[];
   const sequence=lesson.sequence||[];
