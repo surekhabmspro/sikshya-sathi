@@ -402,10 +402,12 @@ async function preparePath({ chapterTitle, chapterId, pathTitle, lessonId, secti
   } else if (acts !== null) emit("activities", "error", "AI ले क्रियाकलाप बनाउन सकेन।");
 
   let gotRubric = false;
-  const prompt = `नेपाल ${classContext} "${chapterTitle}"को "${title}" पाठका लागि अवलोकन मूल्याङ्कन मापदण्ड भएको JSON array मात्र: [{"level":"उत्कृष्ट","desc":"..."},{"level":"राम्रो","desc":"..."},{"level":"सहयोग आवश्यक","desc":"..."}]`;
+  // NEW — matches the same 4-level scale (उत्कृष्ट/राम्रो/सामान्य/सुधार
+  // आवश्यक) used everywhere else a rubric is created or shown.
+  const prompt = `नेपाल ${classContext} "${chapterTitle}"को "${title}" पाठका लागि रुजु सूची अन्तर्गतको मूल्याङ्कन मापदण्ड भएको JSON array मात्र, ठ्याक्कै यी ४ तह (क्रमैसँग): [{"level":"उत्कृष्ट","desc":"..."},{"level":"राम्रो","desc":"..."},{"level":"सामान्य","desc":"..."},{"level":"सुधार आवश्यक","desc":"..."}]`;
   const rubric = await runStep("assessment", () => gemini.generateRubric(prompt, ctx));
   if (rubric?.length) {
-    await db.upsertAssessment({ title: `${title} — मूल्याङ्कन`, type: "observation", rubric, due_date: null, status: "pending", chapter_id: cId, lesson_id: lid });
+    await db.upsertAssessment({ title: `${title} — मूल्याङ्कन`, type: "checklist", rubric, due_date: null, status: "pending", chapter_id: cId, lesson_id: lid });
     gotRubric = true;
     emit("assessment", "done");
   } else if (rubric !== null) emit("assessment", "error", "AI ले मूल्याङ्कन मापदण्ड बनाउन सकेन।");
@@ -1255,7 +1257,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
   // it's gone now and this tab creates the rubric itself instead.
   const [linkedAssessmentId,setLinkedAssessmentId]=useState(null);
   const [rubricForm,setRubricForm]=useState(false);
-  const [rubricType,setRubricType]=useState("observation");
+  const [rubricType,setRubricType]=useState("checklist");
   const [rubricText,setRubricText]=useState("");
   const [rubricDueDate,setRubricDueDate]=useState("");
   const [rubricGenerating,setRubricGenerating]=useState(false);
@@ -1274,13 +1276,33 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
   },[lesson.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const rubric=linkedRubric;
   const chapterTitle=lesson.chapters?.title||lesson.chapter_title||"";
-  const RUBRIC_TYPES=[{id:"observation",label:"अवलोकन"},{id:"oral",label:"मौखिक"},{id:"practical",label:"व्यावहारिक"},{id:"project",label:"प्रोजेक्ट"},{id:"activity",label:"क्रियाकलाप"},{id:"portfolio",label:"पोर्टफोलियो"}];
+  // NEW — मूल्याङ्कनका आधारहरू: replaced the earlier 6-way rubric-type
+  // split (अवलोकन/मौखिक/व्यावहारिक/प्रोजेक्ट/क्रियाकलाप/पोर्टफोलियो) with
+  // the full 10-factor set the actual rubric rules call for.
+  const RUBRIC_TYPES=[
+    {id:"checklist",label:"रुजु सूची"},
+    {id:"performance",label:"कार्यसम्पादन तथा प्रदर्शन"},
+    {id:"discussion",label:"कुराकानी तथा छलफल"},
+    {id:"self",label:"विद्यार्थी स्व मूल्याङ्कन"},
+    {id:"project",label:"परियोजना तथा प्रयोगात्मक कार्य मूल्याङ्कन"},
+    {id:"rating",label:"श्रेणी मापन"},
+    {id:"parent",label:"अभिभावकको प्रतिक्रिया"},
+    {id:"oral",label:"मौखिक कार्य मूल्याङ्कन"},
+    {id:"peer",label:"सहपाठी मूल्याङ्कन"},
+    {id:"participation",label:"कक्षाकोठा सहभागिता मूल्याङ्कन"},
+  ];
+  // NEW — मूल्याङ्कन तह चार वटा (उत्कृष्ट/राम्रो/सामान्य/सुधार आवश्यक) मा
+  // तय भयो — AI प्रोम्प्ट, प्लेसहोल्डर, र प्रदर्शन रङ सबैतिर एउटै सूची
+  // प्रयोग हुन्छ ताकि जहाँ पनि तह मिल्दो देखियोस्।
+  const RUBRIC_LEVELS=["उत्कृष्ट","राम्रो","सामान्य","सुधार आवश्यक"];
+  const RUBRIC_LEVEL_COLOR={"उत्कृष्ट":ACCENT,"राम्रो":TEAL,"सामान्य":MARIGOLD_DARK,"सुधार आवश्यक":ROSE};
   const generateRubric=async()=>{
     setRubricGenerating(true);setRubricError("");
     try{
       const ctx=await getMaterialContext(chapterTitle,classLabel);
       setRubricMatchedCount(ctx.matchedCount||0);
-      const prompt=`नेपाल ${classContext} "${chapterTitle}" पाठ "${lesson.title}" का लागि ${rubricType} मूल्याङ्कन मापदण्ड भएको JSON array मात्र: [{"level":"उत्कृष्ट","desc":"..."},{"level":"राम्रो","desc":"..."},{"level":"सहयोग आवश्यक","desc":"..."}]`;
+      const rubricTypeLabel=RUBRIC_TYPES.find((t)=>t.id===rubricType)?.label||rubricType;
+      const prompt=`नेपाल ${classContext} "${chapterTitle}" पाठ "${lesson.title}" का लागि "${rubricTypeLabel}" अन्तर्गतको मूल्याङ्कन मापदण्ड भएको JSON array मात्र, ठ्याक्कै यी ${RUBRIC_LEVELS.length} तह (क्रमैसँग) प्रयोग गरेर: ${JSON.stringify(RUBRIC_LEVELS.map((level)=>({level,desc:"..."})))}`;
       const gen=await gemini.generateRubric(prompt,ctx);
       if(gen)setRubricText(gen.map((r)=>`${r.level}: ${r.desc}`).join("\n"));
       else setRubricError("मूल्याङ्कन बनाउन सकिएन।");
@@ -1458,12 +1480,12 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
               {rubricError&&<ErrorMsg msg={rubricError}/>}
               <MaterialsHint count={rubricMatchedCount} chapterTitle={chapterTitle}/>
               <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
                   {RUBRIC_TYPES.map((t,i)=>{const c=PALETTE[i%PALETTE.length];const active=rubricType===t.id;return(
-                    <button key={t.id} onClick={()=>setRubricType(t.id)} style={{padding:"9px 6px",borderRadius:10,border:`1.5px solid ${active?c:`color-mix(in srgb, ${c} 25%, ${BORDER})`}`,background:active?`color-mix(in srgb, ${c} 14%, ${SURFACE})`:SURFACE,color:active?c:INK,fontWeight:600,fontSize:14,cursor:"pointer"}}>{t.label}</button>
+                    <button key={t.id} onClick={()=>setRubricType(t.id)} style={{padding:"9px 8px",borderRadius:10,border:`1.5px solid ${active?c:`color-mix(in srgb, ${c} 25%, ${BORDER})`}`,background:active?`color-mix(in srgb, ${c} 14%, ${SURFACE})`:SURFACE,color:active?c:INK,fontWeight:600,fontSize:13.5,lineHeight:1.3,cursor:"pointer"}}>{t.label}</button>
                   );})}
                 </div>
-                <textarea placeholder={"मापदण्ड:\nउत्कृष्ट: ...\nराम्रो: ...\nसहयोग आवश्यक: ..."} value={rubricText} onChange={(e)=>setRubricText(e.target.value)} rows={4} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
+                <textarea placeholder={`मापदण्ड:\n${RUBRIC_LEVELS.map((l)=>`${l}: ...`).join("\n")}`} value={rubricText} onChange={(e)=>setRubricText(e.target.value)} rows={5} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
                 <input type="date" value={rubricDueDate} onChange={(e)=>setRubricDueDate(e.target.value)} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
                 <div style={{display:"flex",gap:8}}>
                   <button onClick={()=>setRubricForm(false)} className="ss-btn" style={{flex:1,padding:"10px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer",boxShadow:SHADOW.sm}}>रद्द</button>
@@ -1471,7 +1493,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                 </div>
               </div>
             </Card>
-          ):rubric.length===0?<div style={{color:INK_SOFT}}>मूल्याङ्कन मापदण्ड थपिएको छैन।</div>:<div style={{display:"flex",flexDirection:"column",gap:8}}>{rubric.map((r,i)=>{const c=r.level==="उत्कृष्ट"?ACCENT:r.level==="सहयोग आवश्यक"?ROSE:MARIGOLD_DARK;return<Card key={i} accentColor={c}><div style={{fontWeight:700,color:c,fontSize:16.5,marginBottom:3}}>{r.level}</div><div style={{fontSize:16.5,color:INK}}>{r.desc}</div></Card>;})}</div>}
+          ):rubric.length===0?<div style={{color:INK_SOFT}}>मूल्याङ्कन मापदण्ड थपिएको छैन।</div>:<div style={{display:"flex",flexDirection:"column",gap:8}}>{rubric.map((r,i)=>{const c=RUBRIC_LEVEL_COLOR[r.level]||MARIGOLD_DARK;return<Card key={i} accentColor={c}><div style={{fontWeight:700,color:c,fontSize:16.5,marginBottom:3}}>{r.level}</div><div style={{fontSize:16.5,color:INK}}>{r.desc}</div></Card>;})}</div>}
         </div>}
         </div>
       </div>
@@ -3501,7 +3523,10 @@ function CalendarView({ classLabel, active }) {
   const [events,setEvents]=useState([]);
   const [assessments,setAssessments]=useState([]);
   const [loading,setLoading]=useState(true);
-  const [activeCats,setActiveCats]=useState(()=>new Set(EVENT_CATEGORY_ORDER));
+  // NEW — live preview: a day cell that's hovered (desktop, mouse pointer)
+  // shows a small floating tooltip with that day's events, right where the
+  // pointer is — no click needed, nothing to scroll to.
+  const [hoverDate,setHoverDate]=useState(null);
   const [showForm,setShowForm]=useState(false);
   const [editing,setEditing]=useState(null);
   const [form,setForm]=useState(null);
@@ -3549,11 +3574,9 @@ function CalendarView({ classLabel, active }) {
     return [...fromEvents,...fromAssessments];
   },[events,assessments]);
 
-  const visibleItems=useMemo(()=>allItems.filter((i)=>activeCats.has(i.category)),[allItems,activeCats]);
-
   const itemsByDate=useMemo(()=>{
     const map={};
-    for(const it of visibleItems){
+    for(const it of allItems){
       let d=parseDate(it.start);const end=parseDate(it.end);let guard=0;
       while(d<=end&&guard<62){
         (map[fmtDate(d)] ||= []).push(it);
@@ -3561,11 +3584,16 @@ function CalendarView({ classLabel, active }) {
       }
     }
     return map;
-  },[visibleItems]);
+  },[allItems]);
 
   const selectedItems=(itemsByDate[selected]||[]).sort((a,b)=>(a.time||"99:99").localeCompare(b.time||"99:99"));
 
-  const openNew=()=>{setEditing(null);setFormError("");setForm({title:"",category:"event",start_date:selected,end_date:"",multiDay:false,time:"",notes:"",allClasses:false});setShowForm(true);};
+  // FIX — openNew always used to write into whichever date was already
+  // "selected" (a separate bit of state), which meant tapping a day and
+  // then "कार्यक्रम थप्नुहोस्" could disagree if selection changed in
+  // between. It now optionally takes the exact date to prefill, so the
+  // inline per-day "+" always adds to the day it's sitting under.
+  const openNew=(dateStr)=>{setEditing(null);setFormError("");setForm({title:"",category:"event",start_date:dateStr||selected,end_date:"",multiDay:false,time:"",notes:"",allClasses:false});setShowForm(true);};
   const openEdit=(it)=>{if(!it.editable)return;const raw=it.raw;setEditing(raw);setFormError("");setForm({title:raw.title,category:raw.category,start_date:raw.start_date,end_date:raw.end_date||"",multiDay:!!raw.end_date,time:raw.time||"",notes:raw.notes||"",allClasses:!raw.class_label});setShowForm(true);};
 
   const saveEvent=async()=>{
@@ -3656,18 +3684,42 @@ function CalendarView({ classLabel, active }) {
     else setUploadError("सुरक्षित गर्न सकिएन: "+error.message);
   };
 
-  const toggleCat=(key)=>setActiveCats((prev)=>{const next=new Set(prev);next.has(key)?next.delete(key):next.add(key);return next;});
-
   const selectedLabel=(()=>{const d=parseDate(selected);return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;})();
 
+  // NEW — live calendar: instead of a fixed list glued to the bottom of
+  // the page (always another scroll away), the month grid is split into
+  // weeks so a small details panel can be dropped in right after whichever
+  // week the selected day sits in — it appears in place, directly under
+  // that date, with nothing to scroll past to see it.
+  const selDateObj=parseDate(selected);
+  const selInThisMonth=selDateObj.getFullYear()===year&&selDateObj.getMonth()===month;
+  const totalCells=firstDay+daysInMonth;
+  const totalWeeks=Math.ceil(totalCells/7);
+  const weeks=Array.from({length:totalWeeks},(_,w)=>Array.from({length:7},(_,d)=>{
+    const dayNum=w*7+d-firstDay+1;
+    return (dayNum>=1&&dayNum<=daysInMonth)?dayNum:null;
+  }));
+
   return(
-    <div className="ss-page-read" style={{padding:"20px 20px 130px",maxWidth:640,margin:"0 auto"}}>
+    <div className="ss-page-read" style={{padding:"20px 20px 130px",maxWidth:760,margin:"0 auto",overflowX:"hidden"}}>
       <style>{`
         .cal-header-actions{display:flex;gap:8px;flex-wrap:wrap;}
         @media(max-width:460px){
           .cal-header-actions{width:100%;}
           .cal-header-actions>*{flex:1 1 100%;justify-content:center;}
         }
+        .cal-cat-row{max-width:100%;}
+        @media(max-width:400px){
+          .cal-cat-row .ss-chip{font-size:12.5px!important;padding:6px 9px!important;}
+        }
+        .cal-day-cell{position:relative;}
+        .cal-day-btn{width:100%;box-sizing:border-box;}
+        .cal-tooltip{position:absolute;bottom:calc(100% + 5px);left:50%;transform:translateX(-50%);z-index:30;background:${SURFACE};border:1px solid ${BORDER};border-radius:10px;padding:7px 9px;box-shadow:${SHADOW.lg};min-width:140px;max-width:190px;pointer-events:none;text-align:left;}
+        .cal-tooltip-title{font-size:12.5px;font-weight:700;color:${INK};white-space:normal;line-height:1.3;}
+        .cal-tooltip-title+.cal-tooltip-title{margin-top:4px;}
+        .cal-tooltip-more{font-size:11px;color:${INK_SOFT};margin-top:3px;}
+        @media(hover:none){.cal-tooltip{display:none;}}
+        .cal-day-panel{grid-column:1 / -1;}
       `}</style>
       <PageHeader icon={CalendarDays} title="पात्रो" color={VIOLET} action={
         <div className="cal-header-actions">
@@ -3679,28 +3731,12 @@ function CalendarView({ classLabel, active }) {
             <Paperclip size={16}/>{uploading?"पढ्दै...":"पात्रो अपलोड गर्नुहोस्"}
             <input type="file" accept="application/pdf,.pdf,image/*" onChange={handleCalendarUpload} disabled={uploading} style={{display:"none"}}/>
           </label>
-          <Button size="sm" icon={Plus} onClick={openNew} style={{background:`linear-gradient(160deg, ${VIOLET} 0%, color-mix(in srgb, ${VIOLET} 72%, black) 100%)`,boxShadow:`0 4px 12px color-mix(in srgb, ${VIOLET} 22%, transparent)`}}>कार्यक्रम थप्नुहोस्</Button>
+          <Button size="sm" icon={Plus} onClick={()=>openNew()} style={{background:`linear-gradient(160deg, ${VIOLET} 0%, color-mix(in srgb, ${VIOLET} 72%, black) 100%)`,boxShadow:`0 4px 12px color-mix(in srgb, ${VIOLET} 22%, transparent)`}}>कार्यक्रम थप्नुहोस्</Button>
         </div>
       }/>
       {uploadError&&<div style={{background:DANGER_BG,color:DANGER,borderRadius:12,padding:"10px 14px",fontSize:15,fontWeight:600,marginBottom:14}}>{uploadError}</div>}
 
-      {/* NEW — category filter chips, same visual language as Materials'
-          category chips: tap to hide/show that category's dots on the
-          grid and entries in the day list. FIX — this row used to
-          horizontal-scroll with the far chips cut off at the edge and no
-          hint there was more — easy to miss on a phone. Wrapping onto as
-          many lines as needed means every chip is visible up front, no
-          scrolling required. */}
-      <div style={{display:"flex",flexWrap:"wrap",gap:7,marginBottom:14}}>
-        {EVENT_CATEGORY_ORDER.map((key)=>{
-          const meta=EVENT_CATEGORY_META[key];const Icon=meta.icon;const active=activeCats.has(key);
-          return(
-            <Chip key={key} onClick={()=>toggleCat(key)} active={active} color={meta.color} icon={Icon} size="sm">{meta.label}</Chip>
-          );
-        })}
-      </div>
-
-      <Card accentColor={VIOLET} style={{marginBottom:14,padding:14}}>
+      <Card accentColor={VIOLET} style={{marginBottom:14,padding:14,overflow:"visible"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
           <button className="ss-btn" onClick={()=>{if(month===0){setMonth(11);setYear((y)=>y-1);}else setMonth((m)=>m-1);}} style={{background:`linear-gradient(135deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`,border:"none",borderRadius:999,width:34,height:34,fontWeight:700,cursor:"pointer",color:"#fff",fontSize:18,boxShadow:SHADOW.sm}}>‹</button>
           <div style={{textAlign:"center"}}>
@@ -3717,60 +3753,92 @@ function CalendarView({ classLabel, active }) {
           {DAYS.map((d)=><div key={d} style={{textAlign:"center",fontSize:15,fontWeight:700,color:INK_SOFT,padding:"4px 0"}}>{d}</div>)}
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4}}>
-          {Array.from({length:firstDay}).map((_,i)=><div key={`e${i}`}/>)}
-          {Array.from({length:daysInMonth},(_,i)=>i+1).map((day)=>{
-            const dateStr=fmtDate(new Date(year,month,day));
-            const isToday=dateStr===fmtDate(today);
-            const isSel=dateStr===selected;
-            const dayItems=itemsByDate[dateStr]||[];
-            const dots=[...new Set(dayItems.map((i)=>i.category))].slice(0,3);
-            return(
-              <button key={day} className="ss-btn" onClick={()=>setSelected(dateStr)} style={{aspectRatio:1,borderRadius:12,border:isToday||isSel?"none":`1px solid color-mix(in srgb, ${BORDER} 60%, transparent)`,background:isToday?`linear-gradient(135deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`:isSel?ACCENT_LIGHT:"transparent",color:isToday?"#fff":isSel?ACCENT:INK,fontWeight:isToday||isSel?700:600,fontSize:16.5,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,padding:0,boxShadow:isToday?SHADOW.accent:"none"}}>
-                <span>{day}</span>
-                {dots.length>0&&(
-                  <span style={{display:"flex",gap:2,height:5}}>
-                    {dots.map((cat)=><span key={cat} style={{width:5,height:5,borderRadius:"50%",background:isToday?"#fff":EVENT_CATEGORY_META[cat]?.color||INK_SOFT,flexShrink:0}}/>)}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+          {(()=>{
+            // NEW — live calendar: the grid is built week-by-week instead
+            // of as one flat run of days, so a details panel can be
+            // dropped in as its own full-width row right after the week
+            // that holds the selected date — in place, not at the bottom.
+            const nodes=[];
+            weeks.forEach((week,wi)=>{
+              week.forEach((day,di)=>{
+                if(day===null){nodes.push(<div key={`e-${wi}-${di}`}/>);return;}
+                const dateStr=fmtDate(new Date(year,month,day));
+                const isToday=dateStr===fmtDate(today);
+                const isSel=dateStr===selected;
+                const dayItems=itemsByDate[dateStr]||[];
+                const dots=[...new Set(dayItems.map((i)=>i.category))].slice(0,3);
+                nodes.push(
+                  <div key={dateStr} className="cal-day-cell"
+                    onMouseEnter={()=>setHoverDate(dateStr)}
+                    onMouseLeave={()=>setHoverDate((h)=>h===dateStr?null:h)}>
+                    <button className="ss-btn cal-day-btn" onClick={()=>setSelected(dateStr)} style={{aspectRatio:1,borderRadius:12,border:isToday||isSel?"none":`1px solid color-mix(in srgb, ${BORDER} 60%, transparent)`,background:isToday?`linear-gradient(135deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`:isSel?ACCENT_LIGHT:"transparent",color:isToday?"#fff":isSel?ACCENT:INK,fontWeight:isToday||isSel?700:600,fontSize:16.5,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,padding:0,boxShadow:isToday?SHADOW.accent:"none"}}>
+                      <span>{day}</span>
+                      {dots.length>0&&(
+                        <span style={{display:"flex",gap:2,height:5}}>
+                          {dots.map((cat)=><span key={cat} style={{width:5,height:5,borderRadius:"50%",background:isToday?"#fff":EVENT_CATEGORY_META[cat]?.color||INK_SOFT,flexShrink:0}}/>)}
+                        </span>
+                      )}
+                    </button>
+                    {/* NEW — hovering with a mouse (desktop) previews the
+                        day's events right there, no click needed. */}
+                    {hoverDate===dateStr&&dayItems.length>0&&(
+                      <div className="cal-tooltip">
+                        {dayItems.slice(0,3).map((it)=><div key={it.id} className="cal-tooltip-title">{it.title}</div>)}
+                        {dayItems.length>3&&<div className="cal-tooltip-more">+{dayItems.length-3} थप</div>}
+                      </div>
+                    )}
+                  </div>
+                );
+              });
+              // NEW — clicking (or already having selected) a date in this
+              // week drops its full details in right here, as its own row,
+              // instead of at the very bottom of the page.
+              if(selInThisMonth&&week.includes(selDateObj.getDate())){
+                nodes.push(
+                  <div key={`panel-${wi}`} className="cal-day-panel" style={{background:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:14,padding:"11px 12px 9px",margin:"6px 0 2px"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,gap:8}}>
+                      <div style={{fontSize:14.5,fontWeight:800,color:INK}}>{selectedLabel}</div>
+                      <button className="ss-btn" onClick={()=>openNew(selected)} style={{display:"flex",alignItems:"center",gap:4,background:"none",border:`1.5px dashed ${VIOLET}`,borderRadius:999,padding:"4px 10px",fontSize:13,fontWeight:700,color:VIOLET,cursor:"pointer",flexShrink:0}}><Plus size={13}/>थप्नुहोस्</button>
+                    </div>
+                    {loading?<Spinner small/>:selectedItems.length===0?(
+                      <div style={{color:INK_SOFT,fontSize:14.5,padding:"2px 0 4px"}}>यो दिन कुनै कार्यक्रम छैन।</div>
+                    ):(
+                      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                        {selectedItems.map((it)=>{
+                          const meta=EVENT_CATEGORY_META[it.category]||EVENT_CATEGORY_META.event;const Icon=meta.icon;
+                          return(
+                            <div key={it.id} style={{display:"flex",alignItems:"center",gap:9,padding:"8px 10px",borderRadius:10,background:SURFACE,border:`1px solid ${BORDER}`,borderLeft:`4px solid ${meta.color}`}}>
+                              <Icon size={15} color={meta.color} style={{flexShrink:0}}/>
+                              <div style={{flex:1,minWidth:0}} onClick={()=>openEdit(it)} title={it.editable?"सम्पादन गर्नुहोस्":""} className={it.editable?"ss-btn":""}>
+                                <div style={{fontSize:15,color:INK,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.title}</div>
+                                <div style={{fontSize:12.5,color:INK_SOFT,display:"flex",gap:5,flexWrap:"wrap"}}>
+                                  <span>{meta.label}</span>{it.time&&<span>· {it.time}</span>}{!it.editable&&<span>· मूल्याङ्कनबाट</span>}{it.start!==it.end&&<span>· {parseDate(it.start).getDate()}–{parseDate(it.end).getDate()} {MONTHS[parseDate(it.end).getMonth()]}</span>}
+                                </div>
+                              </div>
+                              {it.editable&&<button className="ss-icon-btn" onClick={()=>deleteEvent(it.raw)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,padding:3,flexShrink:0}}><Trash2 size={14}/></button>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+            });
+            return nodes;
+          })()}
         </div>
       </Card>
 
-      <SectionLabel icon={CalendarDays}>{selectedLabel}</SectionLabel>
-      {loading?<Spinner/>:selectedItems.length===0?(
-        <div style={{color:INK_SOFT,fontSize:16.5}}>यो दिन कुनै कार्यक्रम छैन।</div>
-      ):(
-        <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          {selectedItems.map((it)=>{
-            const meta=EVENT_CATEGORY_META[it.category]||EVENT_CATEGORY_META.event;const Icon=meta.icon;
-            return(
-              <Card key={it.id} accentColor={meta.color} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",paddingTop:20,position:"relative",overflow:"visible"}}>
-                <PinBadge color={meta.color}/>
-                <div style={{width:36,height:36,borderRadius:10,background:`linear-gradient(160deg, ${meta.color} 0%, color-mix(in srgb, ${meta.color} 70%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 3px 8px color-mix(in srgb, ${meta.color} 40%, transparent)`}}><Icon size={17} color="#fff"/></div>
-                <div style={{flex:1,minWidth:0}} onClick={()=>openEdit(it)} title={it.editable?"सम्पादन गर्नुहोस्":""} className={it.editable?"ss-btn":""}>
-                  <div style={{fontSize:16.5,color:INK,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.title}</div>
-                  <div style={{fontSize:14,color:INK_SOFT,display:"flex",gap:6,flexWrap:"wrap"}}>
-                    <span>{meta.label}</span>{it.time&&<span>· {it.time}</span>}{!it.editable&&<span>· मूल्याङ्कनबाट</span>}{it.start!==it.end&&<span>· {parseDate(it.start).getDate()}–{parseDate(it.end).getDate()} {MONTHS[parseDate(it.end).getMonth()]}</span>}
-                  </div>
-                </div>
-                {it.editable&&<button className="ss-icon-btn" onClick={()=>deleteEvent(it.raw)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,padding:4,flexShrink:0}}><Trash2 size={16}/></button>}
-              </Card>
-            );
-          })}
-        </div>
-      )}
-
       {showForm&&form&&(
         <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.55)",backdropFilter:"blur(3px)",WebkitBackdropFilter:"blur(3px)",zIndex:70,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={()=>setShowForm(false)}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:"20px 20px 0 0",padding:20,maxWidth:520,width:"100%",maxHeight:"85vh",overflowY:"auto",boxShadow:SHADOW.lg}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:"20px 20px 0 0",padding:20,maxWidth:520,width:"100%",maxHeight:"85vh",overflowX:"hidden",overflowY:"auto",boxSizing:"border-box",boxShadow:SHADOW.lg}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
               <div style={{fontSize:19,fontWeight:800,color:INK}}>{editing?"कार्यक्रम सम्पादन":"नयाँ कार्यक्रम"}</div>
               <IconButton icon={X} onClick={()=>setShowForm(false)} size={20}/>
             </div>
-            <input autoFocus value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} placeholder="कार्यक्रमको नाम" className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,marginBottom:10}}/>
-            <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:12}}>
+            <input autoFocus value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} placeholder="कार्यक्रमको नाम" className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,marginBottom:10,boxSizing:"border-box"}}/>
+            <div className="cal-cat-row" style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:12}}>
               {EVENT_CATEGORY_ORDER.map((key)=>{
                 const meta=EVENT_CATEGORY_META[key];const Icon=meta.icon;const active=form.category===key;
                 return<Chip key={key} onClick={()=>setForm({...form,category:key})} active={active} color={meta.color} icon={Icon} size="sm">{meta.label}</Chip>;
