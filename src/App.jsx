@@ -190,6 +190,94 @@ const getTextbookPDF = (classLabel) => gemini.getTextbookPart(classLabel);
 // everything after is a fraction of it. The cache is invalidated
 // automatically whenever the textbook PDF is replaced/removed (see
 // uploadTextbook/clearTextbookHandler in Settings).
+// NEW — pictorial vocabulary support: given a word (Nepali or English),
+// tries to find a relevant, freely-licensed illustrative photo/diagram
+// from Wikimedia Commons (no API key needed, works straight from the
+// browser). Best-effort only — plenty of abstract classroom words won't
+// have a good match, and that's fine: callers just show nothing when this
+// returns null instead of a broken image.
+//
+// Once a picture is found for a word, it's downloaded and stored in
+// IndexedDB (as a base64 data URL, not just the remote link) so it's
+// still there — and still shows — with no internet connection. A teacher
+// can also mark a picture as not appropriate for a word; that's saved too,
+// so the app won't keep re-fetching/re-showing it.
+const VOCAB_IMG_DB = "sikshyasathi-vocab-images";
+const VOCAB_IMG_STORE = "images";
+function openVocabImageDB() {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === "undefined") { reject(new Error("no indexedDB")); return; }
+    const req = indexedDB.open(VOCAB_IMG_DB, 1);
+    req.onupgradeneeded = () => { req.result.createObjectStore(VOCAB_IMG_STORE, { keyPath: "word" }); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function getSavedVocabImage(word) {
+  try {
+    const idb = await openVocabImageDB();
+    return await new Promise((resolve, reject) => {
+      const req = idb.transaction(VOCAB_IMG_STORE, "readonly").objectStore(VOCAB_IMG_STORE).get(word);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (e) { return null; }
+}
+async function saveVocabImage(word, entry) {
+  try {
+    const idb = await openVocabImageDB();
+    await new Promise((resolve, reject) => {
+      const tx = idb.transaction(VOCAB_IMG_STORE, "readwrite");
+      tx.objectStore(VOCAB_IMG_STORE).put({ word, ...entry, savedAt: Date.now() });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (e) {}
+}
+// Marks a word's image as rejected (teacher deemed it not appropriate) —
+// keeps it out of future views for this word without re-fetching.
+async function rejectVocabImage(word) {
+  await saveVocabImage(word, { rejected: true, dataUrl: null, credit: null });
+}
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+async function fetchWordImage(word) {
+  const key = (word || "").trim();
+  if (!key) return null;
+  // 1) already saved locally (works even fully offline) — including a
+  // prior "not appropriate" decision, which we respect and stop there.
+  const saved = await getSavedVocabImage(key);
+  if (saved) {
+    if (saved.rejected) return null;
+    if (saved.dataUrl) return { url: saved.dataUrl, credit: saved.credit || "Wikimedia Commons" };
+  }
+  // 2) not saved yet — needs a network lookup once, then it's cached.
+  try {
+    const searchUrl = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrsearch=${encodeURIComponent(key + " filetype:bitmap")}&gsrlimit=1&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=480&format=json&origin=*`;
+    const res = await fetch(searchUrl);
+    const data = await res.json();
+    const pages = data?.query?.pages;
+    const page = pages ? Object.values(pages)[0] : null;
+    const info = page?.imageinfo?.[0];
+    if (!info?.thumburl) return null;
+    const imgRes = await fetch(info.thumburl);
+    const blob = await imgRes.blob();
+    const dataUrl = await blobToDataUrl(blob);
+    const credit = (info.extmetadata?.Artist?.value || "").replace(/<[^>]+>/g, "") || "Wikimedia Commons";
+    await saveVocabImage(key, { dataUrl, credit });
+    return { url: dataUrl, credit };
+  } catch (e) {
+    return null;
+  }
+}
+
+
 async function getMaterialContext(chapterTitle, classLabel = null, lessonId = null) {
   if (!chapterTitle || !chapterTitle.trim()) {
     return { pdfBase64: await getTextbookPDF(classLabel), materialParts: [], textbookText: null, matchedCount: 0 };
@@ -1163,6 +1251,18 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
   // sitting in the rail, so the rail stays a slim tab list and the actual
   // content gets the space (see the "empty space on PC" fix below).
   const [objPopup,setObjPopup]=useState(false);
+  // NEW — pictorial vocabulary: when a hard word's meaning popup opens,
+  // try to fetch a relevant illustrative image for it (best-effort, see
+  // fetchWordImage). Resets whenever a different word (or none) is open.
+  const [vocabImage,setVocabImage]=useState(null);
+  const [vocabImageLoading,setVocabImageLoading]=useState(false);
+  useEffect(()=>{
+    if(!vocabPopup){setVocabImage(null);return;}
+    let cancelled=false;
+    setVocabImage(null);setVocabImageLoading(true);
+    fetchWordImage(vocabPopup.word).then((img)=>{if(!cancelled){setVocabImage(img);setVocabImageLoading(false);}});
+    return ()=>{cancelled=true;};
+  },[vocabPopup]);
   const tabs=[{id:"sequence",label:"पढाउने",icon:ClipboardList},{id:"questions",label:"प्रश्नहरू",icon:MessageSquare},{id:"activities",label:"क्रियाकलाप",icon:Users},{id:"simulation",label:"सिमुलेसन",icon:Gamepad2},{id:"rubric",label:"मूल्याङ्कन",icon:Layers},{id:"homework",label:"गृहकार्य",icon:PenSquare}];
   const objectives=lesson.objectives||[];
   const vocabulary=lesson.vocabulary||[];
@@ -1530,6 +1630,16 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
           <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:"30px 32px",maxWidth:"min(90vw, 520px)",width:"100%",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`}}>
             <div style={{fontSize:"clamp(22px, 2.6vw, 27px)",fontWeight:800,color:MARIGOLD_DARK,marginBottom:12}}>{vocabPopup.word}</div>
             <div style={{fontSize:"clamp(17px, 2vw, 20px)",color:INK,lineHeight:1.7}}>{vocabPopup.meaning}</div>
+            {vocabImageLoading&&(
+              <div style={{marginTop:16,height:150,borderRadius:12,background:SURFACE_2,display:"flex",alignItems:"center",justifyContent:"center",color:INK_SOFT,fontSize:14}}><Spinner small/></div>
+            )}
+            {!vocabImageLoading&&vocabImage&&(
+              <div style={{marginTop:16,position:"relative"}}>
+                <img src={vocabImage.url} alt={vocabPopup.word} style={{width:"100%",maxHeight:260,objectFit:"cover",borderRadius:12,border:`1px solid ${BORDER}`,display:"block"}} onError={()=>setVocabImage(null)}/>
+                <button className="ss-btn" onClick={async()=>{await rejectVocabImage(vocabPopup.word);setVocabImage(null);}} title="यो तस्बिर उपयुक्त छैन — हटाउनुहोस्" style={{position:"absolute",top:8,right:8,background:"rgba(20,18,14,0.65)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)",border:"none",borderRadius:8,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}><Trash2 size={15}/></button>
+                <div style={{fontSize:11.5,color:INK_SOFT,marginTop:4,textAlign:"right"}}>तस्बिर: Wikimedia Commons — अफलाइनका लागि सुरक्षित</div>
+              </div>
+            )}
             <button className="ss-btn" onClick={()=>setVocabPopup(null)} style={{marginTop:16,width:"100%",padding:"10px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}>बुझें</button>
           </div>
         </div>
