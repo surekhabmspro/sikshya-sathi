@@ -191,11 +191,12 @@ const getTextbookPDF = (classLabel) => gemini.getTextbookPart(classLabel);
 // automatically whenever the textbook PDF is replaced/removed (see
 // uploadTextbook/clearTextbookHandler in Settings).
 // NEW — pictorial vocabulary support: given a word (Nepali or English),
-// tries to find a relevant, freely-licensed illustrative photo/diagram
-// from Wikimedia Commons (no API key needed, works straight from the
-// browser). Best-effort only — plenty of abstract classroom words won't
-// have a good match, and that's fine: callers just show nothing when this
-// returns null instead of a broken image.
+// tries to find a relevant illustrative photo from that word's own
+// Wikipedia article (Nepali Wikipedia first, English as fallback) — not a
+// generic Wikimedia Commons file search (see the safety note below on
+// why that was changed). Best-effort only — plenty of abstract classroom
+// words won't have a good match, and that's fine: callers just show
+// nothing when this returns null instead of a broken image.
 //
 // Once a picture is found for a word, it's downloaded and (a) uploaded to
 // a Supabase Storage bucket ("vocab-images") with a matching row in the
@@ -288,7 +289,7 @@ async function fetchWordImage(word) {
             const blob = await imgRes.blob();
             const dataUrl = await blobToDataUrl(blob);
             await saveLocalVocabImage(key, { dataUrl, credit: row.credit });
-            return { url: dataUrl, credit: row.credit || "Wikimedia Commons" };
+            return { url: dataUrl, credit: row.credit || "Wikipedia" };
           }
         }
         if (row === null) {
@@ -306,25 +307,43 @@ async function fetchWordImage(word) {
   const local = await getLocalVocabImage(key);
   if (local) {
     if (local.rejected) return null;
-    if (local.dataUrl) return { url: local.dataUrl, credit: local.credit || "Wikimedia Commons" };
+    if (local.dataUrl) return { url: local.dataUrl, credit: local.credit || "Wikipedia" };
   }
   return null;
 }
-// Looks up a fresh picture on Wikimedia Commons, uploads it to the shared
-// Supabase bucket + table (so every device sees it from now on), and
-// mirrors it locally for offline access on this device.
+// Looks up a fresh picture for a word, uploads it to the shared Supabase
+// bucket + table (so every device sees it from now on), and mirrors it
+// locally for offline access on this device.
+//
+// SAFETY FIX — this used to search Wikimedia Commons directly by keyword,
+// which searches loosely-matched file names/descriptions across millions
+// of user-uploaded files with no moderation for a children's classroom
+// context; a word like "साइरन" (siren) could return a completely
+// unrelated, inappropriate photo. This now searches Wikipedia articles
+// instead (Nepali Wikipedia first, English as fallback) and only uses
+// each article's own curated lead/infobox image — the same picture that
+// appears at the top of the encyclopedia entry for that exact word/topic,
+// not an arbitrary file-search hit. Far narrower and safer, though no
+// automated source is perfect for a children's app, which is why the UI
+// also now requires a teacher to explicitly tap "तस्बिर हेर्नुहोस्" before
+// any picture renders, instead of showing it automatically.
+async function wikipediaLeadImage(word, lang) {
+  const searchUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&generator=search&gsrnamespace=0&gsrsearch=${encodeURIComponent(word)}&gsrlimit=1&prop=pageimages&piprop=thumbnail&pithumbsize=480&format=json&origin=*`;
+  const res = await fetch(searchUrl);
+  const data = await res.json();
+  const pages = data?.query?.pages;
+  const page = pages ? Object.values(pages)[0] : null;
+  const thumb = page?.thumbnail?.source;
+  if (!thumb) return null;
+  return { thumburl: thumb, credit: `Wikipedia (${lang}) — ${page.title}` };
+}
 async function lookUpAndShareWordImage(word, teacherId) {
   try {
-    const searchUrl = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrsearch=${encodeURIComponent(word + " filetype:bitmap")}&gsrlimit=1&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=480&format=json&origin=*`;
-    const res = await fetch(searchUrl);
-    const data = await res.json();
-    const pages = data?.query?.pages;
-    const page = pages ? Object.values(pages)[0] : null;
-    const info = page?.imageinfo?.[0];
+    const info = (await wikipediaLeadImage(word, "ne")) || (await wikipediaLeadImage(word, "en"));
     if (!info?.thumburl) return null;
     const imgRes = await fetch(info.thumburl);
     const blob = await imgRes.blob();
-    const credit = (info.extmetadata?.Artist?.value || "").replace(/<[^>]+>/g, "") || "Wikimedia Commons";
+    const credit = info.credit;
     const { path, error: upErr } = await db.uploadVocabImageFile(word, blob, teacherId);
     if (!upErr) {
       await db.upsertVocabImage(word, { rejected: false, storage_path: path, credit });
@@ -1316,10 +1335,15 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
   // fetchWordImage). Resets whenever a different word (or none) is open.
   const [vocabImage,setVocabImage]=useState(null);
   const [vocabImageLoading,setVocabImageLoading]=useState(false);
+  // NEW — safety gate: a fetched picture is never auto-displayed. The
+  // teacher must tap "तस्बिर हेर्नुहोस्" first, every time, so nothing can
+  // pop into view unexpectedly (in front of students, or at all) before a
+  // human has chosen to look. Resets whenever a different word opens.
+  const [vocabImageRevealed,setVocabImageRevealed]=useState(false);
   useEffect(()=>{
-    if(!vocabPopup){setVocabImage(null);return;}
+    if(!vocabPopup){setVocabImage(null);setVocabImageRevealed(false);return;}
     let cancelled=false;
-    setVocabImage(null);setVocabImageLoading(true);
+    setVocabImage(null);setVocabImageRevealed(false);setVocabImageLoading(true);
     fetchWordImage(vocabPopup.word).then((img)=>{if(!cancelled){setVocabImage(img);setVocabImageLoading(false);}});
     return ()=>{cancelled=true;};
   },[vocabPopup]);
@@ -1693,11 +1717,16 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
             {vocabImageLoading&&(
               <div style={{marginTop:16,height:150,borderRadius:12,background:SURFACE_2,display:"flex",alignItems:"center",justifyContent:"center",color:INK_SOFT,fontSize:14}}><Spinner small/></div>
             )}
-            {!vocabImageLoading&&vocabImage&&(
+            {!vocabImageLoading&&vocabImage&&!vocabImageRevealed&&(
+              <button className="ss-btn" onClick={()=>setVocabImageRevealed(true)} style={{marginTop:16,width:"100%",padding:"12px",borderRadius:12,border:`1.5px dashed ${BORDER}`,background:SURFACE_2,color:INK,fontWeight:600,fontSize:14.5,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                <ImageIcon size={16}/> तस्बिर हेर्नुहोस् (हेर्नुअघि जाँच्नुहोस्)
+              </button>
+            )}
+            {!vocabImageLoading&&vocabImage&&vocabImageRevealed&&(
               <div style={{marginTop:16,position:"relative"}}>
                 <img src={vocabImage.url} alt={vocabPopup.word} style={{width:"100%",maxHeight:260,objectFit:"cover",borderRadius:12,border:`1px solid ${BORDER}`,display:"block"}} onError={()=>setVocabImage(null)}/>
                 <button className="ss-btn" onClick={async()=>{await rejectVocabImage(vocabPopup.word);setVocabImage(null);}} title="यो तस्बिर उपयुक्त छैन — हटाउनुहोस्" style={{position:"absolute",top:8,right:8,background:"rgba(20,18,14,0.65)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)",border:"none",borderRadius:8,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}><Trash2 size={15}/></button>
-                <div style={{fontSize:11.5,color:INK_SOFT,marginTop:4,textAlign:"right"}}>तस्बिर: Wikimedia Commons — अफलाइनका लागि सुरक्षित</div>
+                <div style={{fontSize:11.5,color:INK_SOFT,marginTop:4,textAlign:"right"}}>तस्बिर: {vocabImage.credit||"Wikipedia"} — अफलाइनका लागि सुरक्षित</div>
               </div>
             )}
             <button className="ss-btn" onClick={()=>setVocabPopup(null)} style={{marginTop:16,width:"100%",padding:"10px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}>बुझें</button>
