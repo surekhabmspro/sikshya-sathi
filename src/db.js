@@ -804,3 +804,50 @@ export const deleteSavedResource = async (id) => {
     .eq("id", id);
   return { error };
 };
+
+// ─── VOCAB IMAGES (शब्दचित्र) ────────────────────────────────────────────────
+// Cross-device replacement for the old IndexedDB-only cache: one row per
+// (teacher, word) in "vocab_images", actual bytes in the "vocab-images"
+// storage bucket — same shape as materials. See vocab_images_migration.sql.
+export const getVocabImage = async (word) => {
+  const { data, error } = await supabase
+    .from("vocab_images")
+    .select("*")
+    .eq("word", word)
+    .maybeSingle();
+  return { data, error };
+};
+
+export const uploadVocabImageFile = async (word, blob, teacherId) => {
+  const path = `${teacherId}/${encodeURIComponent(word)}-${Date.now()}.jpg`;
+  const { error } = await supabase.storage
+    .from("vocab-images")
+    .upload(path, blob, { contentType: blob.type || "image/jpeg", upsert: false });
+  return { path, error };
+};
+
+export const getVocabImageUrl = async (storagePath) => {
+  const { data } = await supabase.storage
+    .from("vocab-images")
+    .createSignedUrl(storagePath, 3600);
+  return data?.signedUrl;
+};
+
+// Upserts the (teacher, word) row. Pass { rejected: true } to mark a
+// picture as not appropriate (also removes its old file from storage, if
+// any, so the bucket doesn't accumulate rejected images).
+export const upsertVocabImage = async (word, patch, oldStoragePath) => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (oldStoragePath) {
+    await supabase.storage.from("vocab-images").remove([oldStoragePath]);
+  }
+  const { data, error } = await supabase
+    .from("vocab_images")
+    .upsert(
+      { teacher_id: user.id, word, updated_at: new Date().toISOString(), ...patch },
+      { onConflict: "teacher_id,word" }
+    )
+    .select()
+    .single();
+  return { data, error };
+};

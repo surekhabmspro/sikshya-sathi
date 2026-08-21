@@ -197,11 +197,14 @@ const getTextbookPDF = (classLabel) => gemini.getTextbookPart(classLabel);
 // have a good match, and that's fine: callers just show nothing when this
 // returns null instead of a broken image.
 //
-// Once a picture is found for a word, it's downloaded and stored in
-// IndexedDB (as a base64 data URL, not just the remote link) so it's
-// still there — and still shows — with no internet connection. A teacher
-// can also mark a picture as not appropriate for a word; that's saved too,
-// so the app won't keep re-fetching/re-showing it.
+// Once a picture is found for a word, it's downloaded and (a) uploaded to
+// a Supabase Storage bucket ("vocab-images") with a matching row in the
+// "vocab_images" table, so it follows the teacher between devices, and
+// (b) mirrored into IndexedDB as a base64 data URL, so it still shows with
+// no internet connection on whichever device already opened it before.
+// A teacher can also mark a picture as not appropriate for a word; that
+// decision is saved to Supabase too (and mirrored locally), so the app
+// won't keep re-fetching/re-showing it — on any device.
 const VOCAB_IMG_DB = "sikshyasathi-vocab-images";
 const VOCAB_IMG_STORE = "images";
 function openVocabImageDB() {
@@ -213,7 +216,9 @@ function openVocabImageDB() {
     req.onerror = () => reject(req.error);
   });
 }
-async function getSavedVocabImage(word) {
+// Local mirror only — offline fallback / instant repeat-open cache. Not the
+// source of truth once Supabase is reachable (see fetchWordImage below).
+async function getLocalVocabImage(word) {
   try {
     const idb = await openVocabImageDB();
     return await new Promise((resolve, reject) => {
@@ -223,7 +228,7 @@ async function getSavedVocabImage(word) {
     });
   } catch (e) { return null; }
 }
-async function saveVocabImage(word, entry) {
+async function saveLocalVocabImage(word, entry) {
   try {
     const idb = await openVocabImageDB();
     await new Promise((resolve, reject) => {
@@ -234,11 +239,6 @@ async function saveVocabImage(word, entry) {
     });
   } catch (e) {}
 }
-// Marks a word's image as rejected (teacher deemed it not appropriate) —
-// keeps it out of future views for this word without re-fetching.
-async function rejectVocabImage(word) {
-  await saveVocabImage(word, { rejected: true, dataUrl: null, credit: null });
-}
 function blobToDataUrl(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -247,19 +247,75 @@ function blobToDataUrl(blob) {
     reader.readAsDataURL(blob);
   });
 }
+// Marks a word's image as rejected (teacher deemed it not appropriate) —
+// keeps it out of future views for this word, on every device, without
+// re-fetching. Removes the old file from the Supabase bucket too, so
+// rejected images don't sit around taking up storage.
+async function rejectVocabImage(word) {
+  const key = (word || "").trim();
+  if (!key) return;
+  try {
+    const { data: existing } = await db.getVocabImage(key);
+    await db.upsertVocabImage(key, { rejected: true, storage_path: null, credit: null }, existing?.storage_path);
+  } catch (e) {
+    // offline or request failed — the local mirror below still keeps this
+    // word hidden on this device; it'll reconcile with Supabase next time
+    // fetchWordImage runs successfully online.
+  }
+  await saveLocalVocabImage(key, { rejected: true, dataUrl: null, credit: null });
+}
 async function fetchWordImage(word) {
   const key = (word || "").trim();
   if (!key) return null;
-  // 1) already saved locally (works even fully offline) — including a
-  // prior "not appropriate" decision, which we respect and stop there.
-  const saved = await getSavedVocabImage(key);
-  if (saved) {
-    if (saved.rejected) return null;
-    if (saved.dataUrl) return { url: saved.dataUrl, credit: saved.credit || "Wikimedia Commons" };
-  }
-  // 2) not saved yet — needs a network lookup once, then it's cached.
+
+  // 1) Ask Supabase first — it's the source of truth and is what makes a
+  // picture (or a "not appropriate" decision) follow the teacher between
+  // devices. Falls through to the local mirror below if this fails
+  // (offline) rather than surfacing an error.
   try {
-    const searchUrl = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrsearch=${encodeURIComponent(key + " filetype:bitmap")}&gsrlimit=1&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=480&format=json&origin=*`;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: row, error } = await db.getVocabImage(key);
+      if (!error) {
+        if (row?.rejected) {
+          await saveLocalVocabImage(key, { rejected: true, dataUrl: null, credit: null });
+          return null;
+        }
+        if (row?.storage_path) {
+          const signedUrl = await db.getVocabImageUrl(row.storage_path);
+          if (signedUrl) {
+            const imgRes = await fetch(signedUrl);
+            const blob = await imgRes.blob();
+            const dataUrl = await blobToDataUrl(blob);
+            await saveLocalVocabImage(key, { dataUrl, credit: row.credit });
+            return { url: dataUrl, credit: row.credit || "Wikimedia Commons" };
+          }
+        }
+        if (row === null) {
+          // No row yet for this word on any device — look it up below and
+          // create one, so every other device benefits next time.
+          return await lookUpAndShareWordImage(key, user.id);
+        }
+      }
+    }
+  } catch (e) {
+    // network/Supabase unreachable — fall through to local mirror
+  }
+
+  // 2) Offline fallback — whatever this device already saw before.
+  const local = await getLocalVocabImage(key);
+  if (local) {
+    if (local.rejected) return null;
+    if (local.dataUrl) return { url: local.dataUrl, credit: local.credit || "Wikimedia Commons" };
+  }
+  return null;
+}
+// Looks up a fresh picture on Wikimedia Commons, uploads it to the shared
+// Supabase bucket + table (so every device sees it from now on), and
+// mirrors it locally for offline access on this device.
+async function lookUpAndShareWordImage(word, teacherId) {
+  try {
+    const searchUrl = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrsearch=${encodeURIComponent(word + " filetype:bitmap")}&gsrlimit=1&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=480&format=json&origin=*`;
     const res = await fetch(searchUrl);
     const data = await res.json();
     const pages = data?.query?.pages;
@@ -268,9 +324,13 @@ async function fetchWordImage(word) {
     if (!info?.thumburl) return null;
     const imgRes = await fetch(info.thumburl);
     const blob = await imgRes.blob();
-    const dataUrl = await blobToDataUrl(blob);
     const credit = (info.extmetadata?.Artist?.value || "").replace(/<[^>]+>/g, "") || "Wikimedia Commons";
-    await saveVocabImage(key, { dataUrl, credit });
+    const { path, error: upErr } = await db.uploadVocabImageFile(word, blob, teacherId);
+    if (!upErr) {
+      await db.upsertVocabImage(word, { rejected: false, storage_path: path, credit });
+    }
+    const dataUrl = await blobToDataUrl(blob);
+    await saveLocalVocabImage(word, { dataUrl, credit });
     return { url: dataUrl, credit };
   } catch (e) {
     return null;
