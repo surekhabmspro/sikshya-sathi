@@ -10,6 +10,7 @@ import {
   Settings as SettingsIcon, Trash2, RefreshCw, BookMarked, Zap,
   Sun, Moon, Lightbulb, Paperclip, ChevronDown, Pin, RotateCw,
   GraduationCap, PartyPopper, Bell, Palmtree, Megaphone, AlertTriangle, Download,
+  Upload,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import * as db from "./db";
@@ -192,11 +193,16 @@ const getTextbookPDF = (classLabel) => gemini.getTextbookPart(classLabel);
 // uploadTextbook/clearTextbookHandler in Settings).
 // NEW — pictorial vocabulary support: given a word (Nepali or English),
 // tries to find a relevant illustrative photo from that word's own
-// Wikipedia article (Nepali Wikipedia first, English as fallback) — not a
-// generic Wikimedia Commons file search (see the safety note below on
-// why that was changed). Best-effort only — plenty of abstract classroom
-// words won't have a good match, and that's fine: callers just show
-// nothing when this returns null instead of a broken image.
+// Wikipedia article (Nepali Wikipedia first, English as fallback), then
+// falls back to Wikidata's structured "image of this entity" field (see
+// wikidataImage below) for words that don't have a full Wikipedia article
+// yet — not a generic Wikimedia Commons file search (see the safety note
+// below on why that was changed). Best-effort only — plenty of abstract
+// classroom words won't have a good match from either source, which is
+// why a teacher can also upload their own photo instead (see
+// vocabImageFromUpload) — zero lookup risk, since it's entirely their own
+// choice of picture. Callers just show nothing when the automatic lookup
+// returns null instead of a broken image.
 //
 // Once a picture is found for a word, it's downloaded and (a) uploaded to
 // a Supabase Storage bucket ("vocab-images") with a matching row in the
@@ -410,13 +416,49 @@ async function wikipediaNearMatchImage(word, lang) {
   }
   return null;
 }
+// NEW — Wikidata fallback: only reached once every Wikipedia check above
+// (both languages, exact title AND near-match) has come back with
+// nothing. Wikidata items carry P18 ("image"), a single structured field
+// an editor deliberately set as THE picture for that exact entity — not a
+// text-search hit, so it keeps the same "one deliberately-chosen picture,
+// never a keyword guess" safety property as the Wikipedia lead image
+// above. Its label search (wbsearchentities) also covers many topics that
+// have a Nepali label but no full Nepali Wikipedia article yet (a Wikidata
+// item can exist, and be labelled in Nepali, well before anyone writes an
+// article about it). Still exact-match only: a candidate is only accepted
+// if the label/alias Wikidata itself says matched the search is an exact
+// (case/whitespace-insensitive) match to the word — the same "no fuzzy
+// substitution" rule as the Wikipedia checks, so an entity that merely
+// resembles the word can't be picked.
+async function wikidataImage(word, lang) {
+  const target = word.trim();
+  if (!target) return null;
+  const targetLc = target.toLowerCase();
+  const searchUrl = `https://www.wikidata.org/w/api.php?action=wbsearchentities&search=${encodeURIComponent(target)}&language=${lang}&uselang=${lang}&type=item&limit=5&format=json&origin=*`;
+  const res = await fetch(searchUrl);
+  const data = await res.json();
+  const candidates = data?.search || [];
+  for (const cand of candidates) {
+    const matchText = (cand.match?.text || cand.label || "").trim().toLowerCase();
+    if (matchText !== targetLc) continue; // exact match only — no fuzzy guessing
+    const claimRes = await fetch(`https://www.wikidata.org/w/api.php?action=wbgetclaims&entity=${cand.id}&property=P18&format=json&origin=*`);
+    const claimData = await claimRes.json();
+    const filename = claimData?.claims?.P18?.[0]?.mainsnak?.datavalue?.value;
+    if (!filename) continue; // this item has no "image" field set
+    const thumburl = `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(filename)}?width=480`;
+    return { thumburl, credit: `Wikidata — ${cand.label || target}` };
+  }
+  return null;
+}
 async function previewWordImage(word) {
   try {
     const info =
       (await wikipediaLeadImage(word, "ne")) ||
       (await wikipediaLeadImage(word, "en")) ||
       (await wikipediaNearMatchImage(word, "ne")) ||
-      (await wikipediaNearMatchImage(word, "en"));
+      (await wikipediaNearMatchImage(word, "en")) ||
+      (await wikidataImage(word, "ne")) ||
+      (await wikidataImage(word, "en"));
     if (!info?.thumburl) return null;
     const imgRes = await fetch(info.thumburl);
     const blob = await imgRes.blob();
@@ -425,6 +467,20 @@ async function previewWordImage(word) {
   } catch (e) {
     return null;
   }
+}
+// NEW — manual upload path: builds the exact same preview-object shape as
+// previewWordImage (url/credit/blob/saved:false) but straight from a file
+// the teacher picked on their own phone/PC — no lookup, no keyword match,
+// no risk of a wrong-sense mismatch at all, since the teacher chose the
+// exact picture themselves. This is offered as a fallback for words no
+// automatic source (Wikipedia or Wikidata) has a good picture for, and as
+// an always-available "use my own instead" option once a picture is
+// showing. Goes straight to vocabImageRevealed=true (skipping the normal
+// reveal gate) since there's nothing here a teacher hasn't already looked
+// at before choosing to pick this exact file.
+async function vocabImageFromUpload(file) {
+  const dataUrl = await blobToDataUrl(file);
+  return { url: dataUrl, credit: "शिक्षकद्वारा अपलोड गरिएको तस्बिर", blob: file, saved: false };
 }
 // Explicit "keep this for reuse" action — only called when the teacher
 // taps the save button. Uploads to the shared Supabase bucket + table (so
@@ -1499,6 +1555,21 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
   // just re-tapping search.
   const [vocabChangeRequested,setVocabChangeRequested]=useState(false);
   const [vocabManualSearching,setVocabManualSearching]=useState(false);
+  // NEW — manual upload: lets the teacher pick a photo straight from their
+  // own phone/PC gallery instead of an automatic Wikipedia/Wikidata match.
+  // The hidden <input type="file"> is triggered by a styled button (see
+  // vocabFileInputRef.current.click() below); onChange hands the picked
+  // file to vocabImageFromUpload, which skips lookup entirely.
+  const vocabFileInputRef=useRef(null);
+  const handleVocabFileUpload=async(e)=>{
+    const file=e.target.files?.[0];
+    e.target.value=""; // allow picking the same file again later
+    if(!file)return;
+    const img=await vocabImageFromUpload(file);
+    setVocabImage(img);
+    setVocabImageRevealed(true);
+    setVocabSaveError("");
+  };
   useEffect(()=>{
     if(!vocabPopup){setVocabImage(null);setVocabImageRevealed(false);setVocabManualQuery("");setVocabSaveError("");setVocabChangeRequested(false);return;}
     let cancelled=false;
@@ -1893,11 +1964,11 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
 
       {vocabPopup&&(
         <div className="no-print" onClick={()=>setVocabPopup(null)} style={{position:"fixed",inset:0,zIndex:80,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.5)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:20}}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:"30px 32px",maxWidth:"min(90vw, 520px)",width:"100%",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:"30px 32px",maxWidth:"min(92vw, 760px)",width:"100%",maxHeight:"90vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`}}>
             <div style={{fontSize:"clamp(22px, 2.6vw, 27px)",fontWeight:800,color:MARIGOLD_DARK,marginBottom:12}}>{vocabPopup.word}</div>
             <div style={{fontSize:"clamp(17px, 2vw, 20px)",color:INK,lineHeight:1.7}}>{vocabPopup.meaning}</div>
             {vocabImageLoading&&(
-              <div style={{marginTop:16,height:150,borderRadius:12,background:SURFACE_2,display:"flex",alignItems:"center",justifyContent:"center",color:INK_SOFT,fontSize:14}}><Spinner small/></div>
+              <div style={{marginTop:16,height:320,borderRadius:12,background:SURFACE_2,display:"flex",alignItems:"center",justifyContent:"center",color:INK_SOFT,fontSize:14}}><Spinner small/></div>
             )}
             {/* NEW — shown only when automatic lookup found nothing. Common
                 for Devanagari-spelled loanwords/acronyms (e.g. "सिसिटिभी"
@@ -1932,6 +2003,17 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                     {vocabManualSearching?"खोज्दै...":"खोज्नुहोस्"}
                   </button>
                 </div>
+                {/* NEW — no automatic source (Wikipedia or Wikidata) has a
+                    match: offer uploading a photo directly as the other
+                    option, since it carries zero lookup risk. */}
+                <div style={{display:"flex",alignItems:"center",gap:8,marginTop:10}}>
+                  <div style={{flex:1,height:1,background:BORDER}}/>
+                  <span style={{fontSize:11.5,color:INK_SOFT}}>वा</span>
+                  <div style={{flex:1,height:1,background:BORDER}}/>
+                </div>
+                <button className="ss-btn" onClick={()=>vocabFileInputRef.current?.click()} style={{marginTop:10,width:"100%",padding:"9px",borderRadius:9,border:`1.5px dashed ${BORDER}`,background:SURFACE,color:INK,fontWeight:600,fontSize:13.5,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                  <Upload size={14}/> आफ्नै तस्बिर अपलोड गर्नुहोस्
+                </button>
               </div>
             )}
             {!vocabImageLoading&&vocabImage&&!vocabImageRevealed&&(
@@ -1941,7 +2023,13 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
             )}
             {!vocabImageLoading&&vocabImage&&vocabImageRevealed&&(
               <div style={{marginTop:16,position:"relative"}}>
-                <img src={vocabImage.url} alt={vocabPopup.word} style={{width:"100%",maxHeight:260,objectFit:"cover",borderRadius:12,border:`1px solid ${BORDER}`,display:"block"}} onError={()=>setVocabImage(null)}/>
+                {/* NEW — sized for projector visibility: this popup is
+                    read off a classroom projector, not a phone screen, so
+                    the picture needs to hold up from the back of the
+                    room. Scales with the viewport (min(62vh, 560px)) so it
+                    stays large on a projected display while still fitting
+                    a shorter laptop screen without overflowing. */}
+                <img src={vocabImage.url} alt={vocabPopup.word} style={{width:"100%",maxHeight:"min(62vh, 560px)",objectFit:"cover",borderRadius:12,border:`1px solid ${BORDER}`,display:"block"}} onError={()=>setVocabImage(null)}/>
                 <div style={{position:"absolute",top:8,right:8,display:"flex",gap:6}}>
                   {/* NEW — teacher asked to save the picture to their own
                       phone/PC (to reuse in a printed worksheet, share, etc.),
@@ -1962,6 +2050,10 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                       is fine but the teacher wants to try a different
                       one — without blacklisting the current match. */}
                   <button className="ss-btn" onClick={()=>{setVocabImage(null);setVocabImageRevealed(false);setVocabSaveError("");setVocabChangeRequested(true);}} title="फरक तस्बिर खोज्नुहोस्" style={{background:"rgba(20,18,14,0.65)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)",border:"none",borderRadius:8,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}><RefreshCw size={14}/></button>
+                  {/* NEW — teacher can swap the automatic match for their
+                      own uploaded photo at any time, not just when
+                      automatic lookup finds nothing. */}
+                  <button className="ss-btn" onClick={()=>vocabFileInputRef.current?.click()} title="आफ्नै तस्बिर अपलोड गर्नुहोस्" style={{background:"rgba(20,18,14,0.65)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)",border:"none",borderRadius:8,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}><Upload size={14}/></button>
                   <button className="ss-btn" onClick={async()=>{await rejectVocabImage(vocabPopup.word);setVocabImage(null);setVocabSaveError("");}} title="यो तस्बिर उपयुक्त छैन — हटाउनुहोस्" style={{background:"rgba(20,18,14,0.65)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)",border:"none",borderRadius:8,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}><Trash2 size={15}/></button>
                 </div>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginTop:6,flexWrap:"wrap"}}>
@@ -1997,6 +2089,10 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                 )}
               </div>
             )}
+            {/* NEW — hidden native file picker backing both "आफ्नै तस्बिर
+                अपलोड गर्नुहोस्" buttons above; accept restricts the OS
+                picker to image files. */}
+            <input ref={vocabFileInputRef} type="file" accept="image/*" onChange={handleVocabFileUpload} style={{display:"none"}}/>
             <button className="ss-btn" onClick={()=>setVocabPopup(null)} style={{marginTop:16,width:"100%",padding:"10px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}>बुझें</button>
           </div>
         </div>
