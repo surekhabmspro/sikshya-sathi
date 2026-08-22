@@ -838,10 +838,18 @@ function Chip({ children, icon:Icon, active, onClick, color=ACCENT, size="md", d
 //   hero    — translucent white-on-color, for action buttons on a
 //             colored hero panel
 function IconButton({ icon:Icon, onClick, title, disabled, color, size=19, variant="ghost", spin, type="button", style }) {
+  // FIX — "hero" was rgba(255,255,255,0.15) with no border, which reads
+  // fine on a fully dark background but nearly disappears against the
+  // lighter marigold end of the header gradients these buttons sit on
+  // (LessonMode/PrintableSheet/SimulationPanel headers) — that's the
+  // "back button not prominent" report. A slightly stronger fill plus a
+  // visible border and a soft shadow keeps it readable across the whole
+  // gradient, light or dark end, instead of relying on the background
+  // alone for contrast.
   const variants = {
     ghost:   { background:"none", border:"none", color:color||INK_SOFT, padding:6 },
     surface: { background:SURFACE_2, border:`1px solid ${BORDER}`, borderRadius:10, color:color||INK_SOFT, padding:9 },
-    hero:    { background:"rgba(255,255,255,0.15)", border:"none", borderRadius:10, color:"#fff", padding:10 },
+    hero:    { background:"rgba(255,255,255,0.22)", border:"1px solid rgba(255,255,255,0.35)", borderRadius:10, color:"#fff", padding:10, boxShadow:"0 1px 4px rgba(0,0,0,0.18)" },
   };
   return (
     <button type={type} className="ss-icon-btn" onClick={onClick} disabled={disabled} title={title} style={{
@@ -2006,8 +2014,8 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                 <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
                   <div style={{fontSize:20,color:INK,lineHeight:1.55,paddingTop:3}}>{s}</div>
                   <div style={{display:"flex",gap:10,flexShrink:0,paddingTop:5}}>
-                    <button className="ss-btn" onClick={()=>startEditSequence(i)} title="सम्पादन" style={{background:"none",border:"none",cursor:"pointer",padding:0,color:ACCENT,display:"flex"}}><PenSquare size={15}/></button>
-                    <button className="ss-btn" onClick={()=>deleteSequenceStep(i)} title="हटाउनुहोस्" style={{background:"none",border:"none",cursor:"pointer",padding:0,color:DANGER,display:"flex"}}><Trash2 size={15}/></button>
+                    <button className="ss-icon-btn" onClick={()=>startEditSequence(i)} title="सम्पादन" style={{cursor:"pointer",padding:6,color:ACCENT,display:"flex"}}><PenSquare size={15}/></button>
+                    <button className="ss-icon-btn" onClick={()=>deleteSequenceStep(i)} title="हटाउनुहोस्" style={{cursor:"pointer",padding:6,color:DANGER,display:"flex"}}><Trash2 size={15}/></button>
                   </div>
                 </div>
               )}
@@ -2032,9 +2040,9 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                   <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
                     <div style={{fontSize:20,color:INK,fontWeight:isOpen?700:600,lineHeight:1.5}}>{item.q}</div>
                     <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0,marginTop:3}}>
-                      <button className="ss-btn" onClick={(e)=>startEditQuestion(i,e)} title="सम्पादन" style={{background:"none",border:"none",cursor:"pointer",padding:0,color:ACCENT,display:"flex"}}><PenSquare size={15}/></button>
-                      <button className="ss-btn" onClick={(e)=>deleteQuestion(i,e)} title="हटाउनुहोस्" style={{background:"none",border:"none",cursor:"pointer",padding:0,color:DANGER,display:"flex"}}><Trash2 size={15}/></button>
-                      <ChevronDown size={19} color={INK_SOFT} style={{flexShrink:0,transform:isOpen?"rotate(180deg)":"none",transition:"transform .15s ease"}}/>
+                      <button className="ss-icon-btn" onClick={(e)=>startEditQuestion(i,e)} title="सम्पादन" style={{cursor:"pointer",padding:6,color:ACCENT,display:"flex"}}><PenSquare size={15}/></button>
+                      <button className="ss-icon-btn" onClick={(e)=>deleteQuestion(i,e)} title="हटाउनुहोस्" style={{cursor:"pointer",padding:6,color:DANGER,display:"flex"}}><Trash2 size={15}/></button>
+                      <span className="ss-icon-btn" style={{padding:6,color:INK_SOFT,display:"flex"}}><ChevronDown size={17} style={{flexShrink:0,transform:isOpen?"rotate(180deg)":"none",transition:"transform .15s ease"}}/></span>
                     </div>
                   </div>
                 )}
@@ -2097,7 +2105,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                 <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
                   <div style={{fontSize:20,color:INK,lineHeight:1.55,paddingTop:3}}>{a}</div>
                   <div style={{display:"flex",gap:10,flexShrink:0,paddingTop:5}}>
-                    <button className="ss-btn" onClick={()=>startEditActivity(i)} title="सम्पादन" style={{background:"none",border:"none",cursor:"pointer",padding:0,color:ACCENT,display:"flex"}}><PenSquare size={15}/></button>
+                    <button className="ss-icon-btn" onClick={()=>startEditActivity(i)} title="सम्पादन" style={{cursor:"pointer",padding:6,color:ACCENT,display:"flex"}}><PenSquare size={15}/></button>
                     <button className="ss-btn" onClick={()=>deleteActivity(i)} title="हटाउनुहोस्" style={{background:"none",border:"none",cursor:"pointer",padding:0,color:DANGER,display:"flex"}}><Trash2 size={15}/></button>
                   </div>
                 </div>
@@ -3224,8 +3232,8 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
                       </div>
                       <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
                         <span style={{fontSize:13.5,background:paths.length?`color-mix(in srgb, ${chapColor} 18%, transparent)`:SURFACE_2,color:paths.length?chapColor:INK_SOFT,padding:"3px 10px",borderRadius:999,fontWeight:700}}>{paths.length} पाठ</span>
-                        {!unassigned&&<button className="ss-icon-btn" onClick={(e)=>{e.stopPropagation();setEditingChapterId(chapter.id);setChapterEditValue(chapter.title);}} title="नाम बदल्नुहोस्" style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,padding:4}}><PenSquare size={15}/></button>}
-                        {!unassigned&&<button className="ss-icon-btn" onClick={(e)=>deleteChapterInPlanner(chapter,e)} disabled={chapterBusy===chapter.id} title="मेटाउनुहोस्" style={{background:"none",border:"none",cursor:"pointer",color:DANGER,padding:4}}><Trash2 size={15}/></button>}
+                        {!unassigned&&<button className="ss-icon-btn" onClick={(e)=>{e.stopPropagation();setEditingChapterId(chapter.id);setChapterEditValue(chapter.title);}} title="नाम बदल्नुहोस्" style={{cursor:"pointer",color:INK_SOFT,padding:4}}><PenSquare size={15}/></button>}
+                        {!unassigned&&<button className="ss-icon-btn" onClick={(e)=>deleteChapterInPlanner(chapter,e)} disabled={chapterBusy===chapter.id} title="मेटाउनुहोस्" style={{cursor:"pointer",color:DANGER,padding:4}}><Trash2 size={15}/></button>}
                       </div>
                     </>
                   )}
@@ -3238,9 +3246,9 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
                       <div key={l.id} onClick={()=>onOpenLesson(l)} style={{display:"flex",alignItems:"center",gap:8,background:SURFACE_2,borderRadius:10,padding:"10px 12px",cursor:"pointer"}}>
                         <div style={{flex:1,minWidth:0,fontWeight:700,fontSize:16,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.title}</div>
                         <StatusPill status={l.status}/>
-                        <button className="ss-icon-btn" onClick={(e)=>{e.stopPropagation();startEdit(l);}} title="सम्पादन गर्नुहोस्" style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,padding:4}}><PenSquare size={15}/></button>
-                        <button className="ss-icon-btn" onClick={(e)=>{e.stopPropagation();onOpenLesson(l,{autoPrint:true});}} title="प्रिन्ट गर्नुहोस्" style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,padding:4}}><Printer size={15}/></button>
-                        <button className="ss-icon-btn" onClick={(e)=>deleteLesson(l.id,e)} title="मेटाउनुहोस्" style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,padding:4}}><Trash2 size={15}/></button>
+                        <button className="ss-icon-btn" onClick={(e)=>{e.stopPropagation();startEdit(l);}} title="सम्पादन गर्नुहोस्" style={{cursor:"pointer",color:INK_SOFT,padding:4}}><PenSquare size={15}/></button>
+                        <button className="ss-icon-btn" onClick={(e)=>{e.stopPropagation();onOpenLesson(l,{autoPrint:true});}} title="प्रिन्ट गर्नुहोस्" style={{cursor:"pointer",color:INK_SOFT,padding:4}}><Printer size={15}/></button>
+                        <button className="ss-icon-btn" onClick={(e)=>deleteLesson(l.id,e)} title="मेटाउनुहोस्" style={{cursor:"pointer",color:INK_SOFT,padding:4}}><Trash2 size={15}/></button>
                       </div>
                     ))}
                     {!unassigned&&<button className="ss-btn" onClick={()=>startNew(chapter.title)} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:"none",border:`1.5px dashed ${BORDER}`,color:ACCENT,borderRadius:10,padding:"10px",fontWeight:700,fontSize:15,cursor:"pointer"}}><Plus size={14}/>नयाँ पाठ थप्नुहोस्</button>}
@@ -5444,8 +5452,18 @@ export default function App() {
            these previously had zero feedback at all: same pixel before and
            after a tap. A soft round hover/press background makes them read
            as interactive instead of static glyphs. */
-        .ss-icon-btn{border-radius:8px;padding:6px;transition:background .15s ease, transform .12s ease; -webkit-tap-highlight-color:transparent; display:inline-flex;}
-        .ss-icon-btn:hover:not(:disabled){background:var(--surface-2);}
+        {/* FIX — this class previously had NO background at rest, only on
+            hover/active — fine with a mouse, but on a touchscreen (no
+            hover state) every icon-only button using this class rendered
+            as a bare colored glyph with nothing anchoring it visually.
+            Against a gradient hero header or a dark-theme card, that made
+            back/edit/delete/expand buttons hard to spot (reported: back
+            chevron and the edit/delete/dropdown cluster both "not
+            prominent"). A subtle permanent pill + border now gives every
+            such button a visible boundary on any background, in both
+            themes, with or without hover. */}
+        .ss-icon-btn{border-radius:8px;padding:6px;transition:background .15s ease, transform .12s ease, border-color .15s ease; -webkit-tap-highlight-color:transparent; display:inline-flex; background:color-mix(in srgb, var(--ink) 6%, transparent); border:1px solid color-mix(in srgb, var(--ink) 10%, transparent);}
+        .ss-icon-btn:hover:not(:disabled){background:var(--surface-2);border-color:var(--border);}
         .ss-icon-btn:active:not(:disabled){transform:scale(0.92);background:var(--border);}
 
         /* NEW — every screen (Home, AI chat, Homework, Diary, Search,
