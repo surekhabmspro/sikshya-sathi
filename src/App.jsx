@@ -1568,24 +1568,6 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
   const [rubricSaving,setRubricSaving]=useState(false);
   const [rubricError,setRubricError]=useState("");
   const [rubricMatchedCount,setRubricMatchedCount]=useState(0);
-  // FIX — this used to only update inside generateRubric(), so it stayed
-  // at its default of 0 (showing "कुनै सामग्री ट्याग गरिएको छैन") until the
-  // teacher clicked "AI बाट rubric" in THIS session — even when materials
-  // genuinely were tagged for the chapter (e.g. a rubric generated in an
-  // earlier session, now just being viewed/edited). Checking eagerly here,
-  // the same way the AI-chat tab already does, keeps the count accurate
-  // as soon as the tab opens, not just after a fresh generate.
-  useEffect(()=>{
-    let cancelled=false;
-    if(chapterTitle){
-      db.getChapterIdByTitle(chapterTitle,classLabel).then((id)=>{
-        if(cancelled)return;
-        if(!id)return setRubricMatchedCount(0);
-        db.getMaterialsByChapter(id).then(({data})=>{if(!cancelled)setRubricMatchedCount((data||[]).length);});
-      });
-    }
-    return ()=>{cancelled=true;};
-  },[chapterTitle,classLabel]);
   useEffect(()=>{
     let cancelled=false;
     db.getAssessmentsByLesson(lesson.id).then(({data})=>{
@@ -1598,6 +1580,29 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
   },[lesson.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const rubric=linkedRubric;
   const chapterTitle=lesson.chapters?.title||lesson.chapter_title||"";
+  // FIX — this used to only update inside generateRubric(), so it stayed
+  // at its default of 0 (showing "कुनै सामग्री ट्याग गरिएको छैन") until the
+  // teacher clicked "AI बाट rubric" in THIS session — even when materials
+  // genuinely were tagged for the chapter (e.g. a rubric generated in an
+  // earlier session, now just being viewed/edited). Checking eagerly here,
+  // the same way the AI-chat tab already does, keeps the count accurate
+  // as soon as the tab opens, not just after a fresh generate.
+  //
+  // NOTE — this must come after chapterTitle is declared above (a plain
+  // const, so referencing it any earlier in this component throws
+  // "Cannot access 'chapterTitle' before initialization" and crashes the
+  // whole screen — that's what the previous version of this fix did).
+  useEffect(()=>{
+    let cancelled=false;
+    if(chapterTitle){
+      db.getChapterIdByTitle(chapterTitle,classLabel).then((id)=>{
+        if(cancelled)return;
+        if(!id)return setRubricMatchedCount(0);
+        db.getMaterialsByChapter(id).then(({data})=>{if(!cancelled)setRubricMatchedCount((data||[]).length);});
+      });
+    }
+    return ()=>{cancelled=true;};
+  },[chapterTitle,classLabel]);
   // NEW — मूल्याङ्कनका आधारहरू: replaced the earlier 6-way rubric-type
   // split (अवलोकन/मौखिक/व्यावहारिक/प्रोजेक्ट/क्रियाकलाप/पोर्टफोलियो) with
   // the full 10-factor set the actual rubric rules call for.
