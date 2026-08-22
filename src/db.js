@@ -624,6 +624,15 @@ export const upsertAssessment = async (assessment) => {
   return { data, error };
 };
 
+// NEW — matches the deleteSimulation pattern below: lets LessonMode's
+// मूल्याङ्कन tab actually remove a rubric instead of only ever being able
+// to overwrite it, since until now nothing in the app ever deleted an
+// assessments row.
+export const deleteAssessment = async (id) => {
+  const { error } = await supabase.from("assessments").delete().eq("id", id);
+  return { error };
+};
+
 // FIX — the actual root cause behind LessonMode's "मूल्याङ्कन" tab always
 // showing empty: the lesson row has its own `rubric` column, but nothing
 // in the app has ever written to it — preparePath() (the main "AI ले यो

@@ -1587,7 +1587,32 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
   const tabs=[{id:"sequence",label:"पढाउने",icon:ClipboardList},{id:"questions",label:"प्रश्नहरू",icon:MessageSquare},{id:"activities",label:"क्रियाकलाप",icon:Users},{id:"simulation",label:"सिमुलेसन",icon:Gamepad2},{id:"rubric",label:"मूल्याङ्कन",icon:Layers},{id:"homework",label:"गृहकार्य",icon:PenSquare}];
   const objectives=lesson.objectives||[];
   const vocabulary=lesson.vocabulary||[];
-  const sequence=lesson.sequence||[];
+  // NEW — पढाउने क्रम used to be read straight off lesson.sequence with no
+  // way to change a single step without regenerating the whole plan. This
+  // makes it stateful (same pattern as activitiesState below) so a single
+  // step can be edited or removed and saved immediately.
+  const [sequenceState,setSequenceState]=useState(()=>lesson.sequence||[]);
+  useEffect(()=>{setSequenceState(lesson.sequence||[]);},[lesson.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const sequence=sequenceState;
+  const [seqEditingIdx,setSeqEditingIdx]=useState(null);
+  const [seqEditText,setSeqEditText]=useState("");
+  const persistSequence=async(next)=>{
+    setSequenceState(next);
+    const{error}=await db.updateLesson(lesson.id,{sequence:next});
+    if(error)alert("सुरक्षित हुन सकेन: "+(error.message||"कृपया फेरि प्रयास गर्नुहोस्।"));
+  };
+  const startEditSequence=(i)=>{setSeqEditingIdx(i);setSeqEditText(sequence[i]);};
+  const saveEditedSequence=(i)=>{
+    const text=seqEditText.trim();
+    if(!text)return;
+    persistSequence(sequence.map((s,idx)=>idx===i?text:s));
+    setSeqEditingIdx(null);
+  };
+  const deleteSequenceStep=(i)=>{
+    if(!window.confirm("यो चरण हटाउने?"))return;
+    persistSequence(sequence.filter((_,idx)=>idx!==i));
+    setSeqEditingIdx(null);
+  };
   const keyQuestions=lesson.key_questions||[];
   // NEW — "प्रश्नहरू" used to just print each question with nothing to do
   // with it. Answers were never part of the data model (these are open
@@ -1665,6 +1690,30 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
     setQEditingIdx(null);
   };
 
+  // NEW — the above only ever let you edit/clear the AI-generated answer;
+  // the question text itself, and the ability to remove a whole question
+  // from the lesson, didn't exist. Separate editing state from the answer
+  // editor above so a teacher can be mid-edit on one and not the other.
+  const [qTextEditingIdx,setQTextEditingIdx]=useState(null);
+  const [qTextEditText,setQTextEditText]=useState("");
+  const startEditQuestion=(i,e)=>{e.stopPropagation();setQTextEditingIdx(i);setQTextEditText(qState[i].q);};
+  const saveEditedQuestion=(i,e)=>{
+    e.stopPropagation();
+    const text=qTextEditText.trim();
+    if(!text)return;
+    persistQuestions(qState.map((it,idx)=>idx===i?{...it,q:text}:it));
+    setQTextEditingIdx(null);
+  };
+  const deleteQuestion=(i,e)=>{
+    e.stopPropagation();
+    if(!window.confirm("यो प्रश्न हटाउने?"))return;
+    persistQuestions(qState.filter((_,idx)=>idx!==i));
+    // indices shift after removal, so any open/loading/error state keyed
+    // by index would point at the wrong item now — reset it.
+    setQOpen(new Set());setQLoading(new Set());setQErrors({});
+    setQTextEditingIdx(null);
+  };
+
   const [activitiesState,setActivitiesState]=useState(()=>lesson.activities||[]);
   // NEW — the lesson plan's own "activities" list only ever comes with 2
   // by default (see the generateMoreActivities comment in gemini.js for
@@ -1676,6 +1725,15 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
   const [activitiesGenerating,setActivitiesGenerating]=useState(false);
   const [activitiesError,setActivitiesError]=useState("");
   useEffect(()=>{setActivitiesState(lesson.activities||[]);setActivitiesError("");},[lesson.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // NEW — shared save path for the activities list (AI-appended, edited,
+  // or deleted all go through this one place) instead of each caller
+  // repeating its own db.updateLesson + state-set + error-handling.
+  const persistActivities=async(next)=>{
+    setActivitiesState(next);
+    const{error}=await db.updateLesson(lesson.id,{activities:next});
+    if(error){setActivitiesError("सुरक्षित हुन सकेन: "+(error.message||""));return false;}
+    return true;
+  };
   const addMoreActivities=async()=>{
     setActivitiesGenerating(true);setActivitiesError("");
     try{
@@ -1683,12 +1741,23 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
       const more=await gemini.generateMoreActivities(chapterTitle,ctx,classContext,lesson.title,activitiesState);
       const fresh=(more||[]).filter((a)=>a&&!activitiesState.includes(a));
       if(fresh.length===0){setActivitiesError("AI ले थप नयाँ क्रियाकलाप दिन सकेन — फेरि प्रयास गर्नुहोस्।");return;}
-      const next=[...activitiesState,...fresh];
-      const{error}=await db.updateLesson(lesson.id,{activities:next});
-      if(error){setActivitiesError("सुरक्षित हुन सकेन: "+(error.message||""));return;}
-      setActivitiesState(next);
+      await persistActivities([...activitiesState,...fresh]);
     }catch(e){setActivitiesError("AI त्रुटि: "+e.message);}
     setActivitiesGenerating(false);
+  };
+  const [actEditingIdx,setActEditingIdx]=useState(null);
+  const [actEditText,setActEditText]=useState("");
+  const startEditActivity=(i)=>{setActEditingIdx(i);setActEditText(activitiesState[i]);};
+  const saveEditedActivity=(i)=>{
+    const text=actEditText.trim();
+    if(!text)return;
+    persistActivities(activitiesState.map((a,idx)=>idx===i?text:a));
+    setActEditingIdx(null);
+  };
+  const deleteActivity=(i)=>{
+    if(!window.confirm("यो क्रियाकलाप हटाउने?"))return;
+    persistActivities(activitiesState.filter((_,idx)=>idx!==i));
+    setActEditingIdx(null);
   };
   const activities=activitiesState;
   // FIX — was lesson.rubric, a column nothing in the app ever writes to.
@@ -1791,6 +1860,43 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
     setRubricText(rubric.map((r)=>`${r.level}: ${r.desc}`).join("\n"));
     setRubricForm(true);
   };
+  // NEW — until now a rubric could only ever be overwritten (सम्पादन), never
+  // actually removed. Deletes the underlying assessments row (see
+  // deleteAssessment in db.js) when one exists, and always clears the
+  // tab's own state either way.
+  const deleteRubric=async()=>{
+    if(!window.confirm("मूल्याङ्कन मापदण्ड मेटाउने?"))return;
+    if(linkedAssessmentId){
+      const{error}=await db.deleteAssessment(linkedAssessmentId);
+      if(error){setRubricError("हटाउन सकिएन: "+(error.message||""));return;}
+    }
+    setLinkedRubric([]);setLinkedAssessmentId(null);setRubricForm(false);
+  };
+
+  // NEW — गृहकार्य was a single plain-text field on the lesson with no way
+  // to change or clear it from LessonMode itself (only from the separate
+  // Planner edit form). Stateful + persisted the same way sequence/
+  // activities are above.
+  const [homeworkState,setHomeworkState]=useState(lesson.homework||"");
+  const [hwEditing,setHwEditing]=useState(false);
+  const [hwEditText,setHwEditText]=useState("");
+  const [hwSaving,setHwSaving]=useState(false);
+  useEffect(()=>{setHomeworkState(lesson.homework||"");setHwEditing(false);},[lesson.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const startEditHomework=()=>{setHwEditText(homeworkState);setHwEditing(true);};
+  const saveHomework=async()=>{
+    setHwSaving(true);
+    const text=hwEditText.trim();
+    const{error}=await db.updateLesson(lesson.id,{homework:text});
+    setHwSaving(false);
+    if(error){alert("सुरक्षित हुन सकेन: "+(error.message||""));return;}
+    setHomeworkState(text);setHwEditing(false);
+  };
+  const deleteHomework=async()=>{
+    if(!window.confirm("गृहकार्य हटाउने?"))return;
+    const{error}=await db.updateLesson(lesson.id,{homework:""});
+    if(error){alert("हटाउन सकिएन: "+(error.message||""));return;}
+    setHomeworkState("");setHwEditing(false);
+  };
 
   // NEW — "प्रिन्ट" from the Planner list opens this lesson and prints it
   // immediately, in one click, with no extra tap needed once it's open.
@@ -1883,16 +1989,55 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
           </div>
         </div>
         <div className="lesson-content">
-        {tab==="sequence"&&(<div><SectionLabel icon={ClipboardList}>पढाउने क्रम</SectionLabel>{sequence.length===0?<div style={{color:INK_SOFT}}>पढाउने क्रम थपिएको छैन।</div>:(<ol style={{margin:0,paddingLeft:0,listStyle:"none",display:"flex",flexDirection:"column",gap:14}}>{sequence.map((s,i)=>(<li key={i} style={{display:"flex",gap:14,padding:"15px 16px",background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12}}><div style={{width:32,height:32,borderRadius:"50%",background:`linear-gradient(160deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,fontSize:17,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:SHADOW.accent}}>{i+1}</div><div style={{fontSize:20,color:INK,lineHeight:1.55,paddingTop:3}}>{s}</div></li>))}</ol>)}{lesson.notes&&<div style={{marginTop:14,background:WARN_BG,borderRadius:10,padding:12}}><div style={{fontSize:15,fontWeight:700,color:WARN,marginBottom:3}}>नोट</div><div style={{fontSize:16.5,color:INK}}>{lesson.notes}</div></div>}</div>)}
+        {tab==="sequence"&&(<div><SectionLabel icon={ClipboardList}>पढाउने क्रम</SectionLabel>{sequence.length===0?<div style={{color:INK_SOFT}}>पढाउने क्रम थपिएको छैन।</div>:(<ol style={{margin:0,paddingLeft:0,listStyle:"none",display:"flex",flexDirection:"column",gap:14}}>{sequence.map((s,i)=>{
+          const isEditing=seqEditingIdx===i;
+          return(<li key={i} style={{display:"flex",gap:14,padding:"15px 16px",background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12}}>
+            <div style={{width:32,height:32,borderRadius:"50%",background:`linear-gradient(160deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,fontSize:17,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:SHADOW.accent}}>{i+1}</div>
+            <div style={{flex:1,minWidth:0}}>
+              {isEditing?(
+                <div>
+                  <textarea autoFocus value={seqEditText} onChange={(e)=>setSeqEditText(e.target.value)} rows={2} className="ss-field" style={{width:"100%",borderRadius:10,padding:"9px 11px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,resize:"vertical",marginBottom:8}}/>
+                  <div style={{display:"flex",gap:7}}>
+                    <button className="ss-btn" onClick={()=>setSeqEditingIdx(null)} style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,fontSize:14,cursor:"pointer"}}>रद्द</button>
+                    <button className="ss-btn" onClick={()=>saveEditedSequence(i)} style={{padding:"6px 12px",borderRadius:8,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer"}}>सुरक्षित गर्नुहोस्</button>
+                  </div>
+                </div>
+              ):(
+                <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
+                  <div style={{fontSize:20,color:INK,lineHeight:1.55,paddingTop:3}}>{s}</div>
+                  <div style={{display:"flex",gap:10,flexShrink:0,paddingTop:5}}>
+                    <button className="ss-btn" onClick={()=>startEditSequence(i)} title="सम्पादन" style={{background:"none",border:"none",cursor:"pointer",padding:0,color:ACCENT,display:"flex"}}><PenSquare size={15}/></button>
+                    <button className="ss-btn" onClick={()=>deleteSequenceStep(i)} title="हटाउनुहोस्" style={{background:"none",border:"none",cursor:"pointer",padding:0,color:DANGER,display:"flex"}}><Trash2 size={15}/></button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </li>);})}</ol>)}{lesson.notes&&<div style={{marginTop:14,background:WARN_BG,borderRadius:10,padding:12}}><div style={{fontSize:15,fontWeight:700,color:WARN,marginBottom:3}}>नोट</div><div style={{fontSize:16.5,color:INK}}>{lesson.notes}</div></div>}</div>)}
         {tab==="questions"&&<div><SectionLabel icon={MessageSquare} color={VIOLET}>कक्षामा सोध्नुहोस्</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:14}}>{qState.length===0?<div style={{color:INK_SOFT}}>प्रश्नहरू थपिएका छैनन्।</div>:qState.map((item,i)=>{
-          const isOpen=qOpen.has(i);const isLoading=qLoading.has(i);const isEditingAnswer=qEditingIdx===i;const color=PALETTE[i%PALETTE.length];
+          const isOpen=qOpen.has(i);const isLoading=qLoading.has(i);const isEditingAnswer=qEditingIdx===i;const isEditingQuestion=qTextEditingIdx===i;const color=PALETTE[i%PALETTE.length];
           return(
-            <Card key={i} accentColor={color} onClick={()=>toggleQuestion(i)} style={{cursor:"pointer",padding:"16px 18px"}}>
+            <Card key={i} accentColor={color} onClick={isEditingQuestion?undefined:()=>toggleQuestion(i)} style={{cursor:isEditingQuestion?"default":"pointer",padding:"16px 18px"}}>
               <div style={{display:"flex",alignItems:"flex-start",gap:14}}>
                 <div style={{width:32,height:32,borderRadius:"50%",background:`linear-gradient(160deg, ${color} 0%, color-mix(in srgb, ${color} 70%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:17,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div>
-                <div style={{flex:1,display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
-                  <div style={{fontSize:20,color:INK,fontWeight:isOpen?700:600,lineHeight:1.5}}>{item.q}</div>
-                  <ChevronDown size={19} color={INK_SOFT} style={{flexShrink:0,marginTop:3,transform:isOpen?"rotate(180deg)":"none",transition:"transform .15s ease"}}/>
+                <div style={{flex:1,minWidth:0}}>
+                {isEditingQuestion?(
+                  <div onClick={(e)=>e.stopPropagation()}>
+                    <textarea autoFocus value={qTextEditText} onChange={(e)=>setQTextEditText(e.target.value)} rows={2} className="ss-field" style={{width:"100%",borderRadius:10,padding:"9px 11px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,resize:"vertical",marginBottom:8}}/>
+                    <div style={{display:"flex",gap:7}}>
+                      <button className="ss-btn" onClick={()=>setQTextEditingIdx(null)} style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,fontSize:14,cursor:"pointer"}}>रद्द</button>
+                      <button className="ss-btn" onClick={(e)=>saveEditedQuestion(i,e)} style={{padding:"6px 12px",borderRadius:8,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer"}}>सुरक्षित गर्नुहोस्</button>
+                    </div>
+                  </div>
+                ):(
+                  <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
+                    <div style={{fontSize:20,color:INK,fontWeight:isOpen?700:600,lineHeight:1.5}}>{item.q}</div>
+                    <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0,marginTop:3}}>
+                      <button className="ss-btn" onClick={(e)=>startEditQuestion(i,e)} title="सम्पादन" style={{background:"none",border:"none",cursor:"pointer",padding:0,color:ACCENT,display:"flex"}}><PenSquare size={15}/></button>
+                      <button className="ss-btn" onClick={(e)=>deleteQuestion(i,e)} title="हटाउनुहोस्" style={{background:"none",border:"none",cursor:"pointer",padding:0,color:DANGER,display:"flex"}}><Trash2 size={15}/></button>
+                      <ChevronDown size={19} color={INK_SOFT} style={{flexShrink:0,transform:isOpen?"rotate(180deg)":"none",transition:"transform .15s ease"}}/>
+                    </div>
+                  </div>
+                )}
                 </div>
               </div>
               {isOpen&&(
@@ -1935,20 +2080,58 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
             <AIButton label={activitiesGenerating?"बनाउँदै...":"AI बाट थप्नुहोस्"} onClick={addMoreActivities} loading={activitiesGenerating}/>
           </div>
           {activitiesError&&<ErrorMsg msg={activitiesError}/>}
-          <div style={{display:"flex",flexDirection:"column",gap:14}}>{activities.length===0?<div style={{color:INK_SOFT}}>क्रियाकलापहरू थपिएका छैनन्।</div>:activities.map((a,i)=>{const color=PALETTE[i%PALETTE.length];return(
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>{activities.length===0?<div style={{color:INK_SOFT}}>क्रियाकलापहरू थपिएका छैनन्।</div>:activities.map((a,i)=>{const color=PALETTE[i%PALETTE.length];const isEditing=actEditingIdx===i;return(
           <Card key={i} accentColor={color} style={{padding:"16px 18px"}}>
             <div style={{display:"flex",alignItems:"flex-start",gap:14}}>
               <div style={{width:32,height:32,borderRadius:"50%",background:`linear-gradient(160deg, ${color} 0%, color-mix(in srgb, ${color} 70%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:17,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div>
-              <div style={{fontSize:20,color:INK,lineHeight:1.55,paddingTop:3}}>{a}</div>
+              <div style={{flex:1,minWidth:0}}>
+              {isEditing?(
+                <div>
+                  <textarea autoFocus value={actEditText} onChange={(e)=>setActEditText(e.target.value)} rows={2} className="ss-field" style={{width:"100%",borderRadius:10,padding:"9px 11px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,resize:"vertical",marginBottom:8}}/>
+                  <div style={{display:"flex",gap:7}}>
+                    <button className="ss-btn" onClick={()=>setActEditingIdx(null)} style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,fontSize:14,cursor:"pointer"}}>रद्द</button>
+                    <button className="ss-btn" onClick={()=>saveEditedActivity(i)} style={{padding:"6px 12px",borderRadius:8,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer"}}>सुरक्षित गर्नुहोस्</button>
+                  </div>
+                </div>
+              ):(
+                <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
+                  <div style={{fontSize:20,color:INK,lineHeight:1.55,paddingTop:3}}>{a}</div>
+                  <div style={{display:"flex",gap:10,flexShrink:0,paddingTop:5}}>
+                    <button className="ss-btn" onClick={()=>startEditActivity(i)} title="सम्पादन" style={{background:"none",border:"none",cursor:"pointer",padding:0,color:ACCENT,display:"flex"}}><PenSquare size={15}/></button>
+                    <button className="ss-btn" onClick={()=>deleteActivity(i)} title="हटाउनुहोस्" style={{background:"none",border:"none",cursor:"pointer",padding:0,color:DANGER,display:"flex"}}><Trash2 size={15}/></button>
+                  </div>
+                </div>
+              )}
+              </div>
             </div>
           </Card>
         );})}</div></div>}
         {tab==="simulation"&&<SimulationPanel lesson={lesson} chapterTitle={chapterTitle} classLabel={classLabel} classContext={classContext}/>}
-        {tab==="homework"&&<div><SectionLabel icon={PenSquare} color={MARIGOLD_DARK}>दिने गृहकार्य</SectionLabel><Card><div style={{fontSize:17,color:INK,lineHeight:1.6}}>{lesson.homework||"गृहकार्य थपिएको छैन।"}</div></Card></div>}
+        {tab==="homework"&&<div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginBottom:10}}>
+            <SectionLabel icon={PenSquare} color={MARIGOLD_DARK}>दिने गृहकार्य</SectionLabel>
+            {!hwEditing&&<div style={{display:"flex",gap:14,flexShrink:0}}>
+              <button className="ss-btn" onClick={startEditHomework} title="सम्पादन" style={{background:"none",border:"none",cursor:"pointer",padding:0,color:ACCENT,display:"flex",alignItems:"center",gap:4,fontWeight:700,fontSize:14.5}}><PenSquare size={14}/>सम्पादन</button>
+              {homeworkState&&<button className="ss-btn" onClick={deleteHomework} title="हटाउनुहोस्" style={{background:"none",border:"none",cursor:"pointer",padding:0,color:DANGER,display:"flex",alignItems:"center",gap:4,fontWeight:700,fontSize:14.5}}><Trash2 size={14}/>हटाउनुहोस्</button>}
+            </div>}
+          </div>
+          {hwEditing?(
+            <Card>
+              <textarea autoFocus value={hwEditText} onChange={(e)=>setHwEditText(e.target.value)} rows={4} className="ss-field" style={{width:"100%",borderRadius:10,padding:"9px 11px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,resize:"vertical",marginBottom:10}}/>
+              <div style={{display:"flex",gap:8}}>
+                <button className="ss-btn" onClick={()=>setHwEditing(false)} style={{flex:1,padding:"10px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer"}}>रद्द</button>
+                <button className="ss-btn" onClick={saveHomework} disabled={hwSaving} style={{flex:1,padding:"10px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,cursor:"pointer"}}>{hwSaving?"...":"सुरक्षित"}</button>
+              </div>
+            </Card>
+          ):<Card><div style={{fontSize:17,color:INK,lineHeight:1.6}}>{homeworkState||"गृहकार्य थपिएको छैन।"}</div></Card>}
+        </div>}
         {tab==="rubric"&&<div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginBottom:10}}>
             <SectionLabel icon={Layers} color={ROSE}>मूल्याङ्कन मापदण्ड</SectionLabel>
-            {!rubricForm&&<button className="ss-btn" onClick={rubric.length===0?()=>setRubricForm(true):startRubricEdit} style={{display:"flex",alignItems:"center",gap:5,background:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"7px 12px",fontWeight:700,fontSize:14.5,color:INK,cursor:"pointer",flexShrink:0}}>{rubric.length===0?<><Plus size={14}/>बनाउनुहोस्</>:<><PenSquare size={13}/>सम्पादन</>}</button>}
+            {!rubricForm&&<div style={{display:"flex",gap:8,flexShrink:0}}>
+              <button className="ss-btn" onClick={rubric.length===0?()=>setRubricForm(true):startRubricEdit} style={{display:"flex",alignItems:"center",gap:5,background:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"7px 12px",fontWeight:700,fontSize:14.5,color:INK,cursor:"pointer"}}>{rubric.length===0?<><Plus size={14}/>बनाउनुहोस्</>:<><PenSquare size={13}/>सम्पादन</>}</button>
+              {rubric.length>0&&<button className="ss-btn" onClick={deleteRubric} style={{display:"flex",alignItems:"center",gap:5,background:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"7px 12px",fontWeight:700,fontSize:14.5,color:DANGER,cursor:"pointer"}}><Trash2 size={13}/>हटाउनुहोस्</button>}
+            </div>}
           </div>
           {rubricForm?(
             <Card style={{marginBottom:14}}>
