@@ -869,3 +869,181 @@ export const upsertVocabImage = async (word, patch, oldStoragePath) => {
     .single();
   return { data, error };
 };
+
+// ─── TEACHER'S GUIDE ─────────────────────────────────────────────────────────
+// NEW — the guide covers multiple classes and is re-uploaded whenever it
+// changes (new edition, mid-year revision). Only one is "active" at a time;
+// older ones stay in the table for history rather than being deleted, in
+// case a lesson drafted under a previous edition needs to be checked later.
+export const getTeacherGuides = async () => cachedFetch("teacher_guides", async () =>
+  await supabase.from("teacher_guides").select("*").order("created_at", { ascending: false })
+);
+
+export const getActiveTeacherGuide = async () => {
+  const { data, error } = await supabase
+    .from("teacher_guides")
+    .select("*")
+    .eq("is_active", true)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return { data, error };
+};
+
+export const uploadTeacherGuideFile = async (file, teacherId) => {
+  const ext = file.name.split(".").pop();
+  const path = `${teacherId}/teacher-guide/${Date.now()}.${ext}`;
+  const { error } = await supabase.storage
+    .from("materials")
+    .upload(path, file, { contentType: file.type || "application/octet-stream", upsert: false });
+  return { path, error };
+};
+
+// Marks every other guide inactive, then inserts the new one as active —
+// so uploading a fresh guide always replaces which one drafting reads from,
+// without deleting the old file.
+export const insertTeacherGuide = async (guide) => {
+  const { data: { user } } = await supabase.auth.getUser();
+  await supabase.from("teacher_guides").update({ is_active: false }).eq("teacher_id", user.id);
+  const { data, error } = await supabase
+    .from("teacher_guides")
+    .insert({ ...guide, teacher_id: user.id, is_active: true })
+    .select()
+    .single();
+  return { data, error };
+};
+
+export const setActiveTeacherGuide = async (id) => {
+  const { data: { user } } = await supabase.auth.getUser();
+  await supabase.from("teacher_guides").update({ is_active: false }).eq("teacher_id", user.id);
+  const { data, error } = await supabase
+    .from("teacher_guides")
+    .update({ is_active: true })
+    .eq("id", id)
+    .select()
+    .single();
+  return { data, error };
+};
+
+export const deleteTeacherGuide = async (id, storagePath) => {
+  await supabase.storage.from("materials").remove([storagePath]);
+  const { error } = await supabase.from("teacher_guides").delete().eq("id", id);
+  return { error };
+};
+
+// ─── YEARLY FORMAT TEMPLATES ─────────────────────────────────────────────────
+// NEW — one active Lesson Plan + Rubric format per class_label. Scoped by
+// class only (never by section — same class always shares one template).
+export const getFormatTemplates = async (classLabel = null) => cachedFetch(`format_templates:${classLabel || "all"}`, async () => {
+  let query = supabase.from("format_templates").select("*").order("created_at", { ascending: false });
+  if (classLabel) query = query.eq("class_label", classLabel);
+  return await query;
+});
+
+export const getActiveFormatTemplate = async (classLabel) => {
+  const { data, error } = await supabase
+    .from("format_templates")
+    .select("*")
+    .eq("class_label", classLabel)
+    .eq("is_active", true)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return { data, error };
+};
+
+export const uploadFormatTemplateFile = async (file, teacherId, classLabel, kind) => {
+  // kind: "lesson-plan" or "rubric"
+  const ext = file.name.split(".").pop();
+  const safeClass = classLabel.replace(/[^a-zA-Z0-9\u0900-\u097F]+/g, "_");
+  const path = `${teacherId}/format-template/${safeClass}/${kind}-${Date.now()}.${ext}`;
+  const { error } = await supabase.storage
+    .from("materials")
+    .upload(path, file, { contentType: file.type || "application/octet-stream", upsert: false });
+  return { path, error };
+};
+
+// Replaces the active template for this class_label (deactivates the old
+// one, inserts the new one active) — mirrors setActiveTeacherGuide's pattern.
+export const insertFormatTemplate = async (template) => {
+  const { data: { user } } = await supabase.auth.getUser();
+  await supabase.from("format_templates")
+    .update({ is_active: false })
+    .eq("teacher_id", user.id)
+    .eq("class_label", template.class_label);
+  const { data, error } = await supabase
+    .from("format_templates")
+    .insert({ ...template, teacher_id: user.id, is_active: true })
+    .select()
+    .single();
+  return { data, error };
+};
+
+export const deleteFormatTemplate = async (id, storagePaths = []) => {
+  const paths = storagePaths.filter(Boolean);
+  if (paths.length) await supabase.storage.from("materials").remove(paths);
+  const { error } = await supabase.from("format_templates").delete().eq("id", id);
+  return { error };
+};
+
+// ─── PLAN GROUPS (shared Lesson Plan + Rubric, per class) ───────────────────
+// NEW — the single saved record both the formatted PDF export and Yojana
+// generation read from. Normally one chapter per group; a merged group (the
+// Teacher's Guide grouping several chapters under one outcome) covers
+// several chapter_ids sharing one Plan Group.
+export const getPlanGroupsByClass = async (classLabel) => cachedFetch(`plan_groups:${classLabel}`, async () =>
+  await supabase.from("plan_groups").select("*").eq("class_label", classLabel).order("created_at", { ascending: false })
+);
+
+export const getPlanGroupForChapter = async (chapterId) => {
+  const { data, error } = await supabase
+    .from("plan_groups")
+    .select("*")
+    .contains("chapter_ids", [chapterId])
+    .maybeSingle();
+  return { data, error };
+};
+
+export const insertPlanGroup = async (group) => {
+  const { data: { user } } = await supabase.auth.getUser();
+  const { data, error } = await supabase
+    .from("plan_groups")
+    .insert({ ...group, teacher_id: user.id })
+    .select()
+    .single();
+  if (data) {
+    // Link every covered chapter's lesson row(s) to this group so Yojana
+    // generation and the formatted export can find it from either side.
+    await supabase.from("lessons").update({ plan_group_id: data.id }).in("chapter_id", data.chapter_ids || []);
+  }
+  return { data, error };
+};
+
+export const updatePlanGroup = async (id, patch) => {
+  const { data, error } = await supabase
+    .from("plan_groups")
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select()
+    .single();
+  return { data, error };
+};
+
+export const deletePlanGroup = async (id) => {
+  await supabase.from("lessons").update({ plan_group_id: null }).eq("plan_group_id", id);
+  const { error } = await supabase.from("plan_groups").delete().eq("id", id);
+  return { error };
+};
+
+// ─── YOJANA (per-chapter day-wise teaching plan, generated from a Plan Group) ─
+// NEW — stored on the lesson row itself (one Yojana per chapter, always,
+// even when several chapters share one merged Plan Group).
+export const saveLessonYojana = async (lessonId, yojana) => {
+  const { data, error } = await supabase
+    .from("lessons")
+    .update({ yojana, updated_at: new Date().toISOString() })
+    .eq("id", lessonId)
+    .select()
+    .single();
+  return { data, error };
+};

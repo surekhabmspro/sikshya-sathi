@@ -843,6 +843,123 @@ export const generateRubric = async (prompt, ctx = null) => {
   return parseJSON(text);
 };
 
+// ─── CURRICULUM TEMPLATES — Teacher's Guide → merged grouping → Plan Group draft → per-chapter Yojana ─
+// NEW (round 2 of the format-template upgrade). Nothing about the Guide's
+// or the format's structure is hardcoded here — both are read fresh from
+// whatever the teacher uploaded, every time.
+
+// Pulls just ONE class's section out of a Teacher's Guide that covers many
+// classes, as plain text — same "extract once, reuse" idea as
+// extractChapterText. guidePart is a Gemini `part` (inline_data or
+// file_data) built from the uploaded guide file (pdf/docx/image).
+export async function extractGuideClassSection(guidePart, classLabel) {
+  if (!guidePart) return null;
+  const prompt = `यो शिक्षक निर्देशिका (Teacher's Guide) मा धेरै कक्षाहरूको मार्गदर्शन एउटै फाइलमा छ। यसबाट केवल "${classLabel}" सम्बन्धी भाग मात्र पत्ता लगाई, त्यसको पूरा पाठ — जस्ताको त्यस्तै, नछोटाई — सादा पाठको रूपमा फिर्ता दिनुहोस्। अरू कक्षाको भाग नराख्नुहोस्। कुनै व्याख्या वा फर्म्याटिङ नथप्नुहोस्। यदि "${classLabel}" को भाग भेटिएन भने ठ्याक्कै यही शब्द मात्र लेख्नुहोस्: NOT_FOUND`;
+  let text;
+  try { text = await callGemini([guidePart, { text: prompt }], { maxOutputTokens: 8192 }); }
+  catch { return null; }
+  const trimmed = (text || "").trim();
+  if (!trimmed || trimmed === "NOT_FOUND" || trimmed.length < 40) return null;
+  return trimmed;
+}
+
+// Given one class's isolated Guide text + that class's list of chapter
+// titles, asks which chapters the Guide treats as a merged group (shared
+// learning outcome → one Lesson Plan) vs standalone. Returns an array of
+// groups: [{ chapter_titles: [...], reason }] — every input chapter appears
+// in exactly one group (a standalone chapter is just a group of one).
+export async function detectChapterGrouping(guideClassText, chapterTitles = []) {
+  if (!guideClassText || !chapterTitles.length) {
+    return chapterTitles.map((t) => ({ chapter_titles: [t], reason: null }));
+  }
+  const prompt = `तलको शिक्षक निर्देशिकाको अंश हेरी, यी अध्यायहरूमध्ये कुन-कुनलाई निर्देशिकाले एउटै/समान सिकाइ उपलब्धि (learning outcome) अन्तर्गत गाभेर एउटै पाठ योजना बनाउन सुझाव दिन्छ, र कुन-कुन अलग-अलग नै हुन् पत्ता लगाउनुहोस्।
+
+अध्यायहरू: ${JSON.stringify(chapterTitles)}
+
+निर्देशिकाको अंश:
+${guideClassText.slice(0, 12000)}
+
+ठ्याक्कै यो JSON संरचनामा मात्र जवाफ दिनुहोस् — दिइएको हरेक अध्याय ठ्याक्कै एउटा समूहमा मात्र पर्नुपर्छ (एक्लै भए पनि एउटा समूह मानिन्छ):
+[{"chapter_titles":["अध्याय १"],"reason":null},{"chapter_titles":["अध्याय २","अध्याय ३"],"reason":"दुवैको सिकाइ उपलब्धि समान भएकाले निर्देशिकाले गाभेको"}]`;
+  const text = await generateTextJSON(prompt);
+  const result = parseJSON(text);
+  if (!Array.isArray(result) || !result.length) {
+    // Fall back to "every chapter standalone" rather than fail the whole draft.
+    return chapterTitles.map((t) => ({ chapter_titles: [t], reason: null }));
+  }
+  return result;
+}
+
+// Drafts a full Plan Group (Lesson Plan + Rubric, 5E model) for one chapter
+// or a merged group of chapters, from the textbook + the Guide's isolated
+// class section as the primary sources. groupChapterTitles.length > 1 for a
+// merged group. Shape matches the plan_groups table.
+export const draftPlanGroup = async (groupChapterTitles, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", guideClassText = null) => {
+  const isMerged = groupChapterTitles.length > 1;
+  const chaptersLine = groupChapterTitles.map((t) => `"${t}"`).join(", ");
+  const mergedNote = isMerged
+    ? `यी ${groupChapterTitles.length} वटा अध्यायहरूको सिकाइ उपलब्धि समान भएकाले शिक्षक निर्देशिकाले एउटै साझा पाठ योजना बनाउन सुझाव दिएको छ — सबैलाई समेट्ने एउटै एकीकृत योजना बनाउनुहोस्, प्रत्येकको लागि छुट्टाछुट्टै होइन।`
+    : "";
+  const guideBlock = guideClassText ? `\n\nशिक्षक निर्देशिकाको मार्गदर्शन (यसैलाई मुख्य आधार बनाउनुहोस्):\n${guideClassText.slice(0, 10000)}` : "";
+  const prompt = `तपाईं नेपालको ${classContext}का लागि विद्यालयमा बुझाउनका लागि पाठ योजना र मूल्याङ्कन रुब्रिक्स तयार गर्दै हुनुहुन्छ, 5E मोडेल (Engage, Explore, Explain, Elaborate, Evaluate) मा।
+अध्याय: ${chaptersLine}
+${mergedNote}${guideBlock}
+
+ठ्याक्कै यो JSON संरचनामा मात्र जवाफ दिनुहोस्:
+{
+  "major_learning_outcomes": ["उपलब्धि १","उपलब्धि २"],
+  "materials_required": ["सामग्री १","सामग्री २"],
+  "engage": "कक्षा प्रवेशको लागि छोटो, ठोस गतिविधि विवरण (प्रश्न/तस्बिर/उदाहरणबाट सुरु)",
+  "explore": "विद्यार्थीले आफैं छलफल/खोजी गर्ने गतिविधि विवरण",
+  "explain": "शिक्षकले वा विद्यार्थीले प्रस्तुत/स्पष्ट पार्ने गतिविधि विवरण",
+  "elaborate": "थप विस्तार/लागू गर्ने गतिविधि विवरण",
+  "evaluate": "मूल्याङ्कनका लागि प्रश्न/कार्य विवरण",
+  "rubric": [{"criteria":"मूल्याङ्कनको क्षेत्र","levels":[{"level":"उत्कृष्ट","desc":"विवरण"},{"level":"राम्रो","desc":"विवरण"},{"level":"सामान्य","desc":"विवरण"},{"level":"सुधार आवश्यक","desc":"विवरण"}]}]
+}
+महत्त्वपूर्ण: सामग्री शिक्षक निर्देशिका र पाठ्यपुस्तकमा आधारित, ठोस र यही अध्यायसँग सान्दर्भिक हुनुपर्छ — सामान्य/जेनेरिक नराख्नुहोस्। rubric मा कम्तीमा ३ वटा फरक-फरक मूल्याङ्कन क्षेत्र (जस्तै विषयवस्तु बुझाइ, सहभागिता, प्रस्तुति) समावेश गर्नुहोस्।`;
+  const text = await runPromptJSON(prompt, ctx);
+  const result = parseJSON(text);
+  if (!result) {
+    const preview = (text && text.trim()) ? text.trim().slice(0, 300) : "(खाली प्रतिक्रिया)";
+    throw new Error("Gemini ले सही ढाँचामा जवाफ दिएन। जवाफको सुरुवात: " + preview);
+  }
+  return result;
+};
+
+// Given an APPROVED Plan Group (possibly merged, covering several
+// chapters) and one specific chapter inside it, generates that chapter's
+// own day-wise Yojana — deciding itself how to split the group's shared
+// Engage/Explore/Explain/Elaborate/Evaluate content and activities across
+// its chapters, so each chapter still gets its own classroom-ready
+// sequence even though the underlying plan is shared.
+export const draftYojanaForChapter = async (chapterTitle, planGroup, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन") => {
+  const siblingChapters = (planGroup.chapter_ids_titles || []).filter((t) => t !== chapterTitle);
+  const groupIsMerged = siblingChapters.length > 0;
+  const splitNote = groupIsMerged
+    ? `यो साझा पाठ योजना ${siblingChapters.length + 1} वटा अध्यायहरू (${[chapterTitle, ...siblingChapters].join(", ")}) ले मिलेर प्रयोग गर्छन्। यहाँ केवल "${chapterTitle}" का लागि मात्र उपयुक्त हुने भाग/गतिविधिहरू छानी, यस अध्यायको आफ्नै दिनगत (day-wise) कक्षा अनुक्रम बनाउनुहोस् — अरू अध्यायसँग दोहोरिने नराखी, समूहको योजनालाई तर्कसंगत रूपमा बाँडेर।`
+    : "";
+  const prompt = `तपाईं ${classContext}को "${chapterTitle}" अध्यायको लागि कक्षा-कोठामा पढाउने दिनगत योजना (Yojana) बनाउँदै हुनुहुन्छ, स्वीकृत पाठ योजनाबाट।
+${splitNote}
+
+स्वीकृत साझा पाठ योजना:
+Engage: ${planGroup.engage || ""}
+Explore: ${planGroup.explore || ""}
+Explain: ${planGroup.explain || ""}
+Elaborate: ${planGroup.elaborate || ""}
+Evaluate: ${planGroup.evaluate || ""}
+
+ठ्याक्कै यो JSON संरचनामा मात्र जवाफ दिनुहोस्:
+[{"period":1,"title":"चरणको नाम","stage":"Engage","description":"यस अवधिमा कक्षामा गर्ने कुरा"}]
+"stage" मा Engage/Explore/Explain/Elaborate/Evaluate मध्ये एउटा राख्नुहोस्। जति period चाहिन्छ त्यति राख्नुहोस् (सामान्यतया २-४)।`;
+  const text = await runPrompt(prompt, ctx, { jsonMode: true });
+  const result = parseJSON(text);
+  if (!result) {
+    const preview = (text && text.trim()) ? text.trim().slice(0, 300) : "(खाली प्रतिक्रिया)";
+    throw new Error("Gemini ले सही ढाँचामा जवाफ दिएन। जवाफको सुरुवात: " + preview);
+  }
+  return result;
+};
+
 export const chatWithAI = async (userMessage, lessonContext, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन") => {
   const prompt = `तपाईं नेपालको ${classContext}का शिक्षकको AI सहायक हुनुहुन्छ। नेपालीमा उत्तर दिनुहोस्।
 

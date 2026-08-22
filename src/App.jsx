@@ -16,6 +16,7 @@ import { supabase } from "./lib/supabase";
 import * as db from "./db";
 import * as gemini from "./gemini";
 import { extractTextFromFile } from "./lib/extract";
+import { fillLessonPlanDocx, fillRubricDocx, downloadBlob } from "./lib/docxFill";
 import { DataProvider, useData } from "./context/DataContext";
 
 // NEW — every color below is a CSS custom property, not a hardcoded hex.
@@ -524,6 +525,27 @@ async function saveWordImageForReuse(word, blob, credit, teacherId) {
   }
 }
 
+
+// NEW — turns a saved Teacher's Guide row into a Gemini `part`. docx goes
+// through the same client-side extraction (mammoth) as tagged materials do
+// elsewhere in the app — Gemini can't read docx directly; pdf/image go
+// straight in as inline_data, same as the textbook.
+async function buildGuidePart(guideRow) {
+  if (!guideRow) return null;
+  try {
+    const blob = await db.downloadMaterialFile(guideRow.storage_path);
+    if (guideRow.file_type === "docx") {
+      const file = new File([blob], guideRow.label || "guide.docx", { type: blob.type || "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+      const { text, status } = await extractTextFromFile(file);
+      return status === "done" && text ? { text } : null;
+    }
+    const b64 = await gemini.blobToBase64(blob);
+    const mime = blob.type || (guideRow.file_type === "pdf" ? "application/pdf" : "image/jpeg");
+    return { inline_data: { mime_type: mime, data: b64 } };
+  } catch {
+    return null;
+  }
+}
 
 async function getMaterialContext(chapterTitle, classLabel = null, lessonId = null) {
   if (!chapterTitle || !chapterTitle.trim()) {
@@ -2849,8 +2871,287 @@ function groupLessonsByChapter(chapters, lessons) {
   return groups;
 }
 
+// NEW — read-only printable view of a chapter's saved Yojana (day-wise
+// classroom sequence, generated from its approved Plan Group). Reuses the
+// same PrintableSheet chrome as every other single-document printout.
+function YojanaSheet({ lesson, onClose }) {
+  const periods = Array.isArray(lesson.yojana) ? lesson.yojana : [];
+  return (
+    <PrintableSheet title={lesson.title} subtitle="Yojana" chip="कक्षा योजना" chipColor={ACCENT} onClose={onClose}>
+      {periods.length===0&&<div style={{fontSize:15.5,color:INK_SOFT}}>Yojana अझै छैन।</div>}
+      {periods.map((p,i)=>(
+        <div key={i} style={{marginBottom:16,paddingBottom:14,borderBottom:i<periods.length-1?`1px solid ${BORDER}`:"none"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+            <span style={{fontSize:13,fontWeight:700,color:ACCENT,background:ACCENT_LIGHT,borderRadius:999,padding:"3px 10px"}}>अवधि {p.period}</span>
+            {p.stage&&<span style={{fontSize:13,fontWeight:700,color:VIOLET,background:VIOLET_LIGHT,borderRadius:999,padding:"3px 10px"}}>{p.stage}</span>}
+          </div>
+          {p.title&&<div style={{fontSize:17,fontWeight:800,color:INK,marginBottom:4}}>{p.title}</div>}
+          <div style={{fontSize:15.5,color:INK,lineHeight:1.7}}>{p.description}</div>
+        </div>
+      ))}
+    </PrintableSheet>
+  );
+}
+
+// NEW — the official Lesson Plan + Rubric for school submission (distinct
+// from the classroom-facing "AI ले यो पाठ बनाओस्" bundle above). Per
+// chapter: shows an existing saved Plan Group if one covers this chapter
+// (possibly merged with others), or offers "AI ले मस्यौदा बनाओस्" (drafts
+// from the Teacher's Guide + textbook, auto-detecting merged chapters) vs
+// "आफैं लेख्नुहोस्" (blank form, filled and saved manually). Either way the
+// result is reviewable/editable before "स्वीकृत गर्नुहोस्" (approve) — only
+// an approved group is used for Yojana generation.
+const RUBRIC_LEVELS = ["उत्कृष्ट", "राम्रो", "सामान्य", "सुधार आवश्यक"];
+const emptyRubricRow = () => ({ criteria: "", levels: RUBRIC_LEVELS.map((level) => ({ level, desc: "" })) });
+const emptyPlanDraft = () => ({
+  major_learning_outcomes: [""], materials_required: [""],
+  engage: "", explore: "", explain: "", elaborate: "", evaluate: "",
+  rubric: [emptyRubricRow()],
+});
+
+function PlanGroupModal({ chapter, allChapters, classLabel, classContext, onClose }) {
+  const [phase, setPhase] = useState("loading"); // loading | choose | drafting | review
+  const [existingGroup, setExistingGroup] = useState(null);
+  const [groupChapterTitles, setGroupChapterTitles] = useState([chapter.title]);
+  const [groupReason, setGroupReason] = useState(null);
+  const [source, setSource] = useState("ai_drafted");
+  const [draft, setDraft] = useState(emptyPlanDraft());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [formatTemplateId, setFormatTemplateId] = useState(null);
+  const [teacherGuideId, setTeacherGuideId] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await db.getPlanGroupForChapter(chapter.id);
+      if (data) {
+        setExistingGroup(data);
+        setSource(data.source);
+        setGroupChapterTitles((allChapters || []).filter((c) => (data.chapter_ids || []).includes(c.id)).map((c) => c.title));
+        setDraft({
+          major_learning_outcomes: data.major_learning_outcomes?.length ? data.major_learning_outcomes : [""],
+          materials_required: data.materials_required?.length ? data.materials_required : [""],
+          engage: data.engage || "", explore: data.explore || "", explain: data.explain || "",
+          elaborate: data.elaborate || "", evaluate: data.evaluate || "",
+          rubric: data.rubric?.length ? data.rubric : [emptyRubricRow()],
+        });
+        setFormatTemplateId(data.format_template_id || null);
+        setTeacherGuideId(data.teacher_guide_id || null);
+        setPhase("review");
+      } else {
+        setPhase("choose");
+      }
+    })();
+  }, [chapter.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const startManual = () => {
+    setSource("uploaded"); setGroupChapterTitles([chapter.title]); setGroupReason(null);
+    setDraft(emptyPlanDraft()); setPhase("review");
+  };
+
+  const startAIDraft = async () => {
+    setPhase("drafting"); setBusy(true); setError("");
+    try {
+      const [{ data: guide }, { data: template }] = await Promise.all([
+        db.getActiveTeacherGuide(), db.getActiveFormatTemplate(classLabel),
+      ]);
+      setFormatTemplateId(template?.id || null); setTeacherGuideId(guide?.id || null);
+      const guidePart = await buildGuidePart(guide);
+      const guideClassText = guidePart ? await gemini.extractGuideClassSection(guidePart, classLabel) : null;
+      const allTitles = (allChapters || []).map((c) => c.title);
+      const groups = await gemini.detectChapterGrouping(guideClassText, allTitles);
+      const myGroup = groups.find((g) => g.chapter_titles.includes(chapter.title)) || { chapter_titles: [chapter.title], reason: null };
+      setGroupChapterTitles(myGroup.chapter_titles); setGroupReason(myGroup.reason);
+      const ctx = await getMaterialContext(chapter.title, classLabel, null);
+      const result = await gemini.draftPlanGroup(myGroup.chapter_titles, ctx, classContext, guideClassText);
+      setSource("ai_drafted");
+      setDraft({
+        major_learning_outcomes: result.major_learning_outcomes?.length ? result.major_learning_outcomes : [""],
+        materials_required: result.materials_required?.length ? result.materials_required : [""],
+        engage: result.engage || "", explore: result.explore || "", explain: result.explain || "",
+        elaborate: result.elaborate || "", evaluate: result.evaluate || "",
+        rubric: result.rubric?.length ? result.rubric : [emptyRubricRow()],
+      });
+      setPhase("review");
+    } catch (e) {
+      setError(e.message || "मस्यौदा बनाउन सकिएन।"); setPhase("choose");
+    }
+    setBusy(false);
+  };
+
+  const setField = (key, value) => setDraft((d) => ({ ...d, [key]: value }));
+  const setListItem = (key, i, value) => setDraft((d) => ({ ...d, [key]: d[key].map((v, idx) => idx === i ? value : v) }));
+  const addListItem = (key) => setDraft((d) => ({ ...d, [key]: [...d[key], ""] }));
+  const removeListItem = (key, i) => setDraft((d) => ({ ...d, [key]: d[key].filter((_, idx) => idx !== i) }));
+  const setRubricDesc = (ri, li, value) => setDraft((d) => ({ ...d, rubric: d.rubric.map((row, idx) => idx === ri ? { ...row, levels: row.levels.map((l, lidx) => lidx === li ? { ...l, desc: value } : l) } : row) }));
+  const setRubricCriteria = (ri, value) => setDraft((d) => ({ ...d, rubric: d.rubric.map((row, idx) => idx === ri ? { ...row, criteria: value } : row) }));
+  const addRubricRow = () => setDraft((d) => ({ ...d, rubric: [...d.rubric, emptyRubricRow()] }));
+  const removeRubricRow = (ri) => setDraft((d) => ({ ...d, rubric: d.rubric.filter((_, idx) => idx !== ri) }));
+
+  const persist = async (status) => {
+    setBusy(true); setError("");
+    try {
+      const ids = [];
+      for (const title of groupChapterTitles) {
+        const id = await db.getChapterIdByTitle(title, classLabel);
+        if (id) ids.push(id);
+      }
+      if (!ids.includes(chapter.id)) ids.push(chapter.id);
+      const payload = {
+        class_label: classLabel, title: groupChapterTitles.join(" + "), chapter_ids: ids, source, status,
+        major_learning_outcomes: draft.major_learning_outcomes.filter((v) => v.trim()),
+        materials_required: draft.materials_required.filter((v) => v.trim()),
+        engage: draft.engage, explore: draft.explore, explain: draft.explain, elaborate: draft.elaborate, evaluate: draft.evaluate,
+        rubric: draft.rubric.filter((r) => r.criteria.trim()),
+        format_template_id: formatTemplateId, teacher_guide_id: teacherGuideId,
+      };
+      const { data, error: err } = existingGroup
+        ? await db.updatePlanGroup(existingGroup.id, payload)
+        : await db.insertPlanGroup(payload);
+      if (err) throw err;
+      setExistingGroup(data);
+      if (status === "approved") onClose(true);
+    } catch (e) { setError(e.message || "सुरक्षित हुन सकेन।"); }
+    setBusy(false);
+  };
+
+  // ROUND 4 — fills THIS YEAR'S active format template (uploaded in
+  // Settings) with the reviewed content above, producing real .docx files
+  // in the school's exact layout/formatting. Works on a draft too (not
+  // only approved), per the teacher's request to reuse this on
+  // already-saved plans as well.
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportMsg, setExportMsg] = useState("");
+  const exportDocx = async () => {
+    setExportBusy(true); setExportMsg("");
+    try {
+      const { data: template } = formatTemplateId
+        ? await supabase.from("format_templates").select("*").eq("id", formatTemplateId).maybeSingle()
+        : await db.getActiveFormatTemplate(classLabel);
+      if (!template?.lesson_plan_storage_path) {
+        setExportMsg("पहिले सेटिङ्समा यस वर्षको पाठ योजना ढाँचा अपलोड गर्नुहोस्।"); setExportBusy(false); return;
+      }
+      const lpBlob = await db.downloadMaterialFile(template.lesson_plan_storage_path);
+      const { blob: filledLP } = await fillLessonPlanDocx(lpBlob, {
+        major_learning_outcomes: draft.major_learning_outcomes,
+        materials_required: draft.materials_required,
+        engage: draft.engage, explore: draft.explore, explain: draft.explain, elaborate: draft.elaborate, evaluate: draft.evaluate,
+      });
+      downloadBlob(filledLP, `${chapter.title}-पाठ-योजना.docx`);
+
+      if (template.rubric_storage_path && template.rubric_file_type === "docx") {
+        const rubricBlob = await db.downloadMaterialFile(template.rubric_storage_path);
+        const { blob: filledRubric } = await fillRubricDocx(rubricBlob, draft.rubric);
+        downloadBlob(filledRubric, `${chapter.title}-रुब्रिक्स.docx`);
+        setExportMsg("दुवै फाइल डाउनलोड भए (Word ढाँचामा) — Word वा Google Docs मा खोली 'PDF मा बचत गर्नुहोस्' गर्दा ठ्याक्कै यही ढाँचामा PDF बन्छ।");
+      } else if (template.rubric_storage_path) {
+        setExportMsg("पाठ योजना डाउनलोड भयो। रुब्रिक्स ढाँचा फोटोको रूपमा राखिएकाले त्यसलाई उस्तै ढाँचामा स्वतः भर्न मिल्दैन — रुब्रिक्सको Word फाइल अपलोड गरे स्वतः भरिनेछ।");
+      } else {
+        setExportMsg("पाठ योजना डाउनलोड भयो। Word वा Google Docs मा खोली 'PDF मा बचत गर्नुहोस्' गर्नुहोस्।");
+      }
+    } catch (e) { setExportMsg("त्रुटि: " + (e.message || "एक्सपोर्ट गर्न सकिएन।")); }
+    setExportBusy(false);
+  };
+
+  return (
+    <div className="no-print" onClick={onClose} style={{position:"fixed",inset:0,zIndex:88,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:16}}>
+      <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:"24px 26px",maxWidth:"min(94vw, 780px)",width:"100%",maxHeight:"90vh",overflowY:"auto",boxSizing:"border-box",boxShadow:SHADOW.lg}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+          <div style={{fontSize:19,fontWeight:800,color:INK}}>आधिकारिक पाठ योजना — {chapter.title}</div>
+          <IconButton icon={X} onClick={()=>onClose(false)} size={20}/>
+        </div>
+
+        {phase==="loading"&&<div style={{padding:"30px 0"}}><Spinner/></div>}
+
+        {phase==="choose"&&(
+          <div style={{display:"flex",flexDirection:"column",gap:12,marginTop:14}}>
+            {error&&<div style={{fontSize:15,color:DANGER,background:DANGER_BG,borderRadius:10,padding:"10px 12px"}}>{error}</div>}
+            <div style={{fontSize:15.5,color:INK_SOFT,lineHeight:1.6}}>यो अध्यायको लागि अझै कुनै आधिकारिक पाठ योजना/रुब्रिक्स छैन।</div>
+            <AIButton label="✨ AI ले मस्यौदा बनाओस् (मार्गदर्शन + पाठ्यपुस्तकबाट)" onClick={startAIDraft} loading={busy} style={{width:"100%",justifyContent:"center",fontSize:16.5,padding:"13px"}}/>
+            <button className="ss-btn" onClick={startManual} style={{width:"100%",padding:"12px",borderRadius:10,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontWeight:700,fontSize:16,cursor:"pointer"}}>आफैं लेख्नुहोस्</button>
+          </div>
+        )}
+
+        {phase==="drafting"&&(
+          <div style={{padding:"30px 0",display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
+            <Spinner/>
+            <div style={{fontSize:15.5,color:INK_SOFT}}>मार्गदर्शन र पाठ्यपुस्तक हेर्दै, मस्यौदा तयार गर्दै...</div>
+          </div>
+        )}
+
+        {phase==="review"&&(
+          <div style={{display:"flex",flexDirection:"column",gap:16,marginTop:10}}>
+            {error&&<div style={{fontSize:15,color:DANGER,background:DANGER_BG,borderRadius:10,padding:"10px 12px"}}>{error}</div>}
+            {groupChapterTitles.length>1&&(
+              <div style={{fontSize:14.5,color:ACCENT,background:ACCENT_LIGHT,borderRadius:10,padding:"9px 12px",lineHeight:1.6}}>
+                यो योजना {groupChapterTitles.length} वटा अध्यायसँग साझा छ: {groupChapterTitles.join(", ")}{groupReason?` — ${groupReason}`:""}
+              </div>
+            )}
+            {existingGroup?.status==="approved"&&<div style={{fontSize:14,fontWeight:700,color:ACCENT}}>✓ स्वीकृत — Yojana यसैबाट बन्न सक्छ</div>}
+
+            <div>
+              <SectionLabel icon={ClipboardList} color={VIOLET}>प्रमुख सिकाइ उपलब्धि</SectionLabel>
+              {draft.major_learning_outcomes.map((v,i)=>(
+                <div key={i} style={{display:"flex",gap:6,marginBottom:6}}>
+                  <input value={v} onChange={(e)=>setListItem("major_learning_outcomes",i,e.target.value)} className="ss-field" style={{flex:1,borderRadius:10,padding:"9px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+                  <IconButton icon={X} onClick={()=>removeListItem("major_learning_outcomes",i)} size={16}/>
+                </div>
+              ))}
+              <button className="ss-btn" onClick={()=>addListItem("major_learning_outcomes")} style={{fontSize:14,color:ACCENT,background:"none",border:"none",fontWeight:700,cursor:"pointer",padding:"4px 0"}}>+ थप्नुहोस्</button>
+            </div>
+
+            <div>
+              <SectionLabel icon={FolderKanban} color={TEAL}>आवश्यक सामग्री</SectionLabel>
+              {draft.materials_required.map((v,i)=>(
+                <div key={i} style={{display:"flex",gap:6,marginBottom:6}}>
+                  <input value={v} onChange={(e)=>setListItem("materials_required",i,e.target.value)} className="ss-field" style={{flex:1,borderRadius:10,padding:"9px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+                  <IconButton icon={X} onClick={()=>removeListItem("materials_required",i)} size={16}/>
+                </div>
+              ))}
+              <button className="ss-btn" onClick={()=>addListItem("materials_required")} style={{fontSize:14,color:ACCENT,background:"none",border:"none",fontWeight:700,cursor:"pointer",padding:"4px 0"}}>+ थप्नुहोस्</button>
+            </div>
+
+            {[["engage","Engage"],["explore","Explore"],["explain","Explain"],["elaborate","Elaborate"],["evaluate","Evaluate"]].map(([key,label])=>(
+              <div key={key}>
+                <SectionLabel icon={Layers} color={PALETTE[0]}>{label}</SectionLabel>
+                <textarea value={draft[key]} onChange={(e)=>setField(key,e.target.value)} rows={3} className="ss-field" style={{width:"100%",borderRadius:10,padding:"10px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
+              </div>
+            ))}
+
+            <div>
+              <SectionLabel icon={CheckSquare} color={MARIGOLD_DARK}>मूल्याङ्कन रुब्रिक्स</SectionLabel>
+              {draft.rubric.map((row,ri)=>(
+                <div key={ri} style={{border:`1.5px solid ${BORDER}`,borderRadius:12,padding:10,marginBottom:8}}>
+                  <div style={{display:"flex",gap:6,marginBottom:8}}>
+                    <input value={row.criteria} onChange={(e)=>setRubricCriteria(ri,e.target.value)} placeholder="मूल्याङ्कनको क्षेत्र (जस्तै: विषयवस्तु बुझाइ)" className="ss-field" style={{flex:1,borderRadius:10,padding:"9px 12px",fontSize:15.5,fontWeight:700,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+                    <IconButton icon={Trash2} onClick={()=>removeRubricRow(ri)} size={16}/>
+                  </div>
+                  {row.levels.map((lvl,li)=>(
+                    <div key={li} style={{display:"flex",gap:8,alignItems:"center",marginBottom:5}}>
+                      <div style={{fontSize:13.5,fontWeight:700,color:INK_SOFT,width:100,flexShrink:0}}>{lvl.level}</div>
+                      <input value={lvl.desc} onChange={(e)=>setRubricDesc(ri,li,e.target.value)} className="ss-field" style={{flex:1,borderRadius:8,padding:"7px 10px",fontSize:14.5,border:`1.5px solid ${BORDER}`,background:SURFACE}}/>
+                    </div>
+                  ))}
+                </div>
+              ))}
+              <button className="ss-btn" onClick={addRubricRow} style={{fontSize:14,color:ACCENT,background:"none",border:"none",fontWeight:700,cursor:"pointer",padding:"4px 0"}}>+ मूल्याङ्कन क्षेत्र थप्नुहोस्</button>
+            </div>
+
+            <div style={{display:"flex",gap:8,marginTop:6}}>
+              <button className="ss-btn" onClick={()=>persist("draft")} disabled={busy} style={{flex:1,padding:"12px",borderRadius:10,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontWeight:700,fontSize:15.5,cursor:"pointer"}}>{busy?"...":"मस्यौदाको रूपमा सुरक्षित"}</button>
+              <button className="ss-btn" onClick={()=>persist("approved")} disabled={busy} style={{flex:1,padding:"12px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,fontSize:15.5,cursor:"pointer",boxShadow:SHADOW.accent}}>{busy?"...":"स्वीकृत गर्नुहोस्"}</button>
+            </div>
+            <button className="ss-btn" onClick={exportDocx} disabled={exportBusy} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"12px",borderRadius:10,border:`1.5px solid ${TEAL}`,background:"none",color:TEAL,fontWeight:700,fontSize:15.5,cursor:"pointer"}}><Download size={16}/>{exportBusy?"तयार गर्दै...":"यस वर्षको ढाँचामा Word डाउनलोड गर्नुहोस्"}</button>
+            {exportMsg&&<div style={{fontSize:14.5,color:INK_SOFT,lineHeight:1.6}}>{exportMsg}</div>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Planner({ onOpenLesson, section, loading, onRefresh, classContext, classLabel, editLessonId, onEditConsumed, prefillChapter, onPrefillConsumed }) {
-  const { chapters, lessons, materials, addChapter, renameChapter: renameChapterCtx, deleteChapter: deleteChapterCtx } = useData();
+  const { chapters, lessons, materials, addChapter, renameChapter: renameChapterCtx, deleteChapter: deleteChapterCtx, refreshLessons } = useData();
   const [showForm,setShowForm]=useState(false);
   const [form,setForm]=useState(EMPTY_LESSON_FORM);
   const [saving,setSaving]=useState(false);
@@ -2865,6 +3166,31 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
   const [editingChapterId,setEditingChapterId]=useState(null);
   const [chapterEditValue,setChapterEditValue]=useState("");
   const [chapterBusy,setChapterBusy]=useState(null);
+  const [planGroupChapter,setPlanGroupChapter]=useState(null);
+  const [yojanaLesson,setYojanaLesson]=useState(null);
+  const [yojanaBusyId,setYojanaBusyId]=useState(null);
+
+  // NEW — generates (or reopens) this chapter's own day-wise Yojana from
+  // its APPROVED Plan Group, splitting a merged group's shared plan across
+  // its chapters. Saved on the lesson row so it only needs generating once.
+  const openYojana=async(l,chapter)=>{
+    if(l.yojana){setYojanaLesson(l);return;}
+    setYojanaBusyId(l.id);
+    try{
+      const{data:group}=await db.getPlanGroupForChapter(chapter.id);
+      if(!group){alert("पहिले यस अध्यायको आधिकारिक पाठ योजना बनाउनुहोस्।");setYojanaBusyId(null);return;}
+      if(group.status!=="approved"){alert("Yojana बनाउनुअघि पाठ योजना स्वीकृत गर्नुपर्छ।");setYojanaBusyId(null);return;}
+      const siblingTitles=chapters.filter((c)=>(group.chapter_ids||[]).includes(c.id)&&c.id!==chapter.id).map((c)=>c.title);
+      const groupWithTitles={...group,chapter_ids_titles:siblingTitles};
+      const ctx=await getMaterialContext(chapter.title,classLabel,l.id);
+      const yojana=await gemini.draftYojanaForChapter(chapter.title,groupWithTitles,ctx,classContext);
+      const{data:saved,error}=await db.saveLessonYojana(l.id,yojana);
+      if(error)throw error;
+      await refreshLessons();
+      setYojanaLesson(saved);
+    }catch(e){alert("त्रुटि: "+(e.message||"Yojana बनाउन सकिएन।"));}
+    setYojanaBusyId(null);
+  };
   const isEditing=!!form.id;
   const groups=groupLessonsByChapter(chapters,lessons);
 
@@ -3246,11 +3572,13 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
                       <div key={l.id} onClick={()=>onOpenLesson(l)} style={{display:"flex",alignItems:"center",gap:8,background:SURFACE_2,borderRadius:10,padding:"10px 12px",cursor:"pointer"}}>
                         <div style={{flex:1,minWidth:0,fontWeight:700,fontSize:16,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.title}</div>
                         <StatusPill status={l.status}/>
+                        <button className="ss-icon-btn" onClick={(e)=>{e.stopPropagation();openYojana(l,chapter);}} title="Yojana" disabled={yojanaBusyId===l.id} style={{cursor:"pointer",color:l.yojana?ACCENT:INK_SOFT,padding:4}}><CalendarDays size={15}/></button>
                         <button className="ss-icon-btn" onClick={(e)=>{e.stopPropagation();startEdit(l);}} title="सम्पादन गर्नुहोस्" style={{cursor:"pointer",color:INK_SOFT,padding:4}}><PenSquare size={15}/></button>
                         <button className="ss-icon-btn" onClick={(e)=>{e.stopPropagation();onOpenLesson(l,{autoPrint:true});}} title="प्रिन्ट गर्नुहोस्" style={{cursor:"pointer",color:INK_SOFT,padding:4}}><Printer size={15}/></button>
                         <button className="ss-icon-btn" onClick={(e)=>deleteLesson(l.id,e)} title="मेटाउनुहोस्" style={{cursor:"pointer",color:INK_SOFT,padding:4}}><Trash2 size={15}/></button>
                       </div>
                     ))}
+                    {!unassigned&&<button className="ss-btn" onClick={()=>setPlanGroupChapter(chapter)} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:VIOLET_LIGHT,border:"none",color:VIOLET,borderRadius:10,padding:"10px",fontWeight:700,fontSize:15,cursor:"pointer"}}><ClipboardList size={14}/>आधिकारिक पाठ योजना / रुब्रिक्स</button>}
                     {!unassigned&&<button className="ss-btn" onClick={()=>startNew(chapter.title)} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:"none",border:`1.5px dashed ${BORDER}`,color:ACCENT,borderRadius:10,padding:"10px",fontWeight:700,fontSize:15,cursor:"pointer"}}><Plus size={14}/>नयाँ पाठ थप्नुहोस्</button>}
                   </div>
                 )}
@@ -3259,6 +3587,8 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
           })}
         </div>
       )}
+      {planGroupChapter&&<PlanGroupModal chapter={planGroupChapter} allChapters={chapters} classLabel={classLabel} classContext={classContext} onClose={()=>setPlanGroupChapter(null)}/>}
+      {yojanaLesson&&<YojanaSheet lesson={yojanaLesson} onClose={()=>setYojanaLesson(null)}/>}
     </div>
   );
 }
@@ -4736,6 +5066,87 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
   const [exportBusy,setExportBusy]=useState(false);
   const [exportMsg,setExportMsg]=useState("");
 
+  // NEW — Teacher's Guide + this year's Lesson Plan/Rubric format, both
+  // re-uploadable any time the school changes them. Neither's structure is
+  // hardcoded anywhere in the app — the AI reads these files fresh whenever
+  // it drafts a Plan Group. See migration_curriculum_templates.sql.
+  const [teacherGuide,setTeacherGuide]=useState(null);
+  const [guideBusy,setGuideBusy]=useState(false);
+  const [guideMsg,setGuideMsg]=useState("");
+  const [formatTemplate,setFormatTemplate]=useState(null);
+  const [templateYearDraft,setTemplateYearDraft]=useState("");
+  const [templateLPFile,setTemplateLPFile]=useState(null);
+  const [templateRubricFile,setTemplateRubricFile]=useState(null);
+  const [templateBusy,setTemplateBusy]=useState(false);
+  const [templateMsg,setTemplateMsg]=useState("");
+
+  useEffect(()=>{
+    db.getActiveTeacherGuide().then(({data})=>setTeacherGuide(data||null));
+  },[]);
+  useEffect(()=>{
+    db.getActiveFormatTemplate(classLabel).then(({data})=>{
+      setFormatTemplate(data||null);
+      setTemplateYearDraft(data?.year_label||"");
+    });
+  },[classLabel]);
+
+  const uploadGuideHandler=async(e)=>{
+    const file=e.target.files[0];
+    if(!file)return;
+    setGuideBusy(true);setGuideMsg("अपलोड हुँदै...");
+    try{
+      const{data:{user}}=await supabase.auth.getUser();
+      const{path,error:upErr}=await db.uploadTeacherGuideFile(file,user.id);
+      if(upErr)throw upErr;
+      const fileType=file.type==="application/pdf"?"pdf":file.type.startsWith("image/")?"image":"docx";
+      const{data,error}=await db.insertTeacherGuide({label:file.name,storage_path:path,file_type:fileType});
+      if(error)throw error;
+      setTeacherGuide(data);
+      setGuideMsg(`"${file.name}" सुरक्षित भयो — अब यही मार्गदर्शनबाट पाठ योजना बनाइनेछ।`);
+    }catch(err){setGuideMsg("त्रुटि: "+(err.message||"अपलोड असफल भयो।"));}
+    setGuideBusy(false);e.target.value="";
+  };
+
+  const deleteGuideHandler=async()=>{
+    if(!teacherGuide||!confirm("यो विद्यार्थी मूल्याङ्कन मार्गदर्शन हटाउने? यसपछि AI ले नयाँ मार्गदर्शन नहुन्जेल पाठ्यपुस्तकको भरमा मात्र योजना बनाउनेछ।"))return;
+    setGuideBusy(true);
+    await db.deleteTeacherGuide(teacherGuide.id,teacherGuide.storage_path);
+    setTeacherGuide(null);setGuideBusy(false);
+    setGuideMsg("हटाइयो।");setTimeout(()=>setGuideMsg(""),2000);
+  };
+
+  const saveFormatTemplate=async()=>{
+    if(!templateLPFile&&!formatTemplate?.lesson_plan_storage_path){setTemplateMsg("कम्तीमा पाठ योजनाको ढाँचा फाइल चाहिन्छ।");return;}
+    if(!templateYearDraft.trim()){setTemplateMsg("वर्ष लेख्नुहोस् (जस्तै २०८२)।");return;}
+    setTemplateBusy(true);setTemplateMsg("सुरक्षित हुँदै...");
+    try{
+      const{data:{user}}=await supabase.auth.getUser();
+      let lpPath=formatTemplate?.lesson_plan_storage_path||null;
+      let lpType=formatTemplate?.lesson_plan_file_type||null;
+      let rubricPath=formatTemplate?.rubric_storage_path||null;
+      let rubricType=formatTemplate?.rubric_file_type||null;
+      if(templateLPFile){
+        const{path,error}=await db.uploadFormatTemplateFile(templateLPFile,user.id,classLabel,"lesson-plan");
+        if(error)throw error;
+        lpPath=path;lpType=templateLPFile.name.split(".").pop().toLowerCase();
+      }
+      if(templateRubricFile){
+        const{path,error}=await db.uploadFormatTemplateFile(templateRubricFile,user.id,classLabel,"rubric");
+        if(error)throw error;
+        rubricPath=path;rubricType=templateRubricFile.name.split(".").pop().toLowerCase();
+      }
+      const{data,error}=await db.insertFormatTemplate({
+        class_label:classLabel,year_label:templateYearDraft.trim(),
+        lesson_plan_storage_path:lpPath,lesson_plan_file_type:lpType,
+        rubric_storage_path:rubricPath,rubric_file_type:rubricType,
+      });
+      if(error)throw error;
+      setFormatTemplate(data);setTemplateLPFile(null);setTemplateRubricFile(null);
+      setTemplateMsg(`"${classLabel}" का लागि ${templateYearDraft} को ढाँचा सुरक्षित भयो।`);
+    }catch(err){setTemplateMsg("त्रुटि: "+(err.message||"सुरक्षित हुन सकेन।"));}
+    setTemplateBusy(false);
+  };
+
   const exportAllData=async()=>{
     setExportBusy(true);setExportMsg("");
     try{
@@ -4924,6 +5335,59 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
           </label>
         )}
         {msg&&<div style={{marginTop:10,fontSize:16,color:pdfLoaded?ACCENT:DANGER,fontWeight:600}}>{msg}</div>}
+      </Card>
+
+      <Card style={{marginBottom:14}}>
+        <SectionLabel icon={FileText} color={TEAL}>विद्यार्थी मूल्याङ्कन मार्गदर्शन</SectionLabel>
+        <div style={{fontSize:16,color:INK_SOFT,marginBottom:12,lineHeight:1.6}}>धेरै कक्षा समेटिएको विद्यार्थी मूल्याङ्कन मार्गदर्शन अपलोड गर्नुहोस् — AI ले यसैबाट "{classLabel}" को भाग मात्र छानेर पाठ योजना र रुब्रिक्स मस्यौदा बनाउनेछ। मार्गदर्शन फेरिँदा जुनसुकै बेला फेरि अपलोड गर्न सकिन्छ, पुरानो स्वतः बदलिन्छ।</div>
+        {teacherGuide?(
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,background:ACCENT_LIGHT,borderRadius:10,padding:"10px 14px"}}>
+              <FileText size={18} color={ACCENT}/>
+              <div style={{fontSize:16,color:ACCENT,fontWeight:700,overflowWrap:"break-word",wordBreak:"break-word"}}>{teacherGuide.label}</div>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <label style={{display:"flex",alignItems:"center",gap:6,background:SURFACE_2,color:INK,border:`1.5px solid ${BORDER}`,borderRadius:10,padding:"10px 14px",fontWeight:700,fontSize:15,cursor:"pointer"}}>
+                <Upload size={15}/>{guideBusy?"...":"नयाँ अपलोड"}
+                <input type="file" accept="application/pdf,.docx,image/*" onChange={uploadGuideHandler} style={{display:"none"}}/>
+              </label>
+              <button className="ss-btn" onClick={deleteGuideHandler} disabled={guideBusy} style={{display:"flex",alignItems:"center",gap:6,background:DANGER_BG,color:DANGER,border:"none",borderRadius:10,padding:"10px 14px",fontWeight:700,fontSize:15,cursor:"pointer"}}><Trash2 size={15}/>हटाउनुहोस्</button>
+            </div>
+          </div>
+        ):(
+          <label style={{display:"flex",alignItems:"center",gap:8,background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"12px 16px",fontWeight:700,fontSize:16.5,cursor:"pointer"}}>
+            <FileText size={17}/>{guideBusy?"लोड गर्दै...":"विद्यार्थी मूल्याङ्कन मार्गदर्शन अपलोड गर्नुहोस्"}
+            <input type="file" accept="application/pdf,.docx,image/*" onChange={uploadGuideHandler} style={{display:"none"}}/>
+          </label>
+        )}
+        {guideMsg&&<div style={{marginTop:10,fontSize:15.5,color:teacherGuide?ACCENT:DANGER,fontWeight:600}}>{guideMsg}</div>}
+      </Card>
+
+      <Card style={{marginBottom:14}}>
+        <SectionLabel icon={ClipboardList} color={VIOLET}>यस वर्षको पाठ योजना / रुब्रिक्स ढाँचा</SectionLabel>
+        <div style={{fontSize:16,color:INK_SOFT,marginBottom:12,lineHeight:1.6}}>"{classLabel}" का लागि यो वर्ष विद्यालयले प्रयोग गर्ने ढाँचाको नमूना फाइल अपलोड गर्नुहोस् — AI ले तयार पार्ने हरेक पाठ योजना/रुब्रिक्स ठ्याक्कै यही ढाँचामा हुनेछ। ढाँचा फेरिएको वर्ष, नयाँ नमूना अपलोड गरे पुरानो स्वतः बदलिन्छ।</div>
+        {formatTemplate&&(
+          <div style={{display:"flex",alignItems:"center",gap:8,background:ACCENT_LIGHT,borderRadius:10,padding:"10px 14px",marginBottom:12}}>
+            <ClipboardList size={18} color={ACCENT}/>
+            <div style={{fontSize:16,color:ACCENT,fontWeight:700}}>हाल सक्रिय ढाँचा: {formatTemplate.year_label} ({classLabel})</div>
+          </div>
+        )}
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div>
+            <div style={{fontSize:14,color:INK_SOFT,fontWeight:600,marginBottom:5}}>वर्ष</div>
+            <input value={templateYearDraft} onChange={(e)=>setTemplateYearDraft(e.target.value)} placeholder="जस्तै: २०८२" className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,outline:"none",boxSizing:"border-box"}}/>
+          </div>
+          <label style={{display:"flex",alignItems:"center",gap:8,background:SURFACE_2,color:INK,border:`1.5px solid ${BORDER}`,borderRadius:10,padding:"11px 14px",fontWeight:700,fontSize:15.5,cursor:"pointer"}}>
+            <Upload size={16}/>{templateLPFile?templateLPFile.name:(formatTemplate?.lesson_plan_storage_path?"पाठ योजनाको नमूना (हालको ढाँचा प्रयोगमा — बदल्न फाइल छान्नुहोस्)":"पाठ योजनाको नमूना फाइल (Word)")}
+            <input type="file" accept=".docx" onChange={(e)=>setTemplateLPFile(e.target.files[0]||null)} style={{display:"none"}}/>
+          </label>
+          <label style={{display:"flex",alignItems:"center",gap:8,background:SURFACE_2,color:INK,border:`1.5px solid ${BORDER}`,borderRadius:10,padding:"11px 14px",fontWeight:700,fontSize:15.5,cursor:"pointer"}}>
+            <Upload size={16}/>{templateRubricFile?templateRubricFile.name:(formatTemplate?.rubric_storage_path?"रुब्रिक्सको नमूना (हालको ढाँचा प्रयोगमा — बदल्न फाइल छान्नुहोस्)":"रुब्रिक्सको नमूना फाइल (Word उत्तम, फोटो पनि मान्य)")}
+            <input type="file" accept=".docx,image/*" onChange={(e)=>setTemplateRubricFile(e.target.files[0]||null)} style={{display:"none"}}/>
+          </label>
+          <Button variant="primary" onClick={saveFormatTemplate} disabled={templateBusy}>{templateBusy?"सुरक्षित हुँदै...":"यो वर्षको ढाँचा सुरक्षित गर्नुहोस्"}</Button>
+        </div>
+        {templateMsg&&<div style={{marginTop:10,fontSize:15.5,color:formatTemplate?ACCENT:DANGER,fontWeight:600}}>{templateMsg}</div>}
       </Card>
 
       <Card style={{marginBottom:14}}>
