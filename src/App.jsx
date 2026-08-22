@@ -2487,16 +2487,20 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
     )}
     {viewing&&(
       <div className="no-print" style={{position:"fixed",inset:0,zIndex:90,background:"#000",display:"flex",flexDirection:"column"}}>
-        <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:INK,color:"#fff",flexShrink:0,flexWrap:"wrap"}}>
+        {/* FIX — this row used flexWrap:"wrap", so on a narrow phone the
+            "designed for laptop/projector" subtitle wrapped onto its own
+            second line, silently doubling the header's height and eating
+            into the vertical space the game itself had to render in — that
+            extra fixed-height band above the content is what read as "a
+            notification hiding the content." No wrap now, and the subtitle
+            (which is informational, not essential) hides below 560px via
+            the media query, instead of ever pushing onto a second line. */}
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:INK,color:"#fff",flexShrink:0}}>
           <div style={{flex:1,minWidth:0,fontWeight:700,fontSize:15.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{viewing.title}</div>
-          {/* NEW — simulations are built for a laptop-plus-projector, not a
-              phone in hand (see SimulationPanel's own intro text above) —
-              saying so here, right where a teacher previewing on their
-              phone would otherwise think something's broken, replaces
-              confusion with a clear expectation. */}
-          <span style={{fontSize:13,color:"rgba(255,255,255,0.6)",fontWeight:600,whiteSpace:"nowrap"}}>🖥️ ल्यापटप/प्रोजेक्टरका लागि डिजाइन गरिएको</span>
+          <span className="ss-sim-subtitle" style={{fontSize:13,color:"rgba(255,255,255,0.6)",fontWeight:600,whiteSpace:"nowrap"}}>🖥️ ल्यापटप/प्रोजेक्टरका लागि डिजाइन गरिएको</span>
           <IconButton icon={generating?Loader:RefreshCw} spin={generating} onClick={generate} disabled={generating} title="अर्को नयाँ सिमुलेसन बनाउनुहोस्" variant="hero" size={17} style={{borderRadius:8,padding:8}}/>
           <IconButton icon={X} onClick={()=>setViewing(null)} variant="hero" size={19} style={{borderRadius:8,padding:8}}/>
+          <style>{`@media (max-width:560px){.ss-sim-subtitle{display:none;}}`}</style>
         </div>
         <SimulationStage html={viewing.html_content} title={viewing.title}/>
       </div>
@@ -2504,36 +2508,32 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
   </div>);
 }
 
-// FIX — the AI is instructed (see gemini.generateSimulation's prompt) to
-// build every simulation for a fixed landscape 1280×720–1920×1080 laptop/
-// projector canvas, but an instruction is not a guarantee: on an actual
-// classroom laptop window, a smaller/larger projector resolution, or a
-// teacher just previewing on their phone before class, the AI's own layout
-// had no way to adapt — content could run off-screen or (on a phone) be
-// impossibly cramped. This wraps the iframe in a fixed 1280×720 "stage"
-// and scales that whole stage down (or up) with a CSS transform to
-// whatever space is actually available, letterboxed and centered — so the
-// simulation always appears exactly as the AI laid it out, proportionally
-// correct, on any screen, instead of overflowing or clipping.
+// FIX — this used to wrap the iframe in a fixed 1280×720 "stage" and scale
+// that whole stage down with a CSS transform to fit. The prompt already
+// requires the AI to build the page with flex/grid + clamp()/vw/vh (see
+// "स्क्रिनभित्रै अटाउने नियम" in gemini.generateSimulation), i.e. it's
+// meant to reflow to whatever viewport it's given — locking it to a fixed
+// 16:9 canvas and shrinking that canvas fought against its own responsive
+// layout. On a tall portrait phone the math (scale = width/1280, often
+// ~0.3) produced a tiny sliver of game surrounded by large black bars top
+// and bottom — that's the "black gap" hiding the content in the
+// screenshots. Letting the iframe fill its real container directly lets
+// the content's own responsive CSS do the reflowing, so there's no
+// artificial letterbox on any screen. A brief, dismissable hint (not an
+// overlay that blocks the game) nudges toward landscape on narrow phones,
+// since the content still reads best wide.
 function SimulationStage({ html, title }) {
-  const wrapRef = useRef(null);
-  const [scale, setScale] = useState(1);
-  const STAGE_W = 1280, STAGE_H = 720;
-  useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    const fit = () => {
-      const { width, height } = el.getBoundingClientRect();
-      setScale(Math.min(width / STAGE_W, height / STAGE_H, 1.4));
-    };
-    fit();
-    const ro = new ResizeObserver(fit);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+  const [hintDismissed, setHintDismissed] = useState(false);
+  const isNarrowPortrait = typeof window !== "undefined" && window.innerWidth < 700 && window.innerHeight > window.innerWidth;
   return (
-    <div ref={wrapRef} style={{flex:1,minHeight:0,display:"flex",alignItems:"center",justifyContent:"center",background:"#000",overflow:"hidden"}}>
-      <iframe title={title} srcDoc={html} sandbox="allow-scripts" style={{width:STAGE_W,height:STAGE_H,border:"none",background:"#fff",flexShrink:0,transform:`scale(${scale})`,transformOrigin:"center center"}}/>
+    <div style={{flex:1,minHeight:0,display:"flex",flexDirection:"column",background:"#000",overflow:"hidden"}}>
+      {isNarrowPortrait && !hintDismissed && (
+        <div style={{flexShrink:0,display:"flex",alignItems:"center",gap:8,padding:"6px 12px",background:"rgba(255,193,7,0.15)",color:"#ffc107",fontSize:12.5,fontWeight:600}}>
+          <span style={{flex:1}}>📱↻ राम्रोसँग हेर्न फोन ल्यान्डस्केप (आडा) बनाउनुहोस्</span>
+          <button onClick={()=>setHintDismissed(true)} style={{background:"none",border:"none",color:"inherit",cursor:"pointer",fontWeight:700,padding:"2px 6px"}}>✕</button>
+        </div>
+      )}
+      <iframe title={title} srcDoc={html} sandbox="allow-scripts" style={{flex:1,minHeight:0,width:"100%",border:"none",background:"#fff"}}/>
     </div>
   );
 }
