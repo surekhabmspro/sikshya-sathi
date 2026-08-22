@@ -622,6 +622,31 @@ export const generateActivities = async (chapterTitle, ctx = null, classContext 
   return result;
 };
 
+// NEW — the lesson plan's own "activities" field (see generateLessonPlan
+// above) only ever produces 2, because its example in the prompt shows 2
+// and the model follows that as a count hint, not just a format sample.
+// Rather than change that (touching the shared plan prompt would also
+// reshuffle objectives/vocabulary/sequence counts, which aren't broken),
+// this is a separate, additive call: given the activities a lesson
+// already has, ask for a handful more in the SAME flat-string shape
+// lesson.activities is stored in — one line per activity, no title/type/
+// duration object like generateActivities above returns — and explicitly
+// tell it what already exists so it adds genuinely different ones instead
+// of near-duplicates of what's already on screen.
+export const generateMoreActivities = async (chapterTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", pathTitle = null, existing = []) => {
+  const focus = (pathTitle && pathTitle.trim() && pathTitle.trim() !== chapterTitle.trim()) ? ` "${pathTitle}" पाठ (अध्याय: "${chapterTitle}")` : ` "${chapterTitle}"`;
+  const existingLine = existing.length ? `\nयी क्रियाकलाप पहिल्यै छन्, यिनीहरूसँग नमिल्ने/नदोहोरिने थप क्रियाकलाप मात्र दिनुहोस्:\n${existing.map((a) => `- ${a}`).join("\n")}` : "";
+  const prompt = `नेपाल ${classContext}${focus} का लागि ३ थप कक्षागत क्रियाकलाप भएको JSON array मात्र, हरेक एउटा छोटो वाक्यमा (जस्तै लेसन योजनाको "activities" सूचीमा जस्तो, कुनै अतिरिक्त field नराखी):
+["क्रियाकलाप विवरण १","क्रियाकलाप विवरण २","क्रियाकलाप विवरण ३"]${existingLine}`;
+  const text = await runPromptJSON(prompt, ctx);
+  const result = parseJSON(text);
+  if (!result) {
+    const preview = (text && text.trim()) ? text.trim().slice(0, 300) : "(खाली प्रतिक्रिया)";
+    throw new Error("Gemini ले सही ढाँचामा जवाफ दिएन। जवाफको सुरुवात: " + preview);
+  }
+  return result;
+};
+
 // NEW — a broad pool of distinct interactive mechanics a simulation can be
 // built around. Previously the prompt just listed a few as suggestions and
 // let Gemini pick — in practice that meant it kept defaulting to whichever

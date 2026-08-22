@@ -1555,6 +1555,13 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
   // just re-tapping search.
   const [vocabChangeRequested,setVocabChangeRequested]=useState(false);
   const [vocabManualSearching,setVocabManualSearching]=useState(false);
+  // NEW — the manual search/upload panel starts collapsed behind a small
+  // button rather than showing the search box + explanatory text right
+  // away. Most words won't have an automatic match, so showing all of
+  // that by default for every one of them would clutter the popup for no
+  // reason — it's only needed when a teacher actually wants to go find or
+  // add a picture themselves.
+  const [vocabManualPanelOpen,setVocabManualPanelOpen]=useState(false);
   // NEW — manual upload: lets the teacher pick a photo straight from their
   // own phone/PC gallery instead of an automatic Wikipedia/Wikidata match.
   // The hidden <input type="file"> is triggered by a styled button (see
@@ -1571,9 +1578,9 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
     setVocabSaveError("");
   };
   useEffect(()=>{
-    if(!vocabPopup){setVocabImage(null);setVocabImageRevealed(false);setVocabManualQuery("");setVocabSaveError("");setVocabChangeRequested(false);return;}
+    if(!vocabPopup){setVocabImage(null);setVocabImageRevealed(false);setVocabManualQuery("");setVocabSaveError("");setVocabChangeRequested(false);setVocabManualPanelOpen(false);return;}
     let cancelled=false;
-    setVocabImage(null);setVocabImageRevealed(false);setVocabImageLoading(true);setVocabManualQuery(vocabPopup.word||"");setVocabSaveError("");setVocabChangeRequested(false);
+    setVocabImage(null);setVocabImageRevealed(false);setVocabImageLoading(true);setVocabManualQuery(vocabPopup.word||"");setVocabSaveError("");setVocabChangeRequested(false);setVocabManualPanelOpen(false);
     fetchWordImage(vocabPopup.word).then((img)=>{if(!cancelled){setVocabImage(img);setVocabImageLoading(false);}});
     return ()=>{cancelled=true;};
   },[vocabPopup]);
@@ -1658,7 +1665,32 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
     setQEditingIdx(null);
   };
 
-  const activities=lesson.activities||[];
+  const [activitiesState,setActivitiesState]=useState(()=>lesson.activities||[]);
+  // NEW — the lesson plan's own "activities" list only ever comes with 2
+  // by default (see the generateMoreActivities comment in gemini.js for
+  // why). This lets a teacher ask AI for a few more on demand instead of
+  // being stuck with just the two the initial plan generated — appends
+  // to whatever's already there (skipping anything AI repeats verbatim)
+  // and saves right away, the same persist-immediately pattern the
+  // प्रश्नहरू tab's answer generation above uses.
+  const [activitiesGenerating,setActivitiesGenerating]=useState(false);
+  const [activitiesError,setActivitiesError]=useState("");
+  useEffect(()=>{setActivitiesState(lesson.activities||[]);setActivitiesError("");},[lesson.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const addMoreActivities=async()=>{
+    setActivitiesGenerating(true);setActivitiesError("");
+    try{
+      const ctx=await getMaterialContext(chapterTitle,classLabel,lesson.id);
+      const more=await gemini.generateMoreActivities(chapterTitle,ctx,classContext,lesson.title,activitiesState);
+      const fresh=(more||[]).filter((a)=>a&&!activitiesState.includes(a));
+      if(fresh.length===0){setActivitiesError("AI ले थप नयाँ क्रियाकलाप दिन सकेन — फेरि प्रयास गर्नुहोस्।");return;}
+      const next=[...activitiesState,...fresh];
+      const{error}=await db.updateLesson(lesson.id,{activities:next});
+      if(error){setActivitiesError("सुरक्षित हुन सकेन: "+(error.message||""));return;}
+      setActivitiesState(next);
+    }catch(e){setActivitiesError("AI त्रुटि: "+e.message);}
+    setActivitiesGenerating(false);
+  };
+  const activities=activitiesState;
   // FIX — was lesson.rubric, a column nothing in the app ever writes to.
   // The real rubric lives in the assessments table, tied to this lesson
   // via lesson_id (see getAssessmentsByLesson in db.js). Falls back to
@@ -1893,7 +1925,17 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
             </Card>
           );
         })}</div></div>}
-        {tab==="activities"&&<div><SectionLabel icon={Users} color={TEAL}>क्रियाकलापहरू</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:14}}>{activities.length===0?<div style={{color:INK_SOFT}}>क्रियाकलापहरू थपिएका छैनन्।</div>:activities.map((a,i)=>{const color=PALETTE[i%PALETTE.length];return(
+        {tab==="activities"&&<div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginBottom:10}}>
+            <SectionLabel icon={Users} color={TEAL}>क्रियाकलापहरू</SectionLabel>
+            {/* NEW — the plan's own activities list only ever starts with
+                2 (see gemini.js generateMoreActivities); this lets a
+                teacher ask for a few more without regenerating the whole
+                lesson plan. */}
+            <AIButton label={activitiesGenerating?"बनाउँदै...":"AI बाट थप्नुहोस्"} onClick={addMoreActivities} loading={activitiesGenerating}/>
+          </div>
+          {activitiesError&&<ErrorMsg msg={activitiesError}/>}
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>{activities.length===0?<div style={{color:INK_SOFT}}>क्रियाकलापहरू थपिएका छैनन्।</div>:activities.map((a,i)=>{const color=PALETTE[i%PALETTE.length];return(
           <Card key={i} accentColor={color} style={{padding:"16px 18px"}}>
             <div style={{display:"flex",alignItems:"flex-start",gap:14}}>
               <div style={{width:32,height:32,borderRadius:"50%",background:`linear-gradient(160deg, ${color} 0%, color-mix(in srgb, ${color} 70%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:17,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div>
@@ -1978,7 +2020,16 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                 disambiguation safety checks as the automatic lookup, and
                 still requires the reveal + save taps below before anything
                 is shown or kept. */}
-            {!vocabImageLoading&&!vocabImage&&(
+            {!vocabImageLoading&&!vocabImage&&!vocabManualPanelOpen&&(
+              // NEW — collapsed state: no automatic match, but instead of
+              // showing the search box + explanation right away, just a
+              // small unobtrusive button. Expands to the full panel below
+              // only if the teacher actually taps it.
+              <button className="ss-btn" onClick={()=>setVocabManualPanelOpen(true)} style={{marginTop:16,width:"100%",padding:"10px",borderRadius:10,border:`1.5px dashed ${BORDER}`,background:SURFACE_2,color:INK_SOFT,fontWeight:600,fontSize:13.5,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                <ImageIcon size={14}/> {vocabChangeRequested?"फरक तस्बिर खोज्नुहोस्":"तस्बिर खोज्नुहोस् वा थप्नुहोस्"}
+              </button>
+            )}
+            {!vocabImageLoading&&!vocabImage&&vocabManualPanelOpen&&(
               <div style={{marginTop:16,padding:12,borderRadius:12,border:`1.5px dashed ${BORDER}`,background:SURFACE_2}}>
                 {vocabChangeRequested?(
                   <div style={{fontSize:13,color:INK_SOFT,marginBottom:8}}>Wikipedia मा हरेक शब्दको एउटै मात्र तस्बिर हुन्छ — उही शब्द फेरि खोज्दा उही तस्बिर नै आउँछ। फरक तस्बिर चाहिएमा फरक नाम/वाक्यांश (जस्तै अङ्ग्रेजी नाम वा पूरा नाम) प्रयोग गरेर खोज्नुहोस्:</div>
@@ -2049,7 +2100,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                       opens the manual search box, for when the picture
                       is fine but the teacher wants to try a different
                       one — without blacklisting the current match. */}
-                  <button className="ss-btn" onClick={()=>{setVocabImage(null);setVocabImageRevealed(false);setVocabSaveError("");setVocabChangeRequested(true);}} title="फरक तस्बिर खोज्नुहोस्" style={{background:"rgba(20,18,14,0.65)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)",border:"none",borderRadius:8,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}><RefreshCw size={14}/></button>
+                  <button className="ss-btn" onClick={()=>{setVocabImage(null);setVocabImageRevealed(false);setVocabSaveError("");setVocabChangeRequested(true);setVocabManualPanelOpen(true);}} title="फरक तस्बिर खोज्नुहोस्" style={{background:"rgba(20,18,14,0.65)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)",border:"none",borderRadius:8,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}><RefreshCw size={14}/></button>
                   {/* NEW — teacher can swap the automatic match for their
                       own uploaded photo at any time, not just when
                       automatic lookup finds nothing. */}
