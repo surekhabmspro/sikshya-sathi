@@ -437,14 +437,24 @@ async function previewWordImage(word) {
 // in Supabase — a manual dashboard step the SQL migration can't do for
 // you). Now logs the real error to the console and returns it, so the UI
 // can tell the teacher WHY it failed instead of just doing nothing.
+//
+// FIX #2 — every save uploaded a brand-new file but never removed the
+// PREVIOUS one for that word (e.g. from an earlier failed attempt while
+// still chasing the bucket-not-found / invalid-key issues, or from using
+// "change picture" and re-saving). The database row always pointed at
+// the newest file, so nothing looked wrong in the app, but old files
+// silently piled up unused in the bucket. Now it looks up any existing
+// row for the word FIRST and deletes its old file after the new one is
+// safely in place, so re-saving replaces rather than accumulates.
 async function saveWordImageForReuse(word, blob, credit, teacherId) {
   try {
+    const { data: existing } = await db.getVocabImage(word);
     const { path, error: upErr } = await db.uploadVocabImageFile(word, blob, teacherId);
     if (upErr) {
       console.error("saveWordImageForReuse: upload failed", upErr);
       return { ok: false, error: upErr.message || "अपलोड असफल भयो" };
     }
-    const { error: rowErr } = await db.upsertVocabImage(word, { rejected: false, storage_path: path, credit });
+    const { error: rowErr } = await db.upsertVocabImage(word, { rejected: false, storage_path: path, credit }, existing?.storage_path);
     if (rowErr) {
       console.error("saveWordImageForReuse: row upsert failed", rowErr);
       return { ok: false, error: rowErr.message || "डाटा सुरक्षित गर्न सकिएन" };
