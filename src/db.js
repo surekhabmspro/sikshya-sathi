@@ -818,8 +818,17 @@ export const getVocabImage = async (word) => {
   return { data, error };
 };
 
+// FIX — the storage path used to embed the word itself
+// (encodeURIComponent(word)), but Supabase Storage rejects keys
+// containing non-ASCII characters (Devanagari) and spaces outright with
+// "Invalid key" — encodeURIComponent doesn't help because the object key
+// Supabase validates is the same either way. The word doesn't need to be
+// in the file path at all: the vocab_images TABLE already links
+// (teacher_id, word) → storage_path, so the path itself just needs to be
+// unique and ASCII-safe. A random id does that with no encoding games.
 export const uploadVocabImageFile = async (word, blob, teacherId) => {
-  const path = `${teacherId}/${encodeURIComponent(word)}-${Date.now()}.jpg`;
+  const rand = Math.random().toString(36).slice(2, 10);
+  const path = `${teacherId}/${Date.now()}-${rand}.jpg`;
   const { error } = await supabase.storage
     .from("vocab-images")
     .upload(path, blob, { contentType: blob.type || "image/jpeg", upsert: false });
