@@ -1,14 +1,14 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
-  BookOpen, CalendarDays, CheckCircle2, ClipboardList, ChevronLeft,
+  BookOpen, CalendarDays, CheckCircle2, ClipboardList, ArrowLeft,
   Sparkles, FileText, Users, MessageSquare, PenSquare, Layers, Clock,
   X, Home, NotebookPen, Search, Image as ImageIcon, Video, Music,
   FileSpreadsheet, Presentation, Tag, Eye, EyeOff, HelpCircle, CheckSquare,
   Square, Printer, Shuffle, Bot, Send, Lock, ListChecks, Plus, Smile,
   Meh, Frown, Heart, Gamepad2, FolderKanban, Map as MapIcon, Wand2,
-  Brain, Copy, ChevronRight, LogOut, User, AlertCircle, Loader,
+  Brain, Copy, ArrowRight, LogOut, User, AlertCircle, Loader,
   Settings as SettingsIcon, Trash2, RefreshCw, BookMarked, Zap,
-  Sun, Moon, Lightbulb, Paperclip, ChevronDown, Pin, RotateCw,
+  Sun, Moon, Lightbulb, Paperclip, ArrowDown, Pin, RotateCw,
   GraduationCap, PartyPopper, Bell, Palmtree, Megaphone, AlertTriangle, Download,
   Upload,
 } from "lucide-react";
@@ -956,7 +956,7 @@ function PageHeader({ icon:Icon, title, subtitle, action, color=ACCENT }) {
           {subtitle&&<div style={{fontSize:14.5,color:INK_SOFT,fontWeight:600,marginTop:2}}>{subtitle}</div>}
         </div>
       </div>
-      {action&&<div style={{flexShrink:0}}>{action}</div>}
+      {action&&<div style={{flexShrink:0,maxWidth:"100%",minWidth:0}}>{action}</div>}
     </div>
   );
 }
@@ -1195,7 +1195,7 @@ function GetStartedCard({ chapters, materialsCount, lessons, onGoMaterials, onGo
         <div style={{fontSize:16.5,fontWeight:700,color:INK,textDecoration:done?"line-through":"none"}}>{title}</div>
         {sub&&<div style={{fontSize:15,color:INK_SOFT,marginTop:1}}>{sub}</div>}
       </div>
-      {!done&&onClick&&<ChevronRight size={16} color={INK_SOFT}/>}
+      {!done&&onClick&&<ArrowRight size={16} color={INK_SOFT}/>}
     </div>
   );
 
@@ -1296,7 +1296,7 @@ function LoginScreen({ onLogin }) {
               <div style={{position:"relative"}}>
                 <Lock size={17} color={INK_SOFT} style={{position:"absolute",left:15,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}/>
                 <input type={showPassword?"text":"password"} placeholder="पासवर्ड" value={password} onChange={(e)=>setPassword(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&mode==="login"&&handle()} style={fieldStyle}/>
-                <button className="ss-icon-btn" type="button" onClick={()=>setShowPassword(!showPassword)} style={{position:"absolute",right:13,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:INK_SOFT,display:"flex"}}>{showPassword?<EyeOff size={17}/>:<Eye size={17}/>}</button>
+                <button className="ss-icon-btn" type="button" onClick={()=>setShowPassword(!showPassword)} style={{position:"absolute",right:9,top:"50%",transform:"translateY(-50%)",cursor:"pointer",color:INK_SOFT,display:"flex",padding:5}}>{showPassword?<EyeOff size={17}/>:<Eye size={17}/>}</button>
               </div>
               {mode==="signup"&&(
                 <>
@@ -1357,7 +1357,7 @@ function PrintableSheet({ title, subtitle, chip, chipColor, onClose, children })
   return (
     <div className="print-area" style={{position:"fixed",inset:0,background:PAPER,zIndex:70,display:"flex",flexDirection:"column"}}>
       <div className="no-print" style={{background:`linear-gradient(120deg, ${MARIGOLD} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",padding:"14px 16px",display:"flex",alignItems:"center",gap:10}}>
-        <IconButton icon={ChevronLeft} onClick={onClose} variant="hero" size={20}/>
+        <IconButton icon={ArrowLeft} onClick={onClose} variant="hero" size={20}/>
         <div style={{flex:1,minWidth:0}}>
           {subtitle&&<div style={{fontSize:14,opacity:0.75}}>{subtitle}</div>}
           <div style={{fontSize:18.5,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{title}</div>
@@ -1466,7 +1466,7 @@ function LessonEditModal({ lesson, classContext, classLabel, onClose, onSaved })
 
   return(
     <div className="no-print" onClick={onClose} style={{position:"fixed",inset:0,zIndex:88,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:16}}>
-      <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,padding:"24px 28px",maxWidth:"min(94vw, 820px)",width:"100%",maxHeight:"94vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,fontSize:"clamp(15px, 1.6vw, 17px)"}}>
+      <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,padding:"24px 28px",maxWidth:"min(94vw, 820px)",width:"100%",maxHeight:"94vh",overflowY:"auto",boxSizing:"border-box",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,fontSize:"clamp(15px, 1.6vw, 17px)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
           <div style={{fontWeight:800,fontSize:18,color:INK}}>पाठ सम्पादन गर्नुहोस्</div>
           <IconButton icon={X} onClick={onClose} size={20}/>
@@ -1485,7 +1485,7 @@ function LessonEditModal({ lesson, classContext, classLabel, onClose, onSaved })
             <AIButton label={generating?"बनाउँदै...":"AI बाट पुनः पूर्ण तयार गर्नुहोस् (योजना+प्रश्न+क्रियाकलाप+मूल्याङ्कन)"} onClick={autoGenerate} loading={generating} style={{width:"100%",justifyContent:"center"}}/>
           </div>
           <button className="ss-icon-btn" type="button" onClick={()=>setShowDetails((v)=>!v)} style={{display:"flex",alignItems:"center",gap:5,background:"none",border:"none",color:ACCENT,fontWeight:700,fontSize:15,cursor:"pointer",padding:"6px 0",alignSelf:"flex-start"}}>
-            {showDetails?<ChevronDown size={15}/>:<ChevronRight size={15}/>}विवरण {showDetails?"लुकाउनुहोस्":"देखाउनुहोस्"}
+            {showDetails?<ArrowDown size={15}/>:<ArrowRight size={15}/>}विवरण {showDetails?"लुकाउनुहोस्":"देखाउनुहोस्"}
           </button>
           {showDetails&&(<>
             {[["homework","गृहकार्य"],["notes","नोट"]].map(([f,p])=>(
@@ -1947,7 +1947,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
         }
       `}</style>
       <div className="no-print" style={{background:`linear-gradient(120deg, ${MARIGOLD} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",padding:"12px 16px",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-        <IconButton icon={ChevronLeft} onClick={onClose} variant="hero" size={20}/>
+        <IconButton icon={ArrowLeft} onClick={onClose} variant="hero" size={20}/>
         <div style={{flex:1,minWidth:0}}>
           <div style={{fontSize:13.5,opacity:0.75}}>{chapterTitle}</div>
           <div style={{fontSize:18,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{lesson.title}</div>
@@ -1965,7 +1965,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                   can close this and get straight to the tab content
                   instead of scrolling past it every time. */}
               <button className="ss-btn" onClick={()=>setObjOpen((v)=>!v)} style={{display:"flex",alignItems:"center",gap:5,width:"100%",background:"none",border:"none",cursor:"pointer",padding:0,marginBottom:objOpen?5:0,color:INK_SOFT,fontSize:14.5,fontWeight:600}}>
-                <ChevronDown size={14} style={{transform:objOpen?"rotate(0deg)":"rotate(-90deg)",transition:"transform .15s ease",flexShrink:0}}/>
+                <ArrowDown size={14} style={{transform:objOpen?"rotate(0deg)":"rotate(-90deg)",transition:"transform .15s ease",flexShrink:0}}/>
                 आजको उद्देश्य
               </button>
               {objOpen&&(<>
@@ -2042,7 +2042,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                     <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0,marginTop:3}}>
                       <button className="ss-icon-btn" onClick={(e)=>startEditQuestion(i,e)} title="सम्पादन" style={{cursor:"pointer",padding:6,color:ACCENT,display:"flex"}}><PenSquare size={15}/></button>
                       <button className="ss-icon-btn" onClick={(e)=>deleteQuestion(i,e)} title="हटाउनुहोस्" style={{cursor:"pointer",padding:6,color:DANGER,display:"flex"}}><Trash2 size={15}/></button>
-                      <span className="ss-icon-btn" style={{padding:6,color:INK_SOFT,display:"flex"}}><ChevronDown size={17} style={{flexShrink:0,transform:isOpen?"rotate(180deg)":"none",transition:"transform .15s ease"}}/></span>
+                      <span className="ss-icon-btn" style={{padding:6,color:INK_SOFT,display:"flex"}}><ArrowDown size={17} style={{flexShrink:0,transform:isOpen?"rotate(180deg)":"none",transition:"transform .15s ease"}}/></span>
                     </div>
                   </div>
                 )}
@@ -2106,7 +2106,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                   <div style={{fontSize:20,color:INK,lineHeight:1.55,paddingTop:3}}>{a}</div>
                   <div style={{display:"flex",gap:10,flexShrink:0,paddingTop:5}}>
                     <button className="ss-icon-btn" onClick={()=>startEditActivity(i)} title="सम्पादन" style={{cursor:"pointer",padding:6,color:ACCENT,display:"flex"}}><PenSquare size={15}/></button>
-                    <button className="ss-btn" onClick={()=>deleteActivity(i)} title="हटाउनुहोस्" style={{background:"none",border:"none",cursor:"pointer",padding:0,color:DANGER,display:"flex"}}><Trash2 size={15}/></button>
+                    <button className="ss-icon-btn" onClick={()=>deleteActivity(i)} title="हटाउनुहोस्" style={{cursor:"pointer",padding:6,color:DANGER,display:"flex"}}><Trash2 size={15}/></button>
                   </div>
                 </div>
               )}
@@ -2171,7 +2171,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
 
       {objPopup&&(
         <div className="no-print" onClick={()=>setObjPopup(false)} style={{position:"fixed",inset:0,zIndex:80,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.5)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:20}}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:"28px 30px",maxWidth:"min(92vw, 640px)",width:"100%",maxHeight:"86vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:"28px 30px",maxWidth:"min(92vw, 640px)",width:"100%",maxHeight:"86vh",overflowY:"auto",boxSizing:"border-box",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
               <div style={{fontSize:"clamp(20px, 2.4vw, 24px)",fontWeight:800,color:INK}}>आजको उद्देश्य</div>
               <IconButton icon={X} onClick={()=>setObjPopup(false)}/>
@@ -2197,7 +2197,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
 
       {vocabPopup&&(
         <div className="no-print" onClick={()=>setVocabPopup(null)} style={{position:"fixed",inset:0,zIndex:80,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.5)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:20}}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:"30px 32px",maxWidth:"min(92vw, 760px)",width:"100%",maxHeight:"90vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:"30px 32px",maxWidth:"min(92vw, 760px)",width:"100%",maxHeight:"90vh",overflowY:"auto",boxSizing:"border-box",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`}}>
             <div style={{fontSize:"clamp(22px, 2.6vw, 27px)",fontWeight:800,color:MARIGOLD_DARK,marginBottom:12}}>{vocabPopup.word}</div>
             <div style={{fontSize:"clamp(17px, 2vw, 20px)",color:INK,lineHeight:1.7}}>{vocabPopup.meaning}</div>
             {vocabImageLoading&&(
@@ -2488,7 +2488,7 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
               <div style={{fontWeight:700,fontSize:16.5,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.title}</div>
               <div style={{fontSize:14,color:INK_SOFT}}>{new Date(s.created_at).toLocaleDateString("ne-NP",{day:"2-digit",month:"short",year:"numeric"})}</div>
             </div>
-            <button className="ss-icon-btn" onClick={(e)=>remove(s.id,e)} disabled={deletingId===s.id} style={{background:"none",border:"none",color:DANGER,cursor:"pointer",padding:6,flexShrink:0}}><Trash2 size={16}/></button>
+            <button className="ss-icon-btn" onClick={(e)=>remove(s.id,e)} disabled={deletingId===s.id} style={{color:DANGER,cursor:"pointer",padding:6,flexShrink:0}}><Trash2 size={16}/></button>
           </Card>
         );})}
       </div>
@@ -2538,7 +2538,7 @@ function SimulationStage({ html, title }) {
       {isNarrowPortrait && !hintDismissed && (
         <div style={{flexShrink:0,display:"flex",alignItems:"center",gap:8,padding:"6px 12px",background:"rgba(255,193,7,0.15)",color:"#ffc107",fontSize:12.5,fontWeight:600}}>
           <span style={{flex:1}}>📱↻ राम्रोसँग हेर्न फोन ल्यान्डस्केप (आडा) बनाउनुहोस्</span>
-          <button onClick={()=>setHintDismissed(true)} style={{background:"none",border:"none",color:"inherit",cursor:"pointer",fontWeight:700,padding:"2px 6px"}}>✕</button>
+          <button className="ss-icon-btn" onClick={()=>setHintDismissed(true)} style={{color:"inherit",cursor:"pointer",fontWeight:700,padding:"3px 7px"}}>✕</button>
         </div>
       )}
       <iframe title={title} srcDoc={html} sandbox="allow-scripts" style={{flex:1,minHeight:0,width:"100%",border:"none",background:"#fff"}}/>
@@ -2713,7 +2713,7 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoMaterials, onGoAITools, onG
             <div style={{fontWeight:700,fontSize:16.5,color:INK}}>पहिले पाठ्यपुस्तक अपलोड गर्नुहोस्</div>
             <div style={{fontSize:14.5,color:INK_SOFT}}>सेटिङमा गएर PDF थप्नुहोस् — त्यसपछि मात्र AI ले तयार गर्न सक्छ</div>
           </div>
-          <ChevronRight size={18} color={INK_SOFT} style={{flexShrink:0}}/>
+          <ArrowRight size={18} color={INK_SOFT} style={{flexShrink:0}}/>
         </Card>
       )}
 
@@ -2764,7 +2764,7 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoMaterials, onGoAITools, onG
           <div style={{fontWeight:700,fontSize:16.5,color:INK}}>पाठ योजना बनाउनुहोस्</div>
           <div style={{fontSize:14.5,color:INK_SOFT}}>अध्याय छान्नुहोस्, त्यसभित्र पाठ थप्नुहोस् — AI ले एकैचोटि सबै तयार गर्छ</div>
         </div>
-        <ChevronRight size={18} color={INK_SOFT} style={{flexShrink:0}}/>
+        <ArrowRight size={18} color={INK_SOFT} style={{flexShrink:0}}/>
       </Card>
 
       <SectionLabel icon={Zap} color={ACCENT}>एक नजरमा</SectionLabel>
@@ -3149,7 +3149,7 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
                 exists) means the generate button below can actually use
                 it. */}
             <button className="ss-icon-btn" type="button" onClick={()=>setShowMaterials((v)=>!v)} style={{display:"flex",alignItems:"center",gap:5,background:"none",border:"none",color:INK_SOFT,fontWeight:600,fontSize:14.5,cursor:"pointer",padding:"2px 0",alignSelf:"flex-start"}}>
-              {showMaterials?<ChevronDown size={14}/>:<ChevronRight size={14}/>}📎 पहिले नै लेसन प्लान/PPT छ भने यहाँ थप्नुहोस् (वैकल्पिक)
+              {showMaterials?<ArrowDown size={14}/>:<ArrowRight size={14}/>}📎 पहिले नै लेसन प्लान/PPT छ भने यहाँ थप्नुहोस् (वैकल्पिक)
             </button>
             {showMaterials&&(
               <div>
@@ -3180,7 +3180,7 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
             </div>
 
             <button className="ss-icon-btn" type="button" onClick={()=>setShowDetails((v)=>!v)} style={{display:"flex",alignItems:"center",gap:5,background:"none",border:"none",color:INK_SOFT,fontWeight:600,fontSize:14.5,cursor:"pointer",padding:"2px 0",alignSelf:"flex-start"}}>
-              {showDetails?<ChevronDown size={14}/>:<ChevronRight size={14}/>}✏️ हातैले सम्पादन गर्नुहोस् (उद्देश्य, शब्दावली, गृहकार्य...)
+              {showDetails?<ArrowDown size={14}/>:<ArrowRight size={14}/>}✏️ हातैले सम्पादन गर्नुहोस् (उद्देश्य, शब्दावली, गृहकार्य...)
             </button>
             {showDetails&&(
               <>
@@ -3227,7 +3227,7 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
                   ):(
                     <>
                       <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0,flex:1}}>
-                        <div style={{width:30,height:30,borderRadius:10,flexShrink:0,background:`linear-gradient(155deg, ${chapColor} 0%, color-mix(in srgb, ${chapColor} 65%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",transform:"rotate(-3deg)"}}>{isOpen?<ChevronDown size={15} color="#fff" style={{transform:"rotate(3deg)"}}/>:<ChevronRight size={15} color="#fff" style={{transform:"rotate(3deg)"}}/>}</div>
+                        <div style={{width:30,height:30,borderRadius:10,flexShrink:0,background:`linear-gradient(155deg, ${chapColor} 0%, color-mix(in srgb, ${chapColor} 65%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",transform:"rotate(-3deg)"}}>{isOpen?<ArrowDown size={15} color="#fff" style={{transform:"rotate(3deg)"}}/>:<ArrowRight size={15} color="#fff" style={{transform:"rotate(3deg)"}}/>}</div>
                         <div style={{fontWeight:700,fontSize:17,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}>{chapter.title}</div>
                       </div>
                       <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
@@ -3519,7 +3519,7 @@ function Materials({ classLabel }) {
 
       {pendingFiles&&(
         <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.55)",backdropFilter:"blur(22px)",WebkitBackdropFilter:"blur(22px)",zIndex:70,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>!uploading&&setPendingFiles(null)}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:"24px 26px",maxWidth:"min(94vw, 880px)",width:"100%",maxHeight:"90vh",overflowY:"auto",boxShadow:SHADOW.lg,fontSize:"clamp(15px, 1.6vw, 17px)"}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:"24px 26px",maxWidth:"min(94vw, 880px)",width:"100%",maxHeight:"90vh",overflowY:"auto",boxSizing:"border-box",boxShadow:SHADOW.lg,fontSize:"clamp(15px, 1.6vw, 17px)"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
               <div style={{fontSize:19,fontWeight:800,color:INK}}>{pendingFiles.length} फाइल — समीक्षा गर्नुहोस्</div>
               <IconButton icon={X} onClick={()=>!uploading&&setPendingFiles(null)} size={20}/>
@@ -3654,7 +3654,7 @@ function Materials({ classLabel }) {
       )}
       {preview&&(
         <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.6)",backdropFilter:"blur(28px)",WebkitBackdropFilter:"blur(28px)",zIndex:60,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setPreview(null)}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,padding:24,maxWidth:"min(95vw, 1100px)",width:"100%",maxHeight:"95vh",display:"flex",flexDirection:"column",boxShadow:SHADOW.lg,fontSize:"clamp(15px, 1.6vw, 17px)"}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,padding:24,maxWidth:"min(95vw, 1100px)",width:"100%",maxHeight:"95vh",display:"flex",flexDirection:"column",boxSizing:"border-box",boxShadow:SHADOW.lg,fontSize:"clamp(15px, 1.6vw, 17px)"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
               <div style={{fontSize:18,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",paddingRight:10}}>{preview.name}</div>
               <IconButton icon={X} onClick={()=>setPreview(null)} size={20}/>
@@ -3686,7 +3686,7 @@ function Materials({ classLabel }) {
       )}
       {tagging&&(
         <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.6)",backdropFilter:"blur(28px)",WebkitBackdropFilter:"blur(28px)",zIndex:65,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setTagging(null)}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,padding:28,maxWidth:"min(92vw, 620px)",width:"100%",maxHeight:"90vh",overflowY:"auto",WebkitOverflowScrolling:"touch",boxShadow:SHADOW.lg,fontSize:"clamp(15px, 1.6vw, 17px)"}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,padding:28,maxWidth:"min(92vw, 620px)",width:"100%",maxHeight:"90vh",overflowY:"auto",WebkitOverflowScrolling:"touch",boxSizing:"border-box",boxShadow:SHADOW.lg,fontSize:"clamp(15px, 1.6vw, 17px)"}}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
               <div style={{fontSize:18,fontWeight:700}}>अध्याय र प्रकार तोक्नुहोस्</div>
               <IconButton icon={X} onClick={()=>setTagging(null)} size={20}/>
@@ -3758,7 +3758,7 @@ function HomeworkManager({ section, loading, homework, onRefresh, classLabel }) 
                   <div style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:17,fontWeight:700,color:INK}}>{h.title}</div>
                   <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
                     <span style={{fontSize:15,fontWeight:700,color:done?ACCENT:WARN,background:done?ACCENT_LIGHT:WARN_BG,padding:"3px 8px",borderRadius:999}}>{h.checked_count}/{h.total_students}</span>
-                    <button className="ss-icon-btn" onClick={()=>deleteHw(h)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT}}><Trash2 size={14}/></button>
+                    <button className="ss-icon-btn" onClick={()=>deleteHw(h)} style={{cursor:"pointer",color:INK_SOFT,padding:6}}><Trash2 size={14}/></button>
                   </div>
                 </div>
                 <div style={{height:6,background:BORDER,borderRadius:99,marginBottom:10}}>
@@ -4021,7 +4021,7 @@ function SummaryPanel({ icon:Icon, color, title, subtitle, onOpen }) {
         <div style={{fontSize:17,fontWeight:700,color:INK}}>{title}</div>
         <div style={{fontSize:14.5,color:INK_SOFT,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{subtitle}</div>
       </div>
-      <ChevronRight size={18} color={INK_SOFT} style={{flexShrink:0}}/>
+      <ArrowRight size={18} color={INK_SOFT} style={{flexShrink:0}}/>
     </Card>
   );
 }
@@ -4303,7 +4303,7 @@ function DocumentSearch({ lessons, homework, classLabel, onOpenLesson, onGoMater
       {!query.trim()?<EmptyState icon={Search} text="टाइप गर्नुहोस्..."/>:results.length===0?<EmptyState icon={Search} text={`"${query}" फेला परेन।`}/>:(
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           <div style={{fontSize:15.5,color:INK_SOFT,marginBottom:4}}>{results.length} परिणाम</div>
-          {results.map((r,i)=>{const Icon=r.icon;return<Card key={i} onClick={r.onClick} accentColor={r.color} style={{display:"flex",gap:10,alignItems:"center",paddingTop:22,position:"relative",overflow:"visible",cursor:r.onClick?"pointer":"default"}}><PinBadge color={r.color}/><div style={{width:36,height:36,borderRadius:8,background:`linear-gradient(160deg, ${r.color} 0%, color-mix(in srgb, ${r.color} 70%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 3px 8px color-mix(in srgb, ${r.color} 40%, transparent)`}}><Icon size={17} color="#fff"/></div><div style={{flex:1,minWidth:0}}><div style={{fontSize:14,color:r.color,fontWeight:700,marginBottom:2}}>{r.kind}</div><div style={{fontSize:16.5,color:INK,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.title}</div>{r.sub&&<div style={{fontSize:15,color:INK_SOFT}}>{r.sub}</div>}</div>{r.onClick&&<ChevronRight size={17} color={INK_SOFT} style={{flexShrink:0}}/>}</Card>;})}
+          {results.map((r,i)=>{const Icon=r.icon;return<Card key={i} onClick={r.onClick} accentColor={r.color} style={{display:"flex",gap:10,alignItems:"center",paddingTop:22,position:"relative",overflow:"visible",cursor:r.onClick?"pointer":"default"}}><PinBadge color={r.color}/><div style={{width:36,height:36,borderRadius:8,background:`linear-gradient(160deg, ${r.color} 0%, color-mix(in srgb, ${r.color} 70%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 3px 8px color-mix(in srgb, ${r.color} 40%, transparent)`}}><Icon size={17} color="#fff"/></div><div style={{flex:1,minWidth:0}}><div style={{fontSize:14,color:r.color,fontWeight:700,marginBottom:2}}>{r.kind}</div><div style={{fontSize:16.5,color:INK,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.title}</div>{r.sub&&<div style={{fontSize:15,color:INK_SOFT}}>{r.sub}</div>}</div>{r.onClick&&<ArrowRight size={17} color={INK_SOFT} style={{flexShrink:0}}/>}</Card>;})}
         </div>
       )}
     </div>
@@ -4508,11 +4508,7 @@ function CalendarView({ classLabel, active }) {
   return(
     <div className="ss-page-read" style={{padding:"20px 20px 130px",maxWidth:760,margin:"0 auto",overflowX:"hidden"}}>
       <style>{`
-        .cal-header-actions{display:flex;gap:8px;flex-wrap:wrap;}
-        @media(max-width:460px){
-          .cal-header-actions{width:100%;}
-          .cal-header-actions>*{flex:1 1 100%;justify-content:center;}
-        }
+        .cal-header-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:2px;}
         .cal-cat-row{max-width:100%;}
         @media(max-width:400px){
           .cal-cat-row .ss-chip{font-size:12.5px!important;padding:6px 9px!important;}
@@ -4532,11 +4528,11 @@ function CalendarView({ classLabel, active }) {
               AI propose events, instead of typing every holiday/exam date
               in by hand. Manual add (next button) still works exactly as
               before — this is an addition, not a replacement. */}
-          <label className="ss-btn" style={{display:"flex",alignItems:"center",gap:6,background:SURFACE_2,color:INK,border:`1px solid ${BORDER}`,borderRadius:999,padding:"9px 16px",fontWeight:700,fontSize:15.5,cursor:uploading?"default":"pointer",boxShadow:SHADOW.sm}}>
+          <label className="ss-btn" style={{display:"flex",alignItems:"center",gap:6,background:SURFACE_2,color:INK,border:`1px solid ${BORDER}`,borderRadius:999,padding:"9px 16px",fontWeight:700,fontSize:15.5,cursor:uploading?"default":"pointer",boxShadow:SHADOW.sm,flexShrink:0,whiteSpace:"nowrap"}}>
             <Paperclip size={16}/>{uploading?"पढ्दै...":"पात्रो अपलोड गर्नुहोस्"}
             <input type="file" accept="application/pdf,.pdf,image/*" onChange={handleCalendarUpload} disabled={uploading} style={{display:"none"}}/>
           </label>
-          <Button size="sm" icon={Plus} onClick={()=>openNew()} style={{background:`linear-gradient(160deg, ${VIOLET} 0%, color-mix(in srgb, ${VIOLET} 72%, black) 100%)`,boxShadow:`0 4px 12px color-mix(in srgb, ${VIOLET} 22%, transparent)`}}>कार्यक्रम थप्नुहोस्</Button>
+          <Button size="sm" icon={Plus} onClick={()=>openNew()} style={{background:`linear-gradient(160deg, ${VIOLET} 0%, color-mix(in srgb, ${VIOLET} 72%, black) 100%)`,boxShadow:`0 4px 12px color-mix(in srgb, ${VIOLET} 22%, transparent)`,flexShrink:0,whiteSpace:"nowrap"}}>कार्यक्रम थप्नुहोस्</Button>
         </div>
       }/>
       {uploadError&&<div style={{background:DANGER_BG,color:DANGER,borderRadius:12,padding:"10px 14px",fontSize:15,fontWeight:600,marginBottom:14}}>{uploadError}</div>}
@@ -4620,7 +4616,7 @@ function CalendarView({ classLabel, active }) {
                                   <span>{meta.label}</span>{it.time&&<span>· {it.time}</span>}{!it.editable&&<span>· मूल्याङ्कनबाट</span>}{it.start!==it.end&&<span>· {parseDate(it.start).getDate()}–{parseDate(it.end).getDate()} {MONTHS[parseDate(it.end).getMonth()]}</span>}
                                 </div>
                               </div>
-                              {it.editable&&<button className="ss-icon-btn" onClick={()=>deleteEvent(it.raw)} style={{background:"none",border:"none",cursor:"pointer",color:INK_SOFT,padding:3,flexShrink:0}}><Trash2 size={14}/></button>}
+                              {it.editable&&<button className="ss-icon-btn" onClick={()=>deleteEvent(it.raw)} style={{cursor:"pointer",color:INK_SOFT,padding:5,flexShrink:0}}><Trash2 size={14}/></button>}
                             </div>
                           );
                         })}
@@ -4688,7 +4684,7 @@ function CalendarView({ classLabel, active }) {
           be perfect. */}
       {reviewEvents&&(
         <div className="no-print" style={{position:"fixed",inset:0,zIndex:85,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:16}}>
-          <div style={{background:SURFACE,borderRadius:18,padding:24,maxWidth:"min(94vw, 880px)",width:"100%",maxHeight:"93vh",display:"flex",flexDirection:"column",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,fontSize:"clamp(15px, 1.6vw, 17px)"}}>
+          <div style={{background:SURFACE,borderRadius:18,padding:24,maxWidth:"min(94vw, 880px)",width:"100%",maxHeight:"93vh",display:"flex",flexDirection:"column",boxSizing:"border-box",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,fontSize:"clamp(15px, 1.6vw, 17px)"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
               <div style={{fontSize:19,fontWeight:800,color:INK}}>{reviewEvents.length} घटना फेला पर्यो</div>
               <IconButton icon={X} onClick={()=>setReviewEvents(null)} size={20}/>
@@ -4956,15 +4952,15 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
                 <>
                   <input autoFocus value={sectionEditValue} onChange={(e)=>setSectionEditValue(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&renameSection(s)} className="ss-field" style={{flex:1,minWidth:0,borderRadius:8,padding:"7px 10px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE}}/>
                   <button className="ss-btn" onClick={()=>renameSection(s)} disabled={sectionBusy===s.id} style={{background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:8,padding:"7px 11px",fontWeight:700,fontSize:14.5,cursor:"pointer",flexShrink:0,boxShadow:SHADOW.accent}}>✓</button>
-                  <button className="ss-icon-btn" onClick={()=>setEditingSectionId(null)} style={{background:"none",border:"none",color:INK_SOFT,fontSize:14.5,cursor:"pointer",flexShrink:0}}>✕</button>
+                  <button className="ss-icon-btn" onClick={()=>setEditingSectionId(null)} style={{color:INK_SOFT,fontSize:14.5,cursor:"pointer",flexShrink:0,padding:"7px 10px"}}>✕</button>
                 </>
               ):(
                 <>
                   <div style={{width:8,height:8,borderRadius:"50%",background:PALETTE[i%PALETTE.length],flexShrink:0}}/>
                   <div style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:16.5,fontWeight:600,color:INK}}>{s.name}</div>
                   {currentSection?.id===s.id&&<span style={{fontSize:13,background:ACCENT_LIGHT,color:ACCENT,padding:"2px 8px",borderRadius:999,fontWeight:700,flexShrink:0}}>सक्रिय</span>}
-                  <button className="ss-icon-btn" onClick={()=>{setEditingSectionId(s.id);setSectionEditValue(s.name);}} disabled={sectionBusy===s.id} style={{background:"none",border:"none",color:INK_SOFT,cursor:"pointer",padding:4,flexShrink:0,display:"flex"}} title="नाम बदल्नुहोस्"><PenSquare size={15}/></button>
-                  <button className="ss-icon-btn" onClick={()=>deleteSectionHandler(s)} disabled={sectionBusy===s.id} style={{background:"none",border:"none",color:DANGER,cursor:"pointer",padding:4,flexShrink:0,display:"flex"}} title="मेटाउनुहोस्"><Trash2 size={15}/></button>
+                  <button className="ss-icon-btn" onClick={()=>{setEditingSectionId(s.id);setSectionEditValue(s.name);}} disabled={sectionBusy===s.id} style={{color:INK_SOFT,cursor:"pointer",padding:4,flexShrink:0,display:"flex"}} title="नाम बदल्नुहोस्"><PenSquare size={15}/></button>
+                  <button className="ss-icon-btn" onClick={()=>deleteSectionHandler(s)} disabled={sectionBusy===s.id} style={{color:DANGER,cursor:"pointer",padding:4,flexShrink:0,display:"flex"}} title="मेटाउनुहोस्"><Trash2 size={15}/></button>
                 </>
               )}
             </div>
@@ -5369,7 +5365,7 @@ export default function App() {
 
   return(
     <DataProvider value={dataValue}>
-    <div data-theme={theme} style={{fontFamily:"'SSText','Kalimati','Times New Roman',serif",background:PAPER,minHeight:"100vh",color:INK,fontSize:17,transition:"background .2s ease, color .2s ease"}}>
+    <div data-theme={theme} style={{fontFamily:"'SSText','Kalimati','Times New Roman',serif",background:PAPER,minHeight:"100vh",color:INK,fontSize:17,transition:"background .2s ease, color .2s ease",overflowX:"hidden"}}>
       <style>{`
         *{box-sizing:border-box;}body{margin:0;-webkit-font-smoothing:antialiased;}
         @font-face{
