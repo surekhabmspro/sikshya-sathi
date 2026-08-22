@@ -430,16 +430,31 @@ async function previewWordImage(word) {
 // taps the save button. Uploads to the shared Supabase bucket + table (so
 // every device sees it from now on) and mirrors it locally for offline
 // access on this device.
+//
+// FIX — this used to swallow every failure silently and just return
+// false, so a teacher tapping "save" got no feedback at all when it
+// didn't work (e.g. the "vocab-images" Storage bucket was never created
+// in Supabase — a manual dashboard step the SQL migration can't do for
+// you). Now logs the real error to the console and returns it, so the UI
+// can tell the teacher WHY it failed instead of just doing nothing.
 async function saveWordImageForReuse(word, blob, credit, teacherId) {
   try {
     const { path, error: upErr } = await db.uploadVocabImageFile(word, blob, teacherId);
-    if (upErr) return false;
-    await db.upsertVocabImage(word, { rejected: false, storage_path: path, credit });
+    if (upErr) {
+      console.error("saveWordImageForReuse: upload failed", upErr);
+      return { ok: false, error: upErr.message || "अपलोड असफल भयो" };
+    }
+    const { error: rowErr } = await db.upsertVocabImage(word, { rejected: false, storage_path: path, credit });
+    if (rowErr) {
+      console.error("saveWordImageForReuse: row upsert failed", rowErr);
+      return { ok: false, error: rowErr.message || "डाटा सुरक्षित गर्न सकिएन" };
+    }
     const dataUrl = await blobToDataUrl(blob);
     await saveLocalVocabImage(word, { dataUrl, credit });
-    return true;
+    return { ok: true };
   } catch (e) {
-    return false;
+    console.error("saveWordImageForReuse: unexpected error", e);
+    return { ok: false, error: e.message || "अज्ञात त्रुटि" };
   }
 }
 
@@ -1430,6 +1445,9 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
   // NEW — tracks the in-progress "बचत गर्नुहोस्" (save/keep) tap so the
   // button can show a brief loading state and can't be double-tapped.
   const [vocabImageSaving,setVocabImageSaving]=useState(false);
+  // NEW — surfaces WHY a save failed (e.g. Supabase storage bucket not
+  // set up yet) instead of the button just silently doing nothing.
+  const [vocabSaveError,setVocabSaveError]=useState("");
   // NEW — manual search fallback: automatic lookup only matches a word
   // against a Wikipedia article title (exact, or a close spelling
   // variant — see wikipediaNearMatchImage). That correctly finds nothing
@@ -1443,9 +1461,9 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
   const [vocabManualQuery,setVocabManualQuery]=useState("");
   const [vocabManualSearching,setVocabManualSearching]=useState(false);
   useEffect(()=>{
-    if(!vocabPopup){setVocabImage(null);setVocabImageRevealed(false);setVocabManualQuery("");return;}
+    if(!vocabPopup){setVocabImage(null);setVocabImageRevealed(false);setVocabManualQuery("");setVocabSaveError("");return;}
     let cancelled=false;
-    setVocabImage(null);setVocabImageRevealed(false);setVocabImageLoading(true);setVocabManualQuery(vocabPopup.word||"");
+    setVocabImage(null);setVocabImageRevealed(false);setVocabImageLoading(true);setVocabManualQuery(vocabPopup.word||"");setVocabSaveError("");
     fetchWordImage(vocabPopup.word).then((img)=>{if(!cancelled){setVocabImage(img);setVocabImageLoading(false);}});
     return ()=>{cancelled=true;};
   },[vocabPopup]);
@@ -1550,6 +1568,24 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
   const [rubricSaving,setRubricSaving]=useState(false);
   const [rubricError,setRubricError]=useState("");
   const [rubricMatchedCount,setRubricMatchedCount]=useState(0);
+  // FIX — this used to only update inside generateRubric(), so it stayed
+  // at its default of 0 (showing "कुनै सामग्री ट्याग गरिएको छैन") until the
+  // teacher clicked "AI बाट rubric" in THIS session — even when materials
+  // genuinely were tagged for the chapter (e.g. a rubric generated in an
+  // earlier session, now just being viewed/edited). Checking eagerly here,
+  // the same way the AI-chat tab already does, keeps the count accurate
+  // as soon as the tab opens, not just after a fresh generate.
+  useEffect(()=>{
+    let cancelled=false;
+    if(chapterTitle){
+      db.getChapterIdByTitle(chapterTitle,classLabel).then((id)=>{
+        if(cancelled)return;
+        if(!id)return setRubricMatchedCount(0);
+        db.getMaterialsByChapter(id).then(({data})=>{if(!cancelled)setRubricMatchedCount((data||[]).length);});
+      });
+    }
+    return ()=>{cancelled=true;};
+  },[chapterTitle,classLabel]);
   useEffect(()=>{
     let cancelled=false;
     db.getAssessmentsByLesson(lesson.id).then(({data})=>{
@@ -1870,9 +1906,17 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                     title="यो तस्बिर फोन/पीसीमा सुरक्षित गर्नुहोस्"
                     style={{background:"rgba(20,18,14,0.65)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)",border:"none",borderRadius:8,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff",textDecoration:"none"}}
                   ><Download size={15}/></a>
-                  <button className="ss-btn" onClick={async()=>{await rejectVocabImage(vocabPopup.word);setVocabImage(null);}} title="यो तस्बिर उपयुक्त छैन — हटाउनुहोस्" style={{background:"rgba(20,18,14,0.65)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)",border:"none",borderRadius:8,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}><Trash2 size={15}/></button>
+                  {/* NEW — "change this picture" is now separate from
+                      "reject it" (trash). Trash permanently marks the
+                      word as having no good picture (won't auto-fetch
+                      again). This just clears the current preview and
+                      opens the manual search box, for when the picture
+                      is fine but the teacher wants to try a different
+                      one — without blacklisting the current match. */}
+                  <button className="ss-btn" onClick={()=>{setVocabImage(null);setVocabImageRevealed(false);setVocabSaveError("");}} title="फरक तस्बिर खोज्नुहोस्" style={{background:"rgba(20,18,14,0.65)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)",border:"none",borderRadius:8,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}><RefreshCw size={14}/></button>
+                  <button className="ss-btn" onClick={async()=>{await rejectVocabImage(vocabPopup.word);setVocabImage(null);setVocabSaveError("");}} title="यो तस्बिर उपयुक्त छैन — हटाउनुहोस्" style={{background:"rgba(20,18,14,0.65)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)",border:"none",borderRadius:8,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}><Trash2 size={15}/></button>
                 </div>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginTop:6}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginTop:6,flexWrap:"wrap"}}>
                   {/* NEW — a freshly-fetched picture is a PREVIEW only; it
                       is not written to the app's shared library until the
                       teacher explicitly taps this, so nothing gets kept
@@ -1881,10 +1925,12 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                       session/device), this button is gone. */}
                   {!vocabImage.saved?(
                     <button className="ss-btn" disabled={vocabImageSaving} onClick={async()=>{
-                      setVocabImageSaving(true);
+                      setVocabImageSaving(true);setVocabSaveError("");
                       const { data:{ user } } = await supabase.auth.getUser();
-                      const ok = user && await saveWordImageForReuse(vocabPopup.word, vocabImage.blob, vocabImage.credit, user.id);
-                      if(ok) setVocabImage({...vocabImage, saved:true});
+                      if(!user){ setVocabSaveError("लगइन फेला परेन — फेरि लगइन गरेर हेर्नुहोस्।"); setVocabImageSaving(false); return; }
+                      const result = await saveWordImageForReuse(vocabPopup.word, vocabImage.blob, vocabImage.credit, user.id);
+                      if(result.ok) setVocabImage({...vocabImage, saved:true});
+                      else setVocabSaveError(result.error||"बचत गर्न सकिएन।");
                       setVocabImageSaving(false);
                     }} style={{padding:"7px 12px",borderRadius:9,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,fontSize:13,cursor:vocabImageSaving?"default":"pointer",display:"flex",alignItems:"center",gap:6,opacity:vocabImageSaving?0.7:1}}>
                       <CheckCircle2 size={14}/> {vocabImageSaving?"बचत हुँदैछ...":"पछि प्रयोगको लागि बचत गर्नुहोस्"}
@@ -1894,6 +1940,13 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                   )}
                   <div style={{fontSize:11.5,color:INK_SOFT,textAlign:"right"}}>तस्बिर: {vocabImage.credit||"Wikipedia"}</div>
                 </div>
+                {/* NEW — surfaces the real reason a save failed (e.g. the
+                    "vocab-images" Supabase Storage bucket was never
+                    created — see vocab_images_migration.sql's setup
+                    notes) instead of the button silently doing nothing. */}
+                {vocabSaveError&&(
+                  <div style={{marginTop:6,fontSize:12.5,color:ROSE,background:WARN_BG,borderRadius:8,padding:"6px 10px"}}>बचत गर्न सकिएन: {vocabSaveError}</div>
+                )}
               </div>
             )}
             <button className="ss-btn" onClick={()=>setVocabPopup(null)} style={{marginTop:16,width:"100%",padding:"10px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}>बुझें</button>
