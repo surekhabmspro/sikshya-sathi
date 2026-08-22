@@ -357,9 +357,66 @@ async function wikipediaLeadImage(word, lang) {
   if (!thumb) return null;
   return { thumburl: thumb, credit: `Wikipedia (${lang}) — ${page.title}` };
 }
+// Small Levenshtein distance — used only to decide whether a search
+// result's title is close enough to the word itself to trust (see
+// wikipediaNearMatchImage below), not for any user-facing feature.
+function editDistance(a, b) {
+  const m = a.length, n = b.length;
+  const dp = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[m][n];
+}
+// FIX — the exact-title-only rule above is correct for genuinely
+// ambiguous words ("साइरन" the siren vs. an actress by the same name —
+// see SAFETY FIX #2), but it also silently misses very ordinary,
+// unambiguous words whose article title differs only by spelling —
+// e.g. "सिसिटिभी" (a phonetic vocabulary-list spelling of CCTV) vs. the
+// actual article title with slightly different vowel signs. Rejecting
+// those outright made the feature too strict to be useful.
+//
+// This adds a narrow, controlled middle ground: fuzzy search IS allowed
+// here, but a result is only ever accepted if — in RANK ORDER — it is
+// the first candidate whose title (a) has no parenthetical qualifier at
+// all (a qualifier is exactly the signal that word is ambiguous, like
+// "अभिनेत्री" was) and (b) is within a small edit-distance of the word
+// itself (catches spelling/diacritic variants without opening the door
+// to unrelated topics that merely mention the word somewhere in the
+// article). Anything that doesn't clear both bars is skipped, not
+// substituted with a looser guess.
+async function wikipediaNearMatchImage(word, lang) {
+  const target = word.trim();
+  const url = `https://${lang}.wikipedia.org/w/api.php?action=query&generator=search&gsrnamespace=0&gsrsearch=${encodeURIComponent(target)}&gsrlimit=5&prop=pageimages|pageprops&piprop=thumbnail&pithumbsize=480&format=json&origin=*`;
+  const res = await fetch(url);
+  const data = await res.json();
+  const pages = data?.query?.pages;
+  if (!pages) return null;
+  const candidates = Object.values(pages).sort((a, b) => (a.index || 0) - (b.index || 0));
+  const maxAllowed = Math.max(1, Math.floor(target.length * 0.25));
+  for (const page of candidates) {
+    if (page.pageprops && "disambiguation" in page.pageprops) continue;
+    const title = (page.title || "").trim();
+    if (title.includes("(")) continue; // qualifier suffix = treat word as ambiguous
+    if (editDistance(title, target) > maxAllowed) continue;
+    const thumb = page?.thumbnail?.source;
+    if (!thumb) continue;
+    return { thumburl: thumb, credit: `Wikipedia (${lang}) — ${title}` };
+  }
+  return null;
+}
 async function previewWordImage(word) {
   try {
-    const info = (await wikipediaLeadImage(word, "ne")) || (await wikipediaLeadImage(word, "en"));
+    const info =
+      (await wikipediaLeadImage(word, "ne")) ||
+      (await wikipediaLeadImage(word, "en")) ||
+      (await wikipediaNearMatchImage(word, "ne")) ||
+      (await wikipediaNearMatchImage(word, "en"));
     if (!info?.thumburl) return null;
     const imgRes = await fetch(info.thumburl);
     const blob = await imgRes.blob();
@@ -1373,10 +1430,22 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
   // NEW — tracks the in-progress "बचत गर्नुहोस्" (save/keep) tap so the
   // button can show a brief loading state and can't be double-tapped.
   const [vocabImageSaving,setVocabImageSaving]=useState(false);
+  // NEW — manual search fallback: automatic lookup only matches a word
+  // against a Wikipedia article title (exact, or a close spelling
+  // variant — see wikipediaNearMatchImage). That correctly finds nothing
+  // for a Devanagari-spelled loanword/acronym like "सिसिटिभी" (a phonetic
+  // spelling of "C-C-T-V"), since no amount of title-similarity matching
+  // bridges two different scripts. Rather than guess at a translation,
+  // this lets the teacher type the actual term to look up (e.g. "CCTV" or
+  // "Closed-circuit television") — it still goes through the exact same
+  // safety checks (exact-title-or-near-match, no disambiguation pages),
+  // just searching the term the teacher provided instead of the raw word.
+  const [vocabManualQuery,setVocabManualQuery]=useState("");
+  const [vocabManualSearching,setVocabManualSearching]=useState(false);
   useEffect(()=>{
-    if(!vocabPopup){setVocabImage(null);setVocabImageRevealed(false);return;}
+    if(!vocabPopup){setVocabImage(null);setVocabImageRevealed(false);setVocabManualQuery("");return;}
     let cancelled=false;
-    setVocabImage(null);setVocabImageRevealed(false);setVocabImageLoading(true);
+    setVocabImage(null);setVocabImageRevealed(false);setVocabImageLoading(true);setVocabManualQuery(vocabPopup.word||"");
     fetchWordImage(vocabPopup.word).then((img)=>{if(!cancelled){setVocabImage(img);setVocabImageLoading(false);}});
     return ()=>{cancelled=true;};
   },[vocabPopup]);
@@ -1749,6 +1818,37 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
             <div style={{fontSize:"clamp(17px, 2vw, 20px)",color:INK,lineHeight:1.7}}>{vocabPopup.meaning}</div>
             {vocabImageLoading&&(
               <div style={{marginTop:16,height:150,borderRadius:12,background:SURFACE_2,display:"flex",alignItems:"center",justifyContent:"center",color:INK_SOFT,fontSize:14}}><Spinner small/></div>
+            )}
+            {/* NEW — shown only when automatic lookup found nothing. Common
+                for Devanagari-spelled loanwords/acronyms (e.g. "सिसिटिभी"
+                for CCTV) where no Wikipedia title textually resembles the
+                word itself. Lets the teacher type the real term instead —
+                still goes through the same exact/near-match + no-
+                disambiguation safety checks as the automatic lookup, and
+                still requires the reveal + save taps below before anything
+                is shown or kept. */}
+            {!vocabImageLoading&&!vocabImage&&(
+              <div style={{marginTop:16,padding:12,borderRadius:12,border:`1.5px dashed ${BORDER}`,background:SURFACE_2}}>
+                <div style={{fontSize:13,color:INK_SOFT,marginBottom:8}}>यो शब्दको लागि तस्बिर स्वतः फेला परेन। अर्को नामले खोज्नुहोस् (जस्तै अङ्ग्रेजी नाम वा पूरा नाम):</div>
+                <div style={{display:"flex",gap:8}}>
+                  <input
+                    value={vocabManualQuery}
+                    onChange={(e)=>setVocabManualQuery(e.target.value)}
+                    onKeyDown={(e)=>{if(e.key==="Enter")e.currentTarget.blur();}}
+                    placeholder="जस्तै: CCTV वा Closed-circuit television"
+                    style={{flex:1,padding:"9px 12px",borderRadius:9,border:`1px solid ${BORDER}`,background:SURFACE,color:INK,fontSize:14}}
+                  />
+                  <button className="ss-btn" disabled={vocabManualSearching||!vocabManualQuery.trim()} onClick={async()=>{
+                    setVocabManualSearching(true);
+                    const result=await previewWordImage(vocabManualQuery.trim());
+                    setVocabImage(result);
+                    setVocabImageRevealed(false);
+                    setVocabManualSearching(false);
+                  }} style={{padding:"9px 14px",borderRadius:9,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,fontSize:13.5,cursor:vocabManualSearching?"default":"pointer",opacity:vocabManualSearching||!vocabManualQuery.trim()?0.6:1,whiteSpace:"nowrap"}}>
+                    {vocabManualSearching?"खोज्दै...":"खोज्नुहोस्"}
+                  </button>
+                </div>
+              </div>
             )}
             {!vocabImageLoading&&vocabImage&&!vocabImageRevealed&&(
               <button className="ss-btn" onClick={()=>setVocabImageRevealed(true)} style={{marginTop:16,width:"100%",padding:"12px",borderRadius:12,border:`1.5px dashed ${BORDER}`,background:SURFACE_2,color:INK,fontWeight:600,fontSize:14.5,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
