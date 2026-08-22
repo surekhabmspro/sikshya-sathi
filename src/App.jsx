@@ -1351,6 +1351,27 @@ function LessonEditModal({ lesson, classContext, classLabel, onClose, onSaved })
     }catch(e){setError("AI त्रुटि: "+e.message);}
     setGenerating(false);
   };
+  // NEW — regenerates ONLY the vocabulary list (see gemini.generateVocabulary),
+  // for when the teacher wants more/different hard words without touching
+  // objectives, sequence, questions, activities or rubric they may have
+  // already reviewed/edited. Merges in by word — existing entries (and any
+  // manual edits to them) are kept; only genuinely new words are added, so
+  // nothing already there gets silently overwritten or reshuffled.
+  const [vocabGenerating,setVocabGenerating]=useState(false);
+  const regenerateVocabOnly=async()=>{
+    const chapter=form.chapter_title;
+    if(!chapter.trim()){setError("पहिले अध्याय छान्नुहोस्।");return;}
+    setVocabGenerating(true);setError("");
+    try{
+      const ctx=await getMaterialContext(chapter,classLabel,form.id);
+      const fresh=await gemini.generateVocabulary(chapter,ctx,classContext,form.title);
+      const existingLines=form.vocabulary.split(";").map((v)=>v.trim()).filter(Boolean);
+      const existingWords=new Set(existingLines.map((v)=>v.split(":")[0].trim()));
+      const merged=[...existingLines, ...fresh.filter((v)=>!existingWords.has(v.split(":")[0].trim()))];
+      setForm({...form, vocabulary: merged.join("; ")});
+    }catch(e){setError("AI त्रुटि: "+e.message);}
+    setVocabGenerating(false);
+  };
 
   const save=async()=>{
     if(!form.title.trim()){setError("पाठको नाम आवश्यक छ।");return;}
@@ -1469,11 +1490,19 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
   // safety checks (exact-title-or-near-match, no disambiguation pages),
   // just searching the term the teacher provided instead of the raw word.
   const [vocabManualQuery,setVocabManualQuery]=useState("");
+  // NEW — distinguishes "automatic lookup found nothing" from "teacher
+  // tapped the change/refresh icon wanting a different picture", so the
+  // search box can explain the one thing that trips people up either way:
+  // Wikipedia has exactly ONE lead picture per article, so searching the
+  // very same word/phrase again always returns the very same picture —
+  // getting a different one means typing a genuinely different term, not
+  // just re-tapping search.
+  const [vocabChangeRequested,setVocabChangeRequested]=useState(false);
   const [vocabManualSearching,setVocabManualSearching]=useState(false);
   useEffect(()=>{
-    if(!vocabPopup){setVocabImage(null);setVocabImageRevealed(false);setVocabManualQuery("");setVocabSaveError("");return;}
+    if(!vocabPopup){setVocabImage(null);setVocabImageRevealed(false);setVocabManualQuery("");setVocabSaveError("");setVocabChangeRequested(false);return;}
     let cancelled=false;
-    setVocabImage(null);setVocabImageRevealed(false);setVocabImageLoading(true);setVocabManualQuery(vocabPopup.word||"");setVocabSaveError("");
+    setVocabImage(null);setVocabImageRevealed(false);setVocabImageLoading(true);setVocabManualQuery(vocabPopup.word||"");setVocabSaveError("");setVocabChangeRequested(false);
     fetchWordImage(vocabPopup.word).then((img)=>{if(!cancelled){setVocabImage(img);setVocabImageLoading(false);}});
     return ()=>{cancelled=true;};
   },[vocabPopup]);
@@ -1880,7 +1909,11 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                 is shown or kept. */}
             {!vocabImageLoading&&!vocabImage&&(
               <div style={{marginTop:16,padding:12,borderRadius:12,border:`1.5px dashed ${BORDER}`,background:SURFACE_2}}>
-                <div style={{fontSize:13,color:INK_SOFT,marginBottom:8}}>यो शब्दको लागि तस्बिर स्वतः फेला परेन। अर्को नामले खोज्नुहोस् (जस्तै अङ्ग्रेजी नाम वा पूरा नाम):</div>
+                {vocabChangeRequested?(
+                  <div style={{fontSize:13,color:INK_SOFT,marginBottom:8}}>Wikipedia मा हरेक शब्दको एउटै मात्र तस्बिर हुन्छ — उही शब्द फेरि खोज्दा उही तस्बिर नै आउँछ। फरक तस्बिर चाहिएमा फरक नाम/वाक्यांश (जस्तै अङ्ग्रेजी नाम वा पूरा नाम) प्रयोग गरेर खोज्नुहोस्:</div>
+                ):(
+                  <div style={{fontSize:13,color:INK_SOFT,marginBottom:8}}>यो शब्दको लागि तस्बिर स्वतः फेला परेन। अर्को नामले खोज्नुहोस् (जस्तै अङ्ग्रेजी नाम वा पूरा नाम):</div>
+                )}
                 <div style={{display:"flex",gap:8}}>
                   <input
                     value={vocabManualQuery}
@@ -1928,7 +1961,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                       opens the manual search box, for when the picture
                       is fine but the teacher wants to try a different
                       one — without blacklisting the current match. */}
-                  <button className="ss-btn" onClick={()=>{setVocabImage(null);setVocabImageRevealed(false);setVocabSaveError("");}} title="फरक तस्बिर खोज्नुहोस्" style={{background:"rgba(20,18,14,0.65)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)",border:"none",borderRadius:8,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}><RefreshCw size={14}/></button>
+                  <button className="ss-btn" onClick={()=>{setVocabImage(null);setVocabImageRevealed(false);setVocabSaveError("");setVocabChangeRequested(true);}} title="फरक तस्बिर खोज्नुहोस्" style={{background:"rgba(20,18,14,0.65)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)",border:"none",borderRadius:8,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}><RefreshCw size={14}/></button>
                   <button className="ss-btn" onClick={async()=>{await rejectVocabImage(vocabPopup.word);setVocabImage(null);setVocabSaveError("");}} title="यो तस्बिर उपयुक्त छैन — हटाउनुहोस्" style={{background:"rgba(20,18,14,0.65)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)",border:"none",borderRadius:8,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}><Trash2 size={15}/></button>
                 </div>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginTop:6,flexWrap:"wrap"}}>
