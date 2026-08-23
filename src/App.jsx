@@ -2826,8 +2826,16 @@ function SimulationStage({ html, title }) {
         const opts = e.data.opts || {};
         const vs = window.speechSynthesis.getVoices();
         console.log("[SS-DEBUG][parent] voices available:", vs.length, vs.map(v => v.lang + (v.default ? " (default)" : "")));
-        const neHiVoice = vs.find((v) => v.lang && v.lang.toLowerCase().indexOf("ne") === 0)
-          || vs.find((v) => v.lang && v.lang.toLowerCase().indexOf("hi") === 0);
+        // NEW — the Web Speech API doesn't expose voice gender directly, so
+        // once a Nepali/Hindi voice pack is installed, prefer one whose name
+        // matches known female voice names Windows ships (e.g. "Hemkala" for
+        // Nepali, "Kalpana"/"Swara" for Hindi) over male ones (e.g. "Hemant",
+        // "Hardik") when both are present.
+        const FEMALE_VOICE_HINTS = ["hemkala", "kalpana", "swara", "heera", "female"];
+        const neHiVoices = vs.filter((v) => v.lang && (v.lang.toLowerCase().indexOf("ne") === 0 || v.lang.toLowerCase().indexOf("hi") === 0));
+        const neHiVoice = neHiVoices.find((v) => FEMALE_VOICE_HINTS.some((h) => v.name.toLowerCase().includes(h)))
+          || neHiVoices.find((v) => v.lang.toLowerCase().indexOf("ne") === 0)
+          || neHiVoices[0];
         const voice = neHiVoice || vs.find((v) => v.default) || vs[0];
         console.log("[SS-DEBUG][parent] chosen voice:", voice ? (voice.name + " / " + voice.lang) : "NONE — falling back to lang=ne-NP with no voice object");
         // Only Romanize when we're about to hand Devanagari text to a
