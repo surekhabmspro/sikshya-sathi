@@ -2794,6 +2794,25 @@ function SimulationStage({ html, title }) {
   // itself — it posts {__ssSpeak,text,opts} up to this parent frame,
   // which always has full, unsandboxed access to the browser's voices,
   // and speaks on the iframe's behalf.
+  // NEW — on Windows PCs without a Nepali/Hindi voice installed, feeding
+  // Devanagari text to an English SAPI voice (e.g. "Microsoft David")
+  // reports success (onstart/onend fire, no error) but produces total
+  // silence — a known Windows TTS quirk with unsupported scripts,
+  // confirmed by direct console testing. Since the phrases spoken here
+  // are a small fixed set (defined in gemini.js's soundScript), we map
+  // each to a Romanized fallback so the English voice has something it
+  // can actually pronounce audibly when no ne/hi voice is available.
+  const ROMANIZED_FALLBACK = {
+    "सही!": "Sahi!",
+    "एकदम सही!": "Ekdam sahi!",
+    "साबास!": "Sabaas!",
+    "उत्कृष्ट!": "Utkrishta!",
+    "मिल्यो!": "Milyo!",
+    "गलत, फेरि प्रयास गर्नुहोस्।": "Galat, feri prayaas garnuhos.",
+    "बधाई छ, सबै सही!": "Badhaai chha, sabai sahi!",
+    "साबास, सबै पूरा भयो!": "Sabaas, sabai puraa bhayo!",
+    "धेरै राम्रो, सबै सही!": "Dherai raamro, sabai sahi!",
+  };
   useEffect(() => {
     function onMsg(e) {
       console.log("[SS-DEBUG][parent] message event received, data=", e.data, "source matches iframe?", e.source === iframeRef.current?.contentWindow);
@@ -2805,14 +2824,22 @@ function SimulationStage({ html, title }) {
         console.log("[SS-DEBUG][parent] window.speechSynthesis exists?", !!window.speechSynthesis);
         if (!window.speechSynthesis) return;
         const opts = e.data.opts || {};
-        const u = new SpeechSynthesisUtterance(e.data.text);
         const vs = window.speechSynthesis.getVoices();
         console.log("[SS-DEBUG][parent] voices available:", vs.length, vs.map(v => v.lang + (v.default ? " (default)" : "")));
-        const voice = (vs.find((v) => v.lang && v.lang.toLowerCase().indexOf("ne") === 0)
-          || vs.find((v) => v.lang && v.lang.toLowerCase().indexOf("hi") === 0)
-          || vs.find((v) => v.default) || vs[0]);
+        const neHiVoice = vs.find((v) => v.lang && v.lang.toLowerCase().indexOf("ne") === 0)
+          || vs.find((v) => v.lang && v.lang.toLowerCase().indexOf("hi") === 0);
+        const voice = neHiVoice || vs.find((v) => v.default) || vs[0];
         console.log("[SS-DEBUG][parent] chosen voice:", voice ? (voice.name + " / " + voice.lang) : "NONE — falling back to lang=ne-NP with no voice object");
-        if (voice) { u.voice = voice; u.lang = voice.lang; } else { u.lang = "ne-NP"; }
+        // Only Romanize when we're about to hand Devanagari text to a
+        // non-Nepali/Hindi voice — a real ne/hi voice speaks the original
+        // text normally and correctly.
+        let textToSpeak = e.data.text;
+        if (!neHiVoice && ROMANIZED_FALLBACK[textToSpeak]) {
+          console.log("[SS-DEBUG][parent] no ne/hi voice — using Romanized fallback text instead of Devanagari");
+          textToSpeak = ROMANIZED_FALLBACK[textToSpeak];
+        }
+        const u = new SpeechSynthesisUtterance(textToSpeak);
+        if (voice) { u.voice = voice; u.lang = neHiVoice ? voice.lang : "en-US"; } else { u.lang = "ne-NP"; }
         u.rate = opts.rate || 0.92;
         u.pitch = opts.pitch || 1.08;
         u.volume = opts.volume || 0.85;
