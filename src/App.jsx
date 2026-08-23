@@ -10,13 +10,13 @@ import {
   Settings as SettingsIcon, Trash2, RefreshCw, BookMarked, Zap,
   Sun, Moon, Lightbulb, Paperclip, ArrowDown, Pin, RotateCw,
   GraduationCap, PartyPopper, Bell, Palmtree, Megaphone, AlertTriangle, Download,
-  Upload,
+  Upload, ChevronDown,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import * as db from "./db";
 import * as gemini from "./gemini";
 import { extractTextFromFile } from "./lib/extract";
-import { fillLessonPlanDocx, fillRubricDocx, downloadBlob } from "./lib/docxFill";
+import { fillLessonPlanDocx, fillRubricDocx, downloadBlob, zipFiles } from "./lib/docxFill";
 import { DataProvider, useData } from "./context/DataContext";
 
 // NEW — every color below is a CSS custom property, not a hardcoded hex.
@@ -2525,7 +2525,16 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
             notification hiding the content." No wrap now, and the subtitle
             (which is informational, not essential) hides below 560px via
             the media query, instead of ever pushing onto a second line. */}
-        <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:INK,color:"#fff",flexShrink:0}}>
+        {/* FIX — background was `INK`, a CSS var that TEXT uses and that
+            flips to a pale cream color in dark theme (the app's default —
+            see index.html: --ink:#FBEEDD in [data-theme="dark"]). Used as a
+            background behind white text/icons, that's white-ish-on-white —
+            invisible, exactly the "white bar, nothing visible" bug. This
+            whole overlay is a fixed always-dark "cinema mode" viewer (the
+            outer div is literally background:"#000"), so the bar needs a
+            fixed dark literal, not a theme-dependent variable that was
+            never meant to be used as a background at all. */}
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"#1C1006",color:"#fff",flexShrink:0}}>
           <div style={{flex:1,minWidth:0,fontWeight:700,fontSize:15.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{viewing.title}</div>
           <span className="ss-sim-subtitle" style={{fontSize:13,color:"rgba(255,255,255,0.6)",fontWeight:600,whiteSpace:"nowrap"}}>🖥️ ल्यापटप/प्रोजेक्टरका लागि डिजाइन गरिएको</span>
           <IconButton icon={generating?Loader:RefreshCw} spin={generating} onClick={generate} disabled={generating} title="अर्को नयाँ सिमुलेसन बनाउनुहोस्" variant="hero" size={17} style={{borderRadius:8,padding:8}}/>
@@ -2894,32 +2903,55 @@ function YojanaSheet({ lesson, onClose }) {
 }
 
 // NEW — the official Lesson Plan + Rubric for school submission (distinct
-// from the classroom-facing "AI ले यो पाठ बनाओस्" bundle above). Per
-// chapter: shows an existing saved Plan Group if one covers this chapter
-// (possibly merged with others), or offers "AI ले मस्यौदा बनाओस्" (drafts
-// from the Teacher's Guide + textbook, auto-detecting merged chapters) vs
-// "आफैं लेख्नुहोस्" (blank form, filled and saved manually). Either way the
+// from the classroom-facing "AI ले यो पाठ बनाओस्" bundle above, and from
+// the day-to-day Planner lessons). Per chapter: shows an existing saved
+// Plan Group if one covers this chapter (possibly merged with others), or
+// offers "AI ले मस्यौदा बनाओस्" (drafts from the Teacher's Guide +
+// textbook, auto-detecting merged chapters AND merged lessons) vs "आफैं
+// लेख्नुहोस्" (blank form, filled and saved manually). Either way the
 // result is reviewable/editable before "स्वीकृत गर्नुहोस्" (approve) — only
 // an approved group is used for Yojana generation.
+//
+// FIX (per-lesson, decoupled from Planner lessons) — this used to draft ONE
+// shared plan/rubric for the whole chapter. It's now one full plan per
+// OFFICIAL lesson — but an official lesson is a designation the
+// student-assessment guidance document defines for itself, NOT the same
+// thing as a classroom lesson row in the Planner. A chapter can have 5
+// classroom lessons while the guidance document only recognizes 4 official
+// ones (two classroom lessons sharing one सिकाइ उपलब्धि, merged into a
+// single official plan). So this list is its own independent, freely
+// editable set of "official lesson" entries — named by the AI (from the
+// guide) or by the teacher — never assumed to be 1:1 with Planner lessons.
 const RUBRIC_LEVELS = ["उत्कृष्ट", "राम्रो", "सामान्य", "सुधार आवश्यक"];
 const emptyRubricRow = () => ({ criteria: "", levels: RUBRIC_LEVELS.map((level) => ({ level, desc: "" })) });
-const emptyPlanDraft = () => ({
+const emptyOfficialLesson = (title = "") => ({
+  lesson_title: title, source_lesson_titles: [], source_reason: null,
   major_learning_outcomes: [""], materials_required: [""],
   engage: "", explore: "", explain: "", elaborate: "", evaluate: "",
   rubric: [emptyRubricRow()],
 });
 
-function PlanGroupModal({ chapter, allChapters, classLabel, classContext, onClose }) {
+function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContext, onClose }) {
   const [phase, setPhase] = useState("loading"); // loading | choose | drafting | review
   const [existingGroup, setExistingGroup] = useState(null);
   const [groupChapterTitles, setGroupChapterTitles] = useState([chapter.title]);
   const [groupReason, setGroupReason] = useState(null);
   const [source, setSource] = useState("ai_drafted");
-  const [draft, setDraft] = useState(emptyPlanDraft());
+  const [draft, setDraft] = useState({ lessons: [] });
+  const [openIdx, setOpenIdx] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [formatTemplateId, setFormatTemplateId] = useState(null);
   const [teacherGuideId, setTeacherGuideId] = useState(null);
+
+  // Classroom (Planner) lessons under the given chapter titles — used only
+  // as REFERENCE context for the AI and as a helpful hint in the UI, never
+  // as the list the official plans are built from.
+  const classroomLessonsForChapterTitles = (titles) => {
+    const ids = new Set((allChapters || []).filter((c) => titles.includes(c.title)).map((c) => c.id));
+    if (!ids.has(chapter.id)) ids.add(chapter.id);
+    return (lessons || []).filter((l) => ids.has(l.chapter_id));
+  };
 
   useEffect(() => {
     (async () => {
@@ -2927,14 +2959,9 @@ function PlanGroupModal({ chapter, allChapters, classLabel, classContext, onClos
       if (data) {
         setExistingGroup(data);
         setSource(data.source);
-        setGroupChapterTitles((allChapters || []).filter((c) => (data.chapter_ids || []).includes(c.id)).map((c) => c.title));
-        setDraft({
-          major_learning_outcomes: data.major_learning_outcomes?.length ? data.major_learning_outcomes : [""],
-          materials_required: data.materials_required?.length ? data.materials_required : [""],
-          engage: data.engage || "", explore: data.explore || "", explain: data.explain || "",
-          elaborate: data.elaborate || "", evaluate: data.evaluate || "",
-          rubric: data.rubric?.length ? data.rubric : [emptyRubricRow()],
-        });
+        const titles = (allChapters || []).filter((c) => (data.chapter_ids || []).includes(c.id)).map((c) => c.title);
+        setGroupChapterTitles(titles);
+        setDraft({ lessons: (data.lessons || []).map((l) => ({ ...emptyOfficialLesson(l.lesson_title), ...l })) });
         setFormatTemplateId(data.format_template_id || null);
         setTeacherGuideId(data.teacher_guide_id || null);
         setPhase("review");
@@ -2946,7 +2973,7 @@ function PlanGroupModal({ chapter, allChapters, classLabel, classContext, onClos
 
   const startManual = () => {
     setSource("uploaded"); setGroupChapterTitles([chapter.title]); setGroupReason(null);
-    setDraft(emptyPlanDraft()); setPhase("review");
+    setDraft({ lessons: [emptyOfficialLesson()] }); setOpenIdx(0); setPhase("review");
   };
 
   const startAIDraft = async () => {
@@ -2962,16 +2989,24 @@ function PlanGroupModal({ chapter, allChapters, classLabel, classContext, onClos
       const groups = await gemini.detectChapterGrouping(guideClassText, allTitles);
       const myGroup = groups.find((g) => g.chapter_titles.includes(chapter.title)) || { chapter_titles: [chapter.title], reason: null };
       setGroupChapterTitles(myGroup.chapter_titles); setGroupReason(myGroup.reason);
+      const classroomTitles = classroomLessonsForChapterTitles(myGroup.chapter_titles).map((l) => l.title);
+      const officialUnits = await gemini.detectOfficialLessons(guideClassText, myGroup.chapter_titles, classroomTitles);
       const ctx = await getMaterialContext(chapter.title, classLabel, null);
-      const result = await gemini.draftPlanGroup(myGroup.chapter_titles, ctx, classContext, guideClassText);
+      const results = await gemini.draftPlanGroupLessons(myGroup.chapter_titles, officialUnits.map((u) => u.official_title), ctx, classContext, guideClassText);
       setSource("ai_drafted");
-      setDraft({
-        major_learning_outcomes: result.major_learning_outcomes?.length ? result.major_learning_outcomes : [""],
-        materials_required: result.materials_required?.length ? result.materials_required : [""],
-        engage: result.engage || "", explore: result.explore || "", explain: result.explain || "",
-        elaborate: result.elaborate || "", evaluate: result.evaluate || "",
-        rubric: result.rubric?.length ? result.rubric : [emptyRubricRow()],
+      const merged = officialUnits.map((u, i) => {
+        const r = results[i] || {};
+        return {
+          lesson_title: r.lesson_title || u.official_title,
+          source_lesson_titles: u.source_lesson_titles || [], source_reason: u.reason || null,
+          major_learning_outcomes: r.major_learning_outcomes?.length ? r.major_learning_outcomes : [""],
+          materials_required: r.materials_required?.length ? r.materials_required : [""],
+          engage: r.engage || "", explore: r.explore || "", explain: r.explain || "",
+          elaborate: r.elaborate || "", evaluate: r.evaluate || "",
+          rubric: r.rubric?.length ? r.rubric : [emptyRubricRow()],
+        };
       });
+      setDraft({ lessons: merged }); setOpenIdx(0);
       setPhase("review");
     } catch (e) {
       setError(e.message || "मस्यौदा बनाउन सकिएन।"); setPhase("choose");
@@ -2979,14 +3014,17 @@ function PlanGroupModal({ chapter, allChapters, classLabel, classContext, onClos
     setBusy(false);
   };
 
-  const setField = (key, value) => setDraft((d) => ({ ...d, [key]: value }));
-  const setListItem = (key, i, value) => setDraft((d) => ({ ...d, [key]: d[key].map((v, idx) => idx === i ? value : v) }));
-  const addListItem = (key) => setDraft((d) => ({ ...d, [key]: [...d[key], ""] }));
-  const removeListItem = (key, i) => setDraft((d) => ({ ...d, [key]: d[key].filter((_, idx) => idx !== i) }));
-  const setRubricDesc = (ri, li, value) => setDraft((d) => ({ ...d, rubric: d.rubric.map((row, idx) => idx === ri ? { ...row, levels: row.levels.map((l, lidx) => lidx === li ? { ...l, desc: value } : l) } : row) }));
-  const setRubricCriteria = (ri, value) => setDraft((d) => ({ ...d, rubric: d.rubric.map((row, idx) => idx === ri ? { ...row, criteria: value } : row) }));
-  const addRubricRow = () => setDraft((d) => ({ ...d, rubric: [...d.rubric, emptyRubricRow()] }));
-  const removeRubricRow = (ri) => setDraft((d) => ({ ...d, rubric: d.rubric.filter((_, idx) => idx !== ri) }));
+  const setLesson = (li, patch) => setDraft((d) => ({ ...d, lessons: d.lessons.map((l, idx) => idx === li ? { ...l, ...patch } : l) }));
+  const setLessonField = (li, key, value) => setLesson(li, { [key]: value });
+  const setLessonListItem = (li, key, i, value) => setDraft((d) => ({ ...d, lessons: d.lessons.map((l, idx) => idx === li ? { ...l, [key]: l[key].map((v, vi) => vi === i ? value : v) } : l) }));
+  const addLessonListItem = (li, key) => setDraft((d) => ({ ...d, lessons: d.lessons.map((l, idx) => idx === li ? { ...l, [key]: [...l[key], ""] } : l) }));
+  const removeLessonListItem = (li, key, i) => setDraft((d) => ({ ...d, lessons: d.lessons.map((l, idx) => idx === li ? { ...l, [key]: l[key].filter((_, vi) => vi !== i) } : l) }));
+  const setLessonRubricDesc = (li, ri, lvi, value) => setDraft((d) => ({ ...d, lessons: d.lessons.map((l, idx) => idx === li ? { ...l, rubric: l.rubric.map((row, rIdx) => rIdx === ri ? { ...row, levels: row.levels.map((lv, lvIdx) => lvIdx === lvi ? { ...lv, desc: value } : lv) } : row) } : l) }));
+  const setLessonRubricCriteria = (li, ri, value) => setDraft((d) => ({ ...d, lessons: d.lessons.map((l, idx) => idx === li ? { ...l, rubric: l.rubric.map((row, rIdx) => rIdx === ri ? { ...row, criteria: value } : row) } : l) }));
+  const addLessonRubricRow = (li) => setDraft((d) => ({ ...d, lessons: d.lessons.map((l, idx) => idx === li ? { ...l, rubric: [...l.rubric, emptyRubricRow()] } : l) }));
+  const removeLessonRubricRow = (li, ri) => setDraft((d) => ({ ...d, lessons: d.lessons.map((l, idx) => idx === li ? { ...l, rubric: l.rubric.filter((_, rIdx) => rIdx !== ri) } : l) }));
+  const addOfficialLesson = () => setDraft((d) => ({ ...d, lessons: [...d.lessons, emptyOfficialLesson()] }));
+  const removeOfficialLesson = (li) => { setDraft((d) => ({ ...d, lessons: d.lessons.filter((_, idx) => idx !== li) })); setOpenIdx(-1); };
 
   const persist = async (status) => {
     setBusy(true); setError("");
@@ -2999,12 +3037,17 @@ function PlanGroupModal({ chapter, allChapters, classLabel, classContext, onClos
       if (!ids.includes(chapter.id)) ids.push(chapter.id);
       const payload = {
         class_label: classLabel, title: groupChapterTitles.join(" + "), chapter_ids: ids, source, status,
-        major_learning_outcomes: draft.major_learning_outcomes.filter((v) => v.trim()),
-        materials_required: draft.materials_required.filter((v) => v.trim()),
-        engage: draft.engage, explore: draft.explore, explain: draft.explain, elaborate: draft.elaborate, evaluate: draft.evaluate,
-        rubric: draft.rubric.filter((r) => r.criteria.trim()),
+        lessons: draft.lessons.filter((l) => l.lesson_title.trim()).map((l) => ({
+          lesson_title: l.lesson_title.trim(),
+          source_lesson_titles: l.source_lesson_titles || [], source_reason: l.source_reason || null,
+          major_learning_outcomes: l.major_learning_outcomes.filter((v) => v.trim()),
+          materials_required: l.materials_required.filter((v) => v.trim()),
+          engage: l.engage, explore: l.explore, explain: l.explain, elaborate: l.elaborate, evaluate: l.evaluate,
+          rubric: l.rubric.filter((r) => r.criteria.trim()),
+        })),
         format_template_id: formatTemplateId, teacher_guide_id: teacherGuideId,
       };
+      if (!payload.lessons.length) { setError("कम्तीमा एउटा आधिकारिक पाठको नाम राख्नुहोस्।"); setBusy(false); return; }
       const { data, error: err } = existingGroup
         ? await db.updatePlanGroup(existingGroup.id, payload)
         : await db.insertPlanGroup(payload);
@@ -3020,6 +3063,14 @@ function PlanGroupModal({ chapter, allChapters, classLabel, classContext, onClos
   // in the school's exact layout/formatting. Works on a draft too (not
   // only approved), per the teacher's request to reuse this on
   // already-saved plans as well.
+  //
+  // FIX (per-lesson) — one lesson-plan (+ rubric) file per OFFICIAL lesson,
+  // not one for the whole chapter. Every generated file is bundled into a
+  // single .zip before handing off to downloadBlob, both so a multi-lesson
+  // export is one share/save action instead of several, and because
+  // downloadBlob itself now prefers the Web Share API — the fix for the
+  // "Word file won't save" problem on mobile, where a plain <a download>
+  // click is silently swallowed inside an installed PWA / in-app browser.
   const [exportBusy, setExportBusy] = useState(false);
   const [exportMsg, setExportMsg] = useState("");
   const exportDocx = async () => {
@@ -3032,22 +3083,37 @@ function PlanGroupModal({ chapter, allChapters, classLabel, classContext, onClos
         setExportMsg("पहिले सेटिङ्समा यस वर्षको पाठ योजना ढाँचा अपलोड गर्नुहोस्।"); setExportBusy(false); return;
       }
       const lpBlob = await db.downloadMaterialFile(template.lesson_plan_storage_path);
-      const { blob: filledLP } = await fillLessonPlanDocx(lpBlob, {
-        major_learning_outcomes: draft.major_learning_outcomes,
-        materials_required: draft.materials_required,
-        engage: draft.engage, explore: draft.explore, explain: draft.explain, elaborate: draft.elaborate, evaluate: draft.evaluate,
-      });
-      downloadBlob(filledLP, `${chapter.title}-पाठ-योजना.docx`);
+      const rubricBlob = (template.rubric_storage_path && template.rubric_file_type === "docx")
+        ? await db.downloadMaterialFile(template.rubric_storage_path) : null;
 
-      if (template.rubric_storage_path && template.rubric_file_type === "docx") {
-        const rubricBlob = await db.downloadMaterialFile(template.rubric_storage_path);
-        const { blob: filledRubric } = await fillRubricDocx(rubricBlob, draft.rubric);
-        downloadBlob(filledRubric, `${chapter.title}-रुब्रिक्स.docx`);
-        setExportMsg("दुवै फाइल डाउनलोड भए (Word ढाँचामा) — Word वा Google Docs मा खोली 'PDF मा बचत गर्नुहोस्' गर्दा ठ्याक्कै यही ढाँचामा PDF बन्छ।");
-      } else if (template.rubric_storage_path) {
-        setExportMsg("पाठ योजना डाउनलोड भयो। रुब्रिक्स ढाँचा फोटोको रूपमा राखिएकाले त्यसलाई उस्तै ढाँचामा स्वतः भर्न मिल्दैन — रुब्रिक्सको Word फाइल अपलोड गरे स्वतः भरिनेछ।");
+      const files = [];
+      for (const l of draft.lessons) {
+        if (!l.lesson_title.trim()) continue;
+        const { blob: filledLP } = await fillLessonPlanDocx(lpBlob, {
+          major_learning_outcomes: l.major_learning_outcomes,
+          materials_required: l.materials_required,
+          engage: l.engage, explore: l.explore, explain: l.explain, elaborate: l.elaborate, evaluate: l.evaluate,
+        });
+        files.push({ filename: `${l.lesson_title}-पाठ-योजना.docx`, blob: filledLP });
+        if (rubricBlob) {
+          const { blob: filledRubric } = await fillRubricDocx(rubricBlob, l.rubric);
+          files.push({ filename: `${l.lesson_title}-रुब्रिक्स.docx`, blob: filledRubric });
+        }
+      }
+
+      if (!files.length) { setExportMsg("कम्तीमा एउटा आधिकारिक पाठको नाम राख्नुहोस्।"); setExportBusy(false); return; }
+
+      if (files.length === 1) {
+        await downloadBlob(files[0].blob, files[0].filename);
       } else {
-        setExportMsg("पाठ योजना डाउनलोड भयो। Word वा Google Docs मा खोली 'PDF मा बचत गर्नुहोस्' गर्नुहोस्।");
+        const zipped = await zipFiles(files);
+        await downloadBlob(zipped, `${chapter.title}-पाठ-योजनाहरू.zip`);
+      }
+
+      if (!rubricBlob && template.rubric_storage_path) {
+        setExportMsg("पाठ योजनाहरू तयार भए। रुब्रिक्स ढाँचा फोटोको रूपमा राखिएकाले त्यसलाई उस्तै ढाँचामा स्वतः भर्न मिल्दैन — रुब्रिक्सको Word फाइल अपलोड गरे स्वतः भरिनेछ।");
+      } else {
+        setExportMsg("Word फाइल तयार भयो। Word वा Google Docs मा खोली 'PDF मा बचत गर्नुहोस्' गर्नुहोस्।");
       }
     } catch (e) { setExportMsg("त्रुटि: " + (e.message || "एक्सपोर्ट गर्न सकिएन।")); }
     setExportBusy(false);
@@ -3066,8 +3132,8 @@ function PlanGroupModal({ chapter, allChapters, classLabel, classContext, onClos
         {phase==="choose"&&(
           <div style={{display:"flex",flexDirection:"column",gap:12,marginTop:14}}>
             {error&&<div style={{fontSize:15,color:DANGER,background:DANGER_BG,borderRadius:10,padding:"10px 12px"}}>{error}</div>}
-            <div style={{fontSize:15.5,color:INK_SOFT,lineHeight:1.6}}>यो अध्यायको लागि अझै कुनै आधिकारिक पाठ योजना/रुब्रिक्स छैन।</div>
-            <AIButton label="✨ AI ले मस्यौदा बनाओस् (मार्गदर्शन + पाठ्यपुस्तकबाट)" onClick={startAIDraft} loading={busy} style={{width:"100%",justifyContent:"center",fontSize:16.5,padding:"13px"}}/>
+            <div style={{fontSize:15.5,color:INK_SOFT,lineHeight:1.6}}>यो अध्यायको लागि अझै कुनै आधिकारिक पाठ योजना/रुब्रिक्स छैन। यहाँको "आधिकारिक पाठ" संख्या कक्षामा पढाइने पाठ्यपुस्तकका पाठ संख्यासँग बराबर नहुन सक्छ — विद्यार्थी मूल्याङ्कन मार्गदर्शनले साझा सिकाइ उपलब्धि भएका पाठहरू गाभेको हुन सक्छ।</div>
+            <AIButton label="✨ AI ले मस्यौदा बनाओस् (मार्गदर्शनअनुसार पाठ छुट्याएर)" onClick={startAIDraft} loading={busy} style={{width:"100%",justifyContent:"center",fontSize:16.5,padding:"13px"}}/>
             <button className="ss-btn" onClick={startManual} style={{width:"100%",padding:"12px",borderRadius:10,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontWeight:700,fontSize:16,cursor:"pointer"}}>आफैं लेख्नुहोस्</button>
           </div>
         )}
@@ -3075,7 +3141,7 @@ function PlanGroupModal({ chapter, allChapters, classLabel, classContext, onClos
         {phase==="drafting"&&(
           <div style={{padding:"30px 0",display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
             <Spinner/>
-            <div style={{fontSize:15.5,color:INK_SOFT}}>मार्गदर्शन र पाठ्यपुस्तक हेर्दै, मस्यौदा तयार गर्दै...</div>
+            <div style={{fontSize:15.5,color:INK_SOFT}}>मार्गदर्शनअनुसार पाठ छुट्याउँदै, हरेकको मस्यौदा तयार गर्दै...</div>
           </div>
         )}
 
@@ -3089,59 +3155,83 @@ function PlanGroupModal({ chapter, allChapters, classLabel, classContext, onClos
             )}
             {existingGroup?.status==="approved"&&<div style={{fontSize:14,fontWeight:700,color:ACCENT}}>✓ स्वीकृत — Yojana यसैबाट बन्न सक्छ</div>}
 
-            <div>
-              <SectionLabel icon={ClipboardList} color={VIOLET}>प्रमुख सिकाइ उपलब्धि</SectionLabel>
-              {draft.major_learning_outcomes.map((v,i)=>(
-                <div key={i} style={{display:"flex",gap:6,marginBottom:6}}>
-                  <input value={v} onChange={(e)=>setListItem("major_learning_outcomes",i,e.target.value)} className="ss-field" style={{flex:1,borderRadius:10,padding:"9px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
-                  <IconButton icon={X} onClick={()=>removeListItem("major_learning_outcomes",i)} size={16}/>
-                </div>
-              ))}
-              <button className="ss-btn" onClick={()=>addListItem("major_learning_outcomes")} style={{fontSize:14,color:ACCENT,background:"none",border:"none",fontWeight:700,cursor:"pointer",padding:"4px 0"}}>+ थप्नुहोस्</button>
-            </div>
-
-            <div>
-              <SectionLabel icon={FolderKanban} color={TEAL}>आवश्यक सामग्री</SectionLabel>
-              {draft.materials_required.map((v,i)=>(
-                <div key={i} style={{display:"flex",gap:6,marginBottom:6}}>
-                  <input value={v} onChange={(e)=>setListItem("materials_required",i,e.target.value)} className="ss-field" style={{flex:1,borderRadius:10,padding:"9px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
-                  <IconButton icon={X} onClick={()=>removeListItem("materials_required",i)} size={16}/>
-                </div>
-              ))}
-              <button className="ss-btn" onClick={()=>addListItem("materials_required")} style={{fontSize:14,color:ACCENT,background:"none",border:"none",fontWeight:700,cursor:"pointer",padding:"4px 0"}}>+ थप्नुहोस्</button>
-            </div>
-
-            {[["engage","Engage"],["explore","Explore"],["explain","Explain"],["elaborate","Elaborate"],["evaluate","Evaluate"]].map(([key,label])=>(
-              <div key={key}>
-                <SectionLabel icon={Layers} color={PALETTE[0]}>{label}</SectionLabel>
-                <textarea value={draft[key]} onChange={(e)=>setField(key,e.target.value)} rows={3} className="ss-field" style={{width:"100%",borderRadius:10,padding:"10px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
-              </div>
-            ))}
-
-            <div>
-              <SectionLabel icon={CheckSquare} color={MARIGOLD_DARK}>मूल्याङ्कन रुब्रिक्स</SectionLabel>
-              {draft.rubric.map((row,ri)=>(
-                <div key={ri} style={{border:`1.5px solid ${BORDER}`,borderRadius:12,padding:10,marginBottom:8}}>
-                  <div style={{display:"flex",gap:6,marginBottom:8}}>
-                    <input value={row.criteria} onChange={(e)=>setRubricCriteria(ri,e.target.value)} placeholder="मूल्याङ्कनको क्षेत्र (जस्तै: विषयवस्तु बुझाइ)" className="ss-field" style={{flex:1,borderRadius:10,padding:"9px 12px",fontSize:15.5,fontWeight:700,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
-                    <IconButton icon={Trash2} onClick={()=>removeRubricRow(ri)} size={16}/>
+            {draft.lessons.map((lesson, li) => {
+              const isOpen = openIdx === li;
+              return (
+                <div key={li} style={{border:`1.5px solid ${BORDER}`,borderRadius:14,overflow:"hidden"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,padding:"10px 10px 10px 14px",background:SURFACE_2}}>
+                    <div style={{fontWeight:800,fontSize:14.5,color:INK_SOFT,flexShrink:0}}>{li+1}.</div>
+                    <input value={lesson.lesson_title} onChange={(e)=>setLessonField(li,"lesson_title",e.target.value)} placeholder="आधिकारिक पाठको नाम" className="ss-field" style={{flex:1,borderRadius:8,padding:"7px 10px",fontSize:15.5,fontWeight:700,border:`1.5px solid ${BORDER}`,background:SURFACE}}/>
+                    <IconButton icon={ChevronDown} onClick={()=>setOpenIdx(isOpen?-1:li)} size={18} style={{transform:isOpen?"rotate(180deg)":"none",transition:"transform 0.15s"}}/>
+                    <IconButton icon={Trash2} onClick={()=>removeOfficialLesson(li)} size={16}/>
                   </div>
-                  {row.levels.map((lvl,li)=>(
-                    <div key={li} style={{display:"flex",gap:8,alignItems:"center",marginBottom:5}}>
-                      <div style={{fontSize:13.5,fontWeight:700,color:INK_SOFT,width:100,flexShrink:0}}>{lvl.level}</div>
-                      <input value={lvl.desc} onChange={(e)=>setRubricDesc(ri,li,e.target.value)} className="ss-field" style={{flex:1,borderRadius:8,padding:"7px 10px",fontSize:14.5,border:`1.5px solid ${BORDER}`,background:SURFACE}}/>
+                  {lesson.source_lesson_titles?.length>0&&(
+                    <div style={{fontSize:13.5,color:INK_SOFT,padding:"6px 14px",background:SURFACE_2,lineHeight:1.5}}>
+                      पाठ्यपुस्तकका पाठहरू: {lesson.source_lesson_titles.join(", ")}{lesson.source_reason?` — ${lesson.source_reason}`:""}
                     </div>
-                  ))}
+                  )}
+                  {isOpen&&(
+                    <div style={{display:"flex",flexDirection:"column",gap:16,padding:"16px 14px"}}>
+                      <div>
+                        <SectionLabel icon={ClipboardList} color={VIOLET}>प्रमुख सिकाइ उपलब्धि</SectionLabel>
+                        {lesson.major_learning_outcomes.map((v,i)=>(
+                          <div key={i} style={{display:"flex",gap:6,marginBottom:6}}>
+                            <input value={v} onChange={(e)=>setLessonListItem(li,"major_learning_outcomes",i,e.target.value)} className="ss-field" style={{flex:1,borderRadius:10,padding:"9px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+                            <IconButton icon={X} onClick={()=>removeLessonListItem(li,"major_learning_outcomes",i)} size={16}/>
+                          </div>
+                        ))}
+                        <button className="ss-btn" onClick={()=>addLessonListItem(li,"major_learning_outcomes")} style={{fontSize:14,color:ACCENT,background:"none",border:"none",fontWeight:700,cursor:"pointer",padding:"4px 0"}}>+ थप्नुहोस्</button>
+                      </div>
+
+                      <div>
+                        <SectionLabel icon={FolderKanban} color={TEAL}>आवश्यक सामग्री</SectionLabel>
+                        {lesson.materials_required.map((v,i)=>(
+                          <div key={i} style={{display:"flex",gap:6,marginBottom:6}}>
+                            <input value={v} onChange={(e)=>setLessonListItem(li,"materials_required",i,e.target.value)} className="ss-field" style={{flex:1,borderRadius:10,padding:"9px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+                            <IconButton icon={X} onClick={()=>removeLessonListItem(li,"materials_required",i)} size={16}/>
+                          </div>
+                        ))}
+                        <button className="ss-btn" onClick={()=>addLessonListItem(li,"materials_required")} style={{fontSize:14,color:ACCENT,background:"none",border:"none",fontWeight:700,cursor:"pointer",padding:"4px 0"}}>+ थप्नुहोस्</button>
+                      </div>
+
+                      {[["engage","Engage"],["explore","Explore"],["explain","Explain"],["elaborate","Elaborate"],["evaluate","Evaluate"]].map(([key,label])=>(
+                        <div key={key}>
+                          <SectionLabel icon={Layers} color={PALETTE[0]}>{label}</SectionLabel>
+                          <textarea value={lesson[key]} onChange={(e)=>setLessonField(li,key,e.target.value)} rows={3} className="ss-field" style={{width:"100%",borderRadius:10,padding:"10px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
+                        </div>
+                      ))}
+
+                      <div>
+                        <SectionLabel icon={CheckSquare} color={MARIGOLD_DARK}>मूल्याङ्कन रुब्रिक्स</SectionLabel>
+                        {lesson.rubric.map((row,ri)=>(
+                          <div key={ri} style={{border:`1.5px solid ${BORDER}`,borderRadius:12,padding:10,marginBottom:8}}>
+                            <div style={{display:"flex",gap:6,marginBottom:8}}>
+                              <input value={row.criteria} onChange={(e)=>setLessonRubricCriteria(li,ri,e.target.value)} placeholder="मूल्याङ्कनको क्षेत्र (जस्तै: विषयवस्तु बुझाइ)" className="ss-field" style={{flex:1,borderRadius:10,padding:"9px 12px",fontSize:15.5,fontWeight:700,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+                              <IconButton icon={Trash2} onClick={()=>removeLessonRubricRow(li,ri)} size={16}/>
+                            </div>
+                            {row.levels.map((lvl,lvi)=>(
+                              <div key={lvi} style={{display:"flex",gap:8,alignItems:"center",marginBottom:5}}>
+                                <div style={{fontSize:13.5,fontWeight:700,color:INK_SOFT,width:100,flexShrink:0}}>{lvl.level}</div>
+                                <input value={lvl.desc} onChange={(e)=>setLessonRubricDesc(li,ri,lvi,e.target.value)} className="ss-field" style={{flex:1,borderRadius:8,padding:"7px 10px",fontSize:14.5,border:`1.5px solid ${BORDER}`,background:SURFACE}}/>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                        <button className="ss-btn" onClick={()=>addLessonRubricRow(li)} style={{fontSize:14,color:ACCENT,background:"none",border:"none",fontWeight:700,cursor:"pointer",padding:"4px 0"}}>+ मूल्याङ्कन क्षेत्र थप्नुहोस्</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              ))}
-              <button className="ss-btn" onClick={addRubricRow} style={{fontSize:14,color:ACCENT,background:"none",border:"none",fontWeight:700,cursor:"pointer",padding:"4px 0"}}>+ मूल्याङ्कन क्षेत्र थप्नुहोस्</button>
-            </div>
+              );
+            })}
+
+            <button className="ss-btn" onClick={addOfficialLesson} style={{width:"100%",padding:"11px",borderRadius:10,border:`1.5px dashed ${BORDER}`,background:"none",color:INK_SOFT,fontWeight:700,fontSize:15,cursor:"pointer"}}>+ थप आधिकारिक पाठ थप्नुहोस्</button>
 
             <div style={{display:"flex",gap:8,marginTop:6}}>
               <button className="ss-btn" onClick={()=>persist("draft")} disabled={busy} style={{flex:1,padding:"12px",borderRadius:10,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontWeight:700,fontSize:15.5,cursor:"pointer"}}>{busy?"...":"मस्यौदाको रूपमा सुरक्षित"}</button>
               <button className="ss-btn" onClick={()=>persist("approved")} disabled={busy} style={{flex:1,padding:"12px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,fontSize:15.5,cursor:"pointer",boxShadow:SHADOW.accent}}>{busy?"...":"स्वीकृत गर्नुहोस्"}</button>
             </div>
-            <button className="ss-btn" onClick={exportDocx} disabled={exportBusy} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"12px",borderRadius:10,border:`1.5px solid ${TEAL}`,background:"none",color:TEAL,fontWeight:700,fontSize:15.5,cursor:"pointer"}}><Download size={16}/>{exportBusy?"तयार गर्दै...":"यस वर्षको ढाँचामा Word डाउनलोड गर्नुहोस्"}</button>
+            <button className="ss-btn" onClick={exportDocx} disabled={exportBusy||!draft.lessons.length} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"12px",borderRadius:10,border:`1.5px solid ${TEAL}`,background:"none",color:TEAL,fontWeight:700,fontSize:15.5,cursor:"pointer"}}><Download size={16}/>{exportBusy?"तयार गर्दै...":"यस वर्षको ढाँचामा Word डाउनलोड गर्नुहोस् (हरेक आधिकारिक पाठ छुट्टै)"}</button>
             {exportMsg&&<div style={{fontSize:14.5,color:INK_SOFT,lineHeight:1.6}}>{exportMsg}</div>}
           </div>
         )}
@@ -3149,6 +3239,8 @@ function PlanGroupModal({ chapter, allChapters, classLabel, classContext, onClos
     </div>
   );
 }
+
+
 
 function Planner({ onOpenLesson, section, loading, onRefresh, classContext, classLabel, editLessonId, onEditConsumed, prefillChapter, onPrefillConsumed }) {
   const { chapters, lessons, materials, addChapter, renameChapter: renameChapterCtx, deleteChapter: deleteChapterCtx, refreshLessons } = useData();
@@ -3587,7 +3679,7 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
           })}
         </div>
       )}
-      {planGroupChapter&&<PlanGroupModal chapter={planGroupChapter} allChapters={chapters} classLabel={classLabel} classContext={classContext} onClose={()=>setPlanGroupChapter(null)}/>}
+      {planGroupChapter&&<PlanGroupModal chapter={planGroupChapter} allChapters={chapters} lessons={lessons} classLabel={classLabel} classContext={classContext} onClose={()=>setPlanGroupChapter(null)}/>}
       {yojanaLesson&&<YojanaSheet lesson={yojanaLesson} onClose={()=>setYojanaLesson(null)}/>}
     </div>
   );

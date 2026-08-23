@@ -508,6 +508,41 @@ export const parseJSON = (text) => {
 // to fill gaps the materials don't cover, never to override them.
 const MATERIALS_PRIORITY_NOTE = `\n\n[स्रोत प्राथमिकता — महत्त्वपूर्ण]: माथि शिक्षकले आफैं यो अध्यायमा ट्याग गर्नुभएको सामग्री (लेसन प्लान/प्रस्तुति/प्रश्नोत्तर/आदि) र पाठ्यपुस्तक दुवै संलग्न छन्। शिक्षकको ट्याग गरिएको सामग्रीलाई नै मुख्य र भरपर्दो स्रोत मानी त्यसैको संरचना, क्रम र जोड पछ्याउनुहोस्। पाठ्यपुस्तक केवल त्यो सामग्रीले नसमेटेको तर अध्यायको लागि आवश्यक विषयवस्तु (जस्तै छुटेको उपशीर्षक वा तथ्य) थप्नकै लागि प्रयोग गर्नुहोस् — सामग्रीमा भएको कुरासँग नबाझी, नबदली।`;
 
+// FIX — many Nepali government textbook/guide PDFs are typed in a legacy,
+// non-Unicode font (Preeti/Kantipur and similar): the file LOOKS like
+// correct Devanagari when opened with that font installed, but the actual
+// embedded/selectable text layer inside the PDF is just plain Latin
+// letters and punctuation that only that specific font maps visually to
+// Devanagari glyphs. When a prompt asks Gemini to return a chapter's text
+// "exactly as-is, verbatim", Gemini sometimes copies that raw embedded
+// text layer directly instead of visually reading the page images — which
+// produces exactly this kind of scattered corruption (stray Latin/other-
+// script fragments in otherwise correct Nepali). Two defenses below:
+// (1) the extraction prompts no longer ask for byte-exact copying — they
+// ask Gemini to visually read and faithfully retype the content, and
+// explicitly warn it never to trust/copy any underlying raw text layer;
+// (2) looksCorrupted() catches anything that slips through anyway, so a
+// bad extraction is never cached (db.saveTextbookChapterText only stores
+// what passes this check) — a poisoned cache was the reason corruption
+// kept resurfacing in unrelated content and simulations for the same
+// chapter over and over, since every later AI call for that chapter reused
+// the one cached (possibly corrupted) extraction.
+const RAW_TEXT_LAYER_WARNING = `\n\nमहत्त्वपूर्ण — केही पुराना नेपाली PDF (विशेषतः सरकारी पाठ्यपुस्तक/निर्देशिका) Preeti/Kantipur जस्ता पुरानो नन्-युनिकोड फन्टमा टाइप गरिएका हुन्छन्: PDF भित्रको साँचिएको/select हुने raw text तह वास्तवमा सादा अंग्रेजी अक्षर/चिन्हहरू मात्र हो, त्यो फन्ट इन्स्टल भएमा मात्र देवनागरीजस्तो देखिन्छ। त्यसैले PDF को त्यो raw/embedded text तह कहिल्यै सिधै नक्कल/copy नगर्नुहोस् — बरु पृष्ठको तस्बिर/लेआउट आँखाले हेरेझैं गरी बुझी, सोही अर्थ र तथ्य ठ्याक्कै कायम राखी, आफैं सफा र सही युनिकोड देवनागरीमा पुनः टाइप गरेर दिनुहोस्। यदि कतै अंग्रेजी अक्षर, अरबी जस्ता चिन्ह, वा अनौठो/नबुझिने क्यारेक्टर देखा पर्‍यो भने त्यो निश्चित रूपमा गलत हो — त्यसलाई जस्ताको त्यस्तै नराखी, सही देवनागरी शब्दमा सुधारेर मात्र लेख्नुहोस्।`;
+
+// Heuristic check for the corruption pattern above: legacy-font mojibake
+// mixes plain Latin letters (occasionally digits/symbols) directly into
+// what should be pure Devanagari prose. A little incidental Latin is
+// normal (an English proper noun, a unit like "km"), so this only flags
+// text where Latin letters make up an unreasonably large share of all
+// letters — well past anything a genuine Nepali passage would contain.
+function looksCorrupted(text) {
+  if (!text) return false;
+  const devanagari = (text.match(/[\u0900-\u097F]/g) || []).length;
+  const latinLetters = (text.match(/[A-Za-z]/g) || []).length;
+  if (devanagari + latinLetters < 60) return false; // too short to judge reliably
+  return latinLetters / (devanagari + latinLetters) > 0.25;
+}
+
 // NEW — pulls one chapter's plain text out of the textbook PDF, once. This
 // itself costs one full-book read (same token cost as before), but it's
 // the ONLY time that cost is paid for a given chapter: App.jsx's
@@ -517,12 +552,13 @@ const MATERIALS_PRIORITY_NOTE = `\n\n[स्रोत प्राथमिक�
 export async function extractChapterText(chapterTitle, classLabel) {
   const part = await getTextbookPart(classLabel);
   if (!part) return null;
-  const prompt = `यो नेपाली पाठ्यपुस्तकबाट "${chapterTitle}" नामक अध्याय/पाठ पत्ता लगाउनुहोस् र त्यसको पूरा पाठ — जस्ताको त्यस्तै, नछोटाई, संक्षेप नगरी — सादा पाठको रूपमा मात्र फिर्ता दिनुहोस्। कुनै व्याख्या, शीर्षक, वा फर्म्याटिङ नथप्नुहोस्, केवल अध्यायको वास्तविक पाठ मात्र दिनुहोस्। यदि यस्तो नामको अध्याय ठ्याक्कै भेटिएन भने अरू केही नलेखी ठ्याक्कै यही शब्द मात्र लेख्नुहोस्: NOT_FOUND`;
+  const prompt = `यो नेपाली पाठ्यपुस्तकबाट "${chapterTitle}" नामक अध्याय/पाठ पत्ता लगाउनुहोस् र त्यसको पूरा विषयवस्तु — नछोटाई, संक्षेप नगरी, कुनै तथ्य/वाक्य नछुटाई — सादा पाठको रूपमा मात्र फिर्ता दिनुहोस्। कुनै व्याख्या, शीर्षक, वा फर्म्याटिङ नथप्नुहोस्, केवल अध्यायको वास्तविक विषयवस्तु मात्र दिनुहोस्। यदि यस्तो नामको अध्याय ठ्याक्कै भेटिएन भने अरू केही नलेखी ठ्याक्कै यही शब्द मात्र लेख्नुहोस्: NOT_FOUND${RAW_TEXT_LAYER_WARNING}`;
   let text;
   try { text = await callGemini([part, { text: prompt }], { maxOutputTokens: 8192 }); }
   catch { return null; } // extraction failures fall back silently — the caller re-tries with the whole book for this one call
   const trimmed = (text || "").trim();
   if (!trimmed || trimmed === "NOT_FOUND" || trimmed.length < 40) return null;
+  if (looksCorrupted(trimmed)) return null; // never cache a corrupted extraction — caller falls back to the raw PDF for this call instead
   return trimmed;
 }
 
@@ -550,12 +586,16 @@ function hasBothSources(ctx) {
 async function runPrompt(prompt, ctx, options = {}) {
   const parts = contextParts(ctx);
   if (!parts.length) return callGemini([{ text: prompt }], options);
-  return callGemini([...parts, { text: hasBothSources(ctx) ? prompt + MATERIALS_PRIORITY_NOTE : prompt }], options);
+  let finalPrompt = prompt + RAW_TEXT_LAYER_WARNING; // any PDF/file is attached here — always warn, not just the two extraction calls
+  if (hasBothSources(ctx)) finalPrompt += MATERIALS_PRIORITY_NOTE;
+  return callGemini([...parts, { text: finalPrompt }], options);
 }
 async function runPromptJSON(prompt, ctx) {
   const parts = contextParts(ctx);
   if (!parts.length) return generateTextJSON(prompt);
-  return callGemini([...parts, { text: hasBothSources(ctx) ? prompt + MATERIALS_PRIORITY_NOTE : prompt }], { jsonMode: true });
+  let finalPrompt = prompt + RAW_TEXT_LAYER_WARNING;
+  if (hasBothSources(ctx)) finalPrompt += MATERIALS_PRIORITY_NOTE;
+  return callGemini([...parts, { text: finalPrompt }], { jsonMode: true });
 }
 // NEW — the one function callers should use when they have a getMaterialContext()
 // ctx object (materials + textbook). Older code called generateWithMaterials/
@@ -709,13 +749,30 @@ const MECHANIC_INSTRUCTIONS = {
   slider: `यो ढाँचाको मुख्य अन्तरक्रिया एउटा मात्र निरन्तर तान्न मिल्ने नियन्त्रण (<input type="range"> वा एउटै custom drag-handle) हो, धेरै वस्तु एक-अर्कोमा तान्ने खेल होइन। यसमा multi-item ड्र्याग-ड्रप वा click-select-then-click-place नथप्नुहोस् — स्लाइडर/ह्यान्डल एउटै ठाउँमा राखी तान्दा/सार्दा मान/दृश्य परिवर्तन हुनेगरी बनाउनुहोस्, र किबोर्ड एरो-कीले पनि सार्न मिल्ने बनाउनुहोस्।`,
 };
 
-// Picks a type not yet used for this lesson (in this sitting); once every
-// type has been tried, it just avoids repeating the immediately-previous
-// one rather than locking up.
+// FIX — variety was still landing on drag/click ~9 times out of 10 despite
+// this function already avoiding exact repeats. The real cause: of the 28
+// types above, 23 are tagged mechanic "drag" or "tap" and only 5 are
+// "type"/"slider" — a uniform random pick across all 28 types lands on
+// drag/tap ~82% of the time purely by the pool's shape, regardless of
+// repeat-avoidance. This also barely helped across DIFFERENT lessons at
+// all: usedTypeIds only ever contains this same lesson's own past
+// simulations, so a teacher generating one simulation per lesson (the
+// common case) got a fresh uniform-over-28 draw every single time — still
+// ~82% drag/tap on every lesson. Fixed by picking the MECHANIC first,
+// rotating round-robin across all four (drag/tap/type/slider) so each gets
+// equal turns regardless of how many concrete game types fall under it,
+// THEN picking a not-yet-used type within that mechanic.
+const SIMULATION_MECHANICS = ["drag", "tap", "type", "slider"];
 export function pickNextSimulationType(usedTypeIds = []) {
-  const unused = SIMULATION_TYPES.filter((t) => !usedTypeIds.includes(t.id));
-  const pool = unused.length ? unused : SIMULATION_TYPES.filter((t) => t.id !== usedTypeIds[usedTypeIds.length - 1]);
-  const list = pool.length ? pool : SIMULATION_TYPES;
+  const usedTypes = SIMULATION_TYPES.filter((t) => usedTypeIds.includes(t.id));
+  const mechanicCounts = Object.fromEntries(SIMULATION_MECHANICS.map((m) => [m, usedTypes.filter((t) => t.mechanic === m).length]));
+  const minCount = Math.min(...SIMULATION_MECHANICS.map((m) => mechanicCounts[m]));
+  const leastUsedMechanics = SIMULATION_MECHANICS.filter((m) => mechanicCounts[m] === minCount);
+  const chosenMechanic = leastUsedMechanics[Math.floor(Math.random() * leastUsedMechanics.length)];
+  const candidatesInMechanic = SIMULATION_TYPES.filter((t) => t.mechanic === chosenMechanic);
+  const unusedInMechanic = candidatesInMechanic.filter((t) => !usedTypeIds.includes(t.id));
+  const pool = unusedInMechanic.length ? unusedInMechanic : candidatesInMechanic.filter((t) => t.id !== usedTypeIds[usedTypeIds.length - 1]);
+  const list = pool.length ? pool : candidatesInMechanic;
   return list[Math.floor(Math.random() * list.length)];
 }
 
@@ -791,6 +848,8 @@ export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, 
    - फन्ट-साइज, ग्याप, प्याडिङ जस्ता नाप clamp() वा vw/vh जस्ता सापेक्षिक एकाइहरूमा राख्नुहोस् (जस्तै font-size: clamp(18px, 2.2vw, 30px)) ताकि विभिन्न प्रोजेक्टर रिजोल्युसनमा पनि स्वतः मिलोस्।
    - यदि सामग्री लामो भई एउटै स्क्रिनमा नअट्ने भयो भने, त्यो एउटा छुट्टै भित्री क्षेत्र (जस्तै .game-area { max-height: 78vh; overflow-y: auto; }) मा मात्र स्क्रोल हुनुपर्छ, पूरा पेज होइन — र शीर्षक/निर्देशन/स्कोर जस्ता महत्त्वपूर्ण भाग सधैं देखिइरहनुपर्छ (स्क्रोल गर्दा हराउनु हुँदैन)।
    - कुनै पनि तत्व अर्को तत्वमाथि ओभरल्याप भएर लुक्नु हुँदैन, र कुनै पनि पाठ/बटन काटिएर वा आधा मात्र देखिएर रहनु हुँदैन।
+   - **माथिको स्थिर/sticky निर्देशन-पट्टीले तलको सामग्री (कार्ड/वस्तुहरू) लाई कहिल्यै ढाकेर/ओभरल्याप गरेर लुकाउनु हुँदैन** — यो धेरै पटक भेटिने गल्ती हो, ध्यान दिनुहोस्। सम्पूर्ण पेजको सबैभन्दा बाहिरी कन्टेनरलाई "display:flex; flex-direction:column; height:100vh;" बनाउनुहोस्, अनि निर्देशन-पट्टी/शीर्षक/स्कोरलाई यसैको पहिलो सामान्य (normal document flow) flex-child राख्नुहोस् — "position:fixed" वा "position:absolute" कहिल्यै नराख्नुहोस् (त्यसले पछाडिको सामग्रीमाथि तैरिएर ढाक्छ)। सामग्री/कार्ड-ग्रिड भएको भाग यो निर्देशन-पट्टीपछि आउने दोस्रो flex-child बनाउनुहोस् जसमा "flex:1; min-height:0; overflow-y:auto;" राख्नुहोस् — यसरी निर्देशन-पट्टीले आफ्नो वास्तविक उचाइ जति ठाउँ ओगट्छ र बाँकी ठाउँमा मात्र सामग्री बस्छ, माथिको पंक्ति कहिल्यै ढाकिँदैन/लुक्दैन।
+   - **कुनै पनि शीर्षक/निर्देशन/स्कोर-पट्टीको ब्याकग्राउन्ड र त्यसमाथिको पाठ/आइकनको रङ स्पष्ट रूपमा फरक (उच्च कन्ट्रास्ट) हुनैपर्छ** — फिका/सेतोमाथि सेतो, वा हल्का रङमाथि हल्का पाठ कहिल्यै नराख्नुहोस् (यस्तो भए पाठ/आइकन पूर्णतः अदृश्य हुन्छ)। सुरक्षित विकल्पका रूपमा गाढा रङ (जस्तै #1a2744, #2d1b0e, वा अध्यायसँग मिल्ने कुनै गाढा रङ) को ब्याकग्राउन्डमा सेतो (#ffffff) पाठ, वा एकदमै हल्का ब्याकग्राउन्डमा गाढा (#1a1a1a जस्तो) पाठ प्रयोग गर्नुहोस् — दुवैतिर मध्यम-टोनका मिल्दाजुल्दा रङ कहिल्यै नराख्नुहोस्।
    - **वस्तुहरू कहिल्यै एउटै लामो ठाडो (vertical) स्तम्भमा नथाप्नुहोस्** (जस्तै १२ वटा कार्ड एकपछि अर्को तल-तल थुपार्नु) — त्यसले पेज धेरै लामो बनाई तल स्क्रोल नगरी बाँकी भाग (विशेष गरी लक्ष्य/कोठाहरू) देखिँदैन। बरु multi-column grid प्रयोग गर्नुहोस् (जस्तै display:grid; grid-template-columns: repeat(auto-fit, minmax(120px,1fr)); वा 3-4 स्तम्भको flex-wrap) ताकि धेरै वस्तु पनि थोरै उचाइमा फैलिएर अटून्।
    - **स्रोत-वस्तु र लक्ष्य/कोठा दुवै एकैचोटि, सँगै देखिनुपर्छ** — जुन ढाँचामा वस्तुहरू कुनै समूह/कोठा/लक्ष्यमा तान्ने वा राख्ने हो (जस्तै मिलाउने, वर्गीकरण, लेबल गर्ने, नक्सा रङ्ग भर्ने, संरचना जोड्ने), त्यहाँ स्रोत-वस्तुहरू र तिनका लक्ष्य/कोठा/श्रेणीहरू पहिलो नजरमै एउटै स्क्रिनमा देखिनुपर्छ — लक्ष्यहरू तल धेरै टाढा राखेर विद्यार्थीले पहिले स्क्रोल गरेर मात्र भेट्टाउनुपर्ने बनाउनु हुँदैन। यसका लागि स्क्रिनलाई दुई भागमा छुट्याउनुहोस् (जस्तै माथि/तल दुई पट्टी, वा देब्रे-दायाँ दुई स्तम्भ): एक भागमा सानो-सानो स्रोत-कार्डको ग्रिड, अर्को भागमा स्पष्ट लेबल भएका लक्ष्य/कोठाहरू। दुवै भाग सँगै नअटे भने वस्तु संख्या कम गरेर राउन्डमा बाँड्नुहोस् (माथि नै भनिएझैं), तर हरेक राउन्डमा त्यो राउन्डका स्रोत र लक्ष्य दुवै सँगै देखिनैपर्छ।
    - **हरेक लक्ष्य/कोठा/श्रेणीमा स्पष्ट, छोटो नेपाली नाम/शीर्षक लेखिएकै हुनुपर्छ** — खाली वा लेबल नभएको कोठा कहिल्यै नराख्नुहोस्।
@@ -806,7 +865,7 @@ export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, 
 11. viewport meta ट्याग राख्नुहोस्: <meta name="viewport" content="width=device-width, initial-scale=1">
 12. कहिल्यै <img>, background-image, वा कुनै पनि src/url() मार्फत बाहिरी फाइल/तस्विर नल्याउनुहोस् — यस्तो कुनै फाइल इन्टरनेटमा वा डिभाइसमा अवस्थित हुँदैन, त्यसैले त्यो सधैं टुटेको/खाली देखिन्छ। "यो चित्र हेर्नुहोस्" जस्तो कुनै पनि कार्य दिनुभएमा, त्यो चित्र/नक्सा/वस्तु अनिवार्य रूपमा ठूलो इमोजी वा इनलाइन SVG (<svg>...</svg>, सीधै HTML भित्र लेखिएको, स्पष्ट नेपाली लेबलसहित) प्रयोग गरेरै आफैं कोड गरेर देखाउनुहोस् (माथिको नियम ४क हेर्नुहोस्) — लेबल/इमोजी नभएको खाली आकार कहिल्यै प्रयोग नगर्नुहोस्।
 13. कुनै पनि तस्विर/नक्सा/चित्र देखिनु आवश्यक भएको सिमुलेसन बनाउनुभएमा, त्यो चित्र पूर्ण रूपमा देखिन्छ र त्यसको कन्टेनरभित्रै भरिन्छ भनी सुनिश्चित गर्नुहोस् — कुनै अधुरो, कटिएको, वा नदेखिने तत्व नराख्नुहोस्।
-14. कोड लेखिसकेपछि आफैं जाँच्नुहोस् (यी सबै "हो" नभएसम्म अन्तिम जवाफ नदिनुहोस्): के html/body मा overflow:hidden र width/height 100vw/100vh छ? के लेआउट पूर्णतः flex/grid मा आधारित छ, hardcoded absolute left/top होइन? के कुनै तत्व अर्कोमाथि ओभरल्याप वा काटिएको छैन? के 1280×720 जत्रो landscape स्क्रिनमा जुम/स्क्रोल नगरी सबै देखिन्छ? के फन्ट-साइज प्रोजेक्टरबाट टाढैबाट पढ्न सकिने ठूलो छ? ${type.mechanic === "drag" ? "के हरेक तानिने तत्वमा pointer events र touch-action: none छ?" : "के यो ढाँचामा अनावश्यक ड्र्याग/स्लाइडर/टाइप संयन्त्र नथपिकन तोकिएको मेकानिज्म (" + type.mechanic + ") मात्र प्रयोग भएको छ?"} के कम्तिमा ८ वटा वस्तु/चरण छन्? के कुनै <img> ट्याग छैन? के स्रोत-वस्तुहरू एउटै लामो ठाडो स्तम्भमा छैनन् (multi-column grid प्रयोग भएको छ)? के लक्ष्य/कोठा/श्रेणी भएको ढाँचा हो भने ती लक्ष्यहरू सबै स्रोत-वस्तुसँगै, स्क्रोल नगरी, सुरुमै देखिन्छन्, र हरेकमा स्पष्ट लेबल छ? के प्रतिक्रिया/सन्देश कम्तिमा ३५००ms सम्म रहन्छ? के "फेरि खेल्नुहोस्" बटन सधैं स्थिर/देखिने ठाउँमा छ? के अन्त्यमा उत्सव-एनिमेसन छ? के वास्तविक वस्तु जनाउने हरेक आकृतिमा ठूलो इमोजी र/वा स्पष्ट नेपाली लेबल छ, कुनै पनि खाली/लेबल-नभएको अमूर्त आयत-वर्गाकार वस्तु पहिचानका रूपमा प्रयोग भएको छैन? **के हरेक SVG-निर्मित वस्तु धेरै साना आकार जोडेर बनेको चिनिने सिल्हुएट हो (एउटै अमूर्त आकार होइन)? के हरेक आकारमा बोल्ड गाढा आउटलाइन (2-3px+) छ? के तार/रेखा जस्ता साना विवरणको stroke-width कम्तिमा 4-5px र पृष्ठभूमिसँग प्रस्ट कन्ट्रास्ट भएको चहकिलो रङ छ?**
+14. कोड लेखिसकेपछि आफैं जाँच्नुहोस् (यी सबै "हो" नभएसम्म अन्तिम जवाफ नदिनुहोस्): के html/body मा overflow:hidden र width/height 100vw/100vh छ? के लेआउट पूर्णतः flex/grid मा आधारित छ, hardcoded absolute left/top होइन? के कुनै तत्व अर्कोमाथि ओभरल्याप वा काटिएको छैन? **के माथिको निर्देशन/शीर्षक-पट्टी सामान्य flex-column लेआउटको एउटा normal-flow भाग हो (position:fixed/absolute होइन), र त्यसले तलको कार्ड/सामग्रीलाई कुनै हालतमा ढाकेको/ओभरल्याप गरेको छैन? के हरेक पट्टी/हेडरको ब्याकग्राउन्ड-रङ र पाठ/आइकनको रङबीच स्पष्ट उच्च कन्ट्रास्ट छ (सेतोमाथि सेतो वा फिकामाथि फिका कतै छैन)?** के 1280×720 जत्रो landscape स्क्रिनमा जुम/स्क्रोल नगरी सबै देखिन्छ? के फन्ट-साइज प्रोजेक्टरबाट टाढैबाट पढ्न सकिने ठूलो छ? ${type.mechanic === "drag" ? "के हरेक तानिने तत्वमा pointer events र touch-action: none छ?" : "के यो ढाँचामा अनावश्यक ड्र्याग/स्लाइडर/टाइप संयन्त्र नथपिकन तोकिएको मेकानिज्म (" + type.mechanic + ") मात्र प्रयोग भएको छ?"} के कम्तिमा ८ वटा वस्तु/चरण छन्? के कुनै <img> ट्याग छैन? के स्रोत-वस्तुहरू एउटै लामो ठाडो स्तम्भमा छैनन् (multi-column grid प्रयोग भएको छ)? के लक्ष्य/कोठा/श्रेणी भएको ढाँचा हो भने ती लक्ष्यहरू सबै स्रोत-वस्तुसँगै, स्क्रोल नगरी, सुरुमै देखिन्छन्, र हरेकमा स्पष्ट लेबल छ? के प्रतिक्रिया/सन्देश कम्तिमा ३५००ms सम्म रहन्छ? के "फेरि खेल्नुहोस्" बटन सधैं स्थिर/देखिने ठाउँमा छ? के अन्त्यमा उत्सव-एनिमेसन छ? के वास्तविक वस्तु जनाउने हरेक आकृतिमा ठूलो इमोजी र/वा स्पष्ट नेपाली लेबल छ, कुनै पनि खाली/लेबल-नभएको अमूर्त आयत-वर्गाकार वस्तु पहिचानका रूपमा प्रयोग भएको छैन? **के हरेक SVG-निर्मित वस्तु धेरै साना आकार जोडेर बनेको चिनिने सिल्हुएट हो (एउटै अमूर्त आकार होइन)? के हरेक आकारमा बोल्ड गाढा आउटलाइन (2-3px+) छ? के तार/रेखा जस्ता साना विवरणको stroke-width कम्तिमा 4-5px र पृष्ठभूमिसँग प्रस्ट कन्ट्रास्ट भएको चहकिलो रङ छ?**
 
 अब माथिको JSON/व्याख्या नराखी, सिधै HTML कागजात मात्र सुरु गर्नुहोस्।`;
   // FIX — this call asks for a large (16000-token), highly-detailed,
@@ -854,12 +913,13 @@ export const generateRubric = async (prompt, ctx = null) => {
 // file_data) built from the uploaded guide file (pdf/docx/image).
 export async function extractGuideClassSection(guidePart, classLabel) {
   if (!guidePart) return null;
-  const prompt = `यो शिक्षक निर्देशिका (Teacher's Guide) मा धेरै कक्षाहरूको मार्गदर्शन एउटै फाइलमा छ। यसबाट केवल "${classLabel}" सम्बन्धी भाग मात्र पत्ता लगाई, त्यसको पूरा पाठ — जस्ताको त्यस्तै, नछोटाई — सादा पाठको रूपमा फिर्ता दिनुहोस्। अरू कक्षाको भाग नराख्नुहोस्। कुनै व्याख्या वा फर्म्याटिङ नथप्नुहोस्। यदि "${classLabel}" को भाग भेटिएन भने ठ्याक्कै यही शब्द मात्र लेख्नुहोस्: NOT_FOUND`;
+  const prompt = `यो शिक्षक निर्देशिका (Teacher's Guide) मा धेरै कक्षाहरूको मार्गदर्शन एउटै फाइलमा छ। यसबाट केवल "${classLabel}" सम्बन्धी भाग मात्र पत्ता लगाई, त्यसको पूरा विषयवस्तु — नछोटाई, कुनै तथ्य/वाक्य नछुटाई — सादा पाठको रूपमा फिर्ता दिनुहोस्। अरू कक्षाको भाग नराख्नुहोस्। कुनै व्याख्या वा फर्म्याटिङ नथप्नुहोस्। यदि "${classLabel}" को भाग भेटिएन भने ठ्याक्कै यही शब्द मात्र लेख्नुहोस्: NOT_FOUND${RAW_TEXT_LAYER_WARNING}`;
   let text;
   try { text = await callGemini([guidePart, { text: prompt }], { maxOutputTokens: 8192 }); }
   catch { return null; }
   const trimmed = (text || "").trim();
   if (!trimmed || trimmed === "NOT_FOUND" || trimmed.length < 40) return null;
+  if (looksCorrupted(trimmed)) return null; // never let a corrupted extraction feed every downstream Guide-based prompt (grouping, official lessons, etc.)
   return trimmed;
 }
 
@@ -890,23 +950,63 @@ ${guideClassText.slice(0, 12000)}
   return result;
 }
 
-// Drafts a full Plan Group (Lesson Plan + Rubric, 5E model) for one chapter
-// or a merged group of chapters, from the textbook + the Guide's isolated
-// class section as the primary sources. groupChapterTitles.length > 1 for a
-// merged group. Shape matches the plan_groups table.
-export const draftPlanGroup = async (groupChapterTitles, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", guideClassText = null) => {
+// Given one class's isolated Guide text, decides how many OFFICIAL
+// (school-submission) lesson plans this chapter/group breaks into and what
+// each one covers — this is NOT the same count as the textbook's classroom
+// lessons. The guidance document can merge several classroom lessons that
+// share one सिकाइ उपलब्धि into a single official lesson plan (e.g. 5
+// classroom lessons → 4 official plans), so this always asks the guide,
+// never assumes 1:1 with classroom lessons. classroomLessonTitles is passed
+// only as reference context for the AI, never as the thing being counted.
+// Without a guide there is no basis to merge anything, so it falls back to
+// one official lesson per classroom lesson (or one for the whole chapter if
+// there are no classroom lessons either).
+export async function detectOfficialLessons(guideClassText, groupChapterTitles = [], classroomLessonTitles = []) {
+  const fallback = () => classroomLessonTitles.length
+    ? classroomLessonTitles.map((t) => ({ official_title: t, reason: null, source_lesson_titles: [t] }))
+    : [{ official_title: groupChapterTitles[0] || "", reason: null, source_lesson_titles: [] }];
+  if (!guideClassText) return fallback();
+  const chaptersLine = groupChapterTitles.map((t) => `"${t}"`).join(", ");
+  const classroomLine = classroomLessonTitles.length
+    ? `\n\nकक्षाकोठामा पढाइने पाठ्यपुस्तकका पाठहरू (सन्दर्भका लागि मात्र — आधिकारिक पाठ योजनाको संख्या यससँग बराबर हुनैपर्छ भन्ने छैन):\n${classroomLessonTitles.map((t, i) => `${i + 1}. ${t}`).join("\n")}`
+    : "";
+  const prompt = `तलको शिक्षक निर्देशिका/विद्यार्थी मूल्याङ्कन मार्गदर्शनको अंश हेरी, "${chaptersLine}" अन्तर्गत विद्यालय बुझाउनका लागि आधिकारिक पाठ योजना कति वटा बन्नुपर्छ र हरेकको दायरा के हो पत्ता लगाउनुहोस्। मार्गदर्शनले साझा सिकाइ उपलब्धि भएका पाठ्यपुस्तकका पाठहरूलाई गाभेर एउटै आधिकारिक पाठ योजना बनाउन सक्छ — यो गणना पाठ्यपुस्तकको पाठ संख्यासँग फरक हुन सक्छ, बराबर हुनैपर्छ भन्ने छैन।
+${classroomLine}
+
+निर्देशिकाको अंश:
+${guideClassText.slice(0, 12000)}
+
+ठ्याक्कै यो JSON array मात्र जवाफ दिनुहोस्:
+[{"official_title":"आधिकारिक पाठको नाम","source_lesson_titles":["सम्बन्धित पाठ्यपुस्तक पाठ १","पाठ २"],"reason":"किन गाभियो/अलग राखियो भन्ने छोटो कारण, वा null"}]`;
+  const text = await generateTextJSON(prompt);
+  const result = parseJSON(text);
+  if (!Array.isArray(result) || !result.length) return fallback();
+  return result;
+}
+
+// Drafts a full Lesson Plan + Rubric (5E model) for EVERY official lesson
+// unit (see detectOfficialLessons above) — not one shared plan for the
+// whole chapter, and not necessarily one per classroom lesson either.
+// officialTitles: string[], in the order the plans should come back. Returns
+// an array the same length and order, one full plan-group shape per entry.
+export const draftPlanGroupLessons = async (groupChapterTitles, officialTitles, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", guideClassText = null) => {
   const isMerged = groupChapterTitles.length > 1;
   const chaptersLine = groupChapterTitles.map((t) => `"${t}"`).join(", ");
   const mergedNote = isMerged
-    ? `यी ${groupChapterTitles.length} वटा अध्यायहरूको सिकाइ उपलब्धि समान भएकाले शिक्षक निर्देशिकाले एउटै साझा पाठ योजना बनाउन सुझाव दिएको छ — सबैलाई समेट्ने एउटै एकीकृत योजना बनाउनुहोस्, प्रत्येकको लागि छुट्टाछुट्टै होइन।`
+    ? `यी ${groupChapterTitles.length} वटा अध्यायहरूको सिकाइ उपलब्धि समान भएकाले शिक्षक निर्देशिकाले एउटै समूहमा राखेको छ, तर तलका हरेक आधिकारिक पाठको लागि छुट्टाछुट्टै योजना/रुब्रिक्स नै चाहिन्छ — कुनै दुईलाई एउटै बनाउनु हुँदैन।`
     : "";
   const guideBlock = guideClassText ? `\n\nशिक्षक निर्देशिकाको मार्गदर्शन (यसैलाई मुख्य आधार बनाउनुहोस्):\n${guideClassText.slice(0, 10000)}` : "";
+  const lessonsLine = officialTitles.map((t, i) => `${i + 1}. "${t}"`).join("\n");
   const prompt = `तपाईं नेपालको ${classContext}का लागि विद्यालयमा बुझाउनका लागि पाठ योजना र मूल्याङ्कन रुब्रिक्स तयार गर्दै हुनुहुन्छ, 5E मोडेल (Engage, Explore, Explain, Elaborate, Evaluate) मा।
 अध्याय: ${chaptersLine}
-${mergedNote}${guideBlock}
+${mergedNote}
+यी आधिकारिक पाठ योजनाहरू बनाउनुहोस् (क्रमैसँग, हरेकको लागि छुट्टै योजना चाहिन्छ):
+${lessonsLine}
+${guideBlock}
 
-ठ्याक्कै यो JSON संरचनामा मात्र जवाफ दिनुहोस्:
-{
+ठ्याक्कै यो JSON array मात्र जवाफ दिनुहोस् — माथिको सूचीमा जति वटा छन् ठ्याक्कै त्यति वटा वस्तु, त्यही क्रममा:
+[{
+  "lesson_title": "पाठको नाम (माथिको सूचीबाट ठ्याक्कै उस्तै)",
   "major_learning_outcomes": ["उपलब्धि १","उपलब्धि २"],
   "materials_required": ["सामग्री १","सामग्री २"],
   "engage": "कक्षा प्रवेशको लागि छोटो, ठोस गतिविधि विवरण (प्रश्न/तस्बिर/उदाहरणबाट सुरु)",
@@ -915,11 +1015,11 @@ ${mergedNote}${guideBlock}
   "elaborate": "थप विस्तार/लागू गर्ने गतिविधि विवरण",
   "evaluate": "मूल्याङ्कनका लागि प्रश्न/कार्य विवरण",
   "rubric": [{"criteria":"मूल्याङ्कनको क्षेत्र","levels":[{"level":"उत्कृष्ट","desc":"विवरण"},{"level":"राम्रो","desc":"विवरण"},{"level":"सामान्य","desc":"विवरण"},{"level":"सुधार आवश्यक","desc":"विवरण"}]}]
-}
-महत्त्वपूर्ण: सामग्री शिक्षक निर्देशिका र पाठ्यपुस्तकमा आधारित, ठोस र यही अध्यायसँग सान्दर्भिक हुनुपर्छ — सामान्य/जेनेरिक नराख्नुहोस्। rubric मा कम्तीमा ३ वटा फरक-फरक मूल्याङ्कन क्षेत्र (जस्तै विषयवस्तु बुझाइ, सहभागिता, प्रस्तुति) समावेश गर्नुहोस्।`;
-  const text = await runPromptJSON(prompt, ctx);
+}]
+महत्त्वपूर्ण: हरेकको सामग्री सोहीसँग मात्र सान्दर्भिक र फरक-फरक हुनुपर्छ — दुई वटाको जवाफ उस्तै/दोहोरिनु हुँदैन। rubric मा कम्तीमा ३ वटा फरक-फरक मूल्याङ्कन क्षेत्र (जस्तै विषयवस्तु बुझाइ, सहभागिता, प्रस्तुति) समावेश गर्नुहोस्।`;
+  const text = await runPrompt(prompt, ctx, { jsonMode: true, maxOutputTokens: 8192 });
   const result = parseJSON(text);
-  if (!result) {
+  if (!Array.isArray(result) || !result.length) {
     const preview = (text && text.trim()) ? text.trim().slice(0, 300) : "(खाली प्रतिक्रिया)";
     throw new Error("Gemini ले सही ढाँचामा जवाफ दिएन। जवाफको सुरुवात: " + preview);
   }
