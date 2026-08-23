@@ -56,6 +56,17 @@ const WARN_BG = "var(--warn-bg)";
 // the ones that already have semantic colors (status, file category, etc).
 const PALETTE = [ACCENT, MARIGOLD_DARK, TEAL, VIOLET, ROSE, BLUE];
 
+// NEW — पाठ अभ्यास समाधान: a fixed color per exercise type so the same
+// type always looks the same across items/lessons, instead of cycling
+// through PALETTE by position like most other lists in this app.
+const EXERCISE_TYPE_COLOR = {
+  "छोटो उत्तर": ACCENT,
+  "बहुविकल्पीय": VIOLET,
+  "सत्य/असत्य": TEAL,
+  "रिक्त स्थान": MARIGOLD_DARK,
+  "मिलान गर्नुहोस्": ROSE,
+};
+
 // Elevation scale — used for the "premium, elevated" card/button look.
 const SHADOW = {
   sm: "0 1px 2px rgba(var(--shadow-rgb),0.06), 0 1px 1px rgba(var(--shadow-rgb),0.04)",
@@ -739,13 +750,19 @@ async function preparePath({ chapterTitle, chapterId, pathTitle, lessonId, secti
   }
 
   let questionsCount = 0;
-  const qs = await runStep("questions", () => gemini.generateQuestions(chapterTitle, ctx, classContext, pathTitle));
+  // NEW — पाठ अभ्यास समाधान must extract verbatim from the textbook's own
+  // end-of-chapter exercise section, not from whatever the teacher's own
+  // uploaded materials happen to contain (those take priority in the
+  // shared `ctx` above — see MATERIALS_PRIORITY_NOTE — which is wrong
+  // here). Strip materialParts so this one call sees textbook content only.
+  const textbookOnlyCtx = { ...ctx, materialParts: [] };
+  const qs = await runStep("questions", () => gemini.generateQuestions(chapterTitle, textbookOnlyCtx, classContext, pathTitle));
   if (qs?.length) {
     // FIX — class_label was never set here (only the lesson itself got
     // it, on line 284 above) — every question generated through this
     // main "AI ले यो पाठ बनाओस्" flow was invisible to class-scoped
     // filtering in Question Bank/Document Search until this fix.
-    for (const q of qs) await db.upsertQuestion({ text: q.text, type: q.type || "छोटो उत्तर", difficulty: q.difficulty || "सजिलो", bloom_level: q.bloom || "सम्झना", chapter_id: cId, lesson_id: lid, options: q.options || [], correct_option: q.correct_option ?? null, class_label: classLabel });
+    for (const q of qs) await db.upsertQuestion({ text: q.text, type: q.type || "छोटो उत्तर", difficulty: q.difficulty || "सजिलो", bloom_level: q.bloom || "सम्झना", chapter_id: cId, lesson_id: lid, options: q.options || [], correct_option: q.correct_option ?? null, answer: q.answer || null, match_pairs: q.match_pairs || null, source: q.source === "ai" ? "ai" : "textbook", class_label: classLabel });
     questionsCount = qs.length;
     emit("questions", "done");
   } else if (qs !== null) emit("questions", "error", "AI ले प्रश्न बनाउन सकेन।");
@@ -1614,7 +1631,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
     fetchWordImage(vocabPopup.word).then((img)=>{if(!cancelled){setVocabImage(img);setVocabImageLoading(false);}});
     return ()=>{cancelled=true;};
   },[vocabPopup]);
-  const tabs=[{id:"sequence",label:"पढाउने",icon:ClipboardList},{id:"questions",label:"प्रश्नहरू",icon:MessageSquare},{id:"activities",label:"क्रियाकलाप",icon:Users},{id:"simulation",label:"सिमुलेसन",icon:Gamepad2},{id:"rubric",label:"मूल्याङ्कन",icon:Layers},{id:"homework",label:"गृहकार्य",icon:PenSquare}];
+  const tabs=[{id:"sequence",label:"पढाउने",icon:ClipboardList},{id:"questions",label:"पाठ अभ्यास समाधान",icon:HelpCircle},{id:"activities",label:"क्रियाकलाप",icon:Users},{id:"simulation",label:"सिमुलेसन",icon:Gamepad2},{id:"rubric",label:"मूल्याङ्कन",icon:Layers},{id:"homework",label:"गृहकार्य",icon:PenSquare}];
   const objectives=lesson.objectives||[];
   const vocabulary=lesson.vocabulary||[];
   // NEW — पढाउने क्रम used to be read straight off lesson.sequence with no
@@ -1643,105 +1660,59 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
     persistSequence(sequence.filter((_,idx)=>idx!==i));
     setSeqEditingIdx(null);
   };
-  const keyQuestions=lesson.key_questions||[];
-  // NEW — "प्रश्नहरू" used to just print each question with nothing to do
-  // with it. Answers were never part of the data model (these are open
-  // discussion prompts, not a quiz bank with a stored correct answer), so
-  // tapping a question now asks Gemini for a short suggested answer on the
-  // spot, grounded in this chapter. Answers are cached in "प्रश्न||उत्तर"
-  // form back into key_questions once generated, so re-opening this same
-  // lesson later shows it instantly instead of regenerating.
-  const [qState,setQState]=useState(()=>keyQuestions.map((raw)=>{
-    const idx=raw.indexOf("||");
-    return idx>-1?{q:raw.slice(0,idx),a:raw.slice(idx+2)}:{q:raw,a:null};
-  }));
-  const [qOpen,setQOpen]=useState(()=>new Set());
-  const [qLoading,setQLoading]=useState(()=>new Set());
-  const [qErrors,setQErrors]=useState({});
-  useEffect(()=>{
-    setQState(keyQuestions.map((raw)=>{
-      const idx=raw.indexOf("||");
-      return idx>-1?{q:raw.slice(0,idx),a:raw.slice(idx+2)}:{q:raw,a:null};
-    }));
-    setQOpen(new Set());setQLoading(new Set());setQErrors({});
-  },[lesson.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const fetchAnswer=async(i,forceRetry=false)=>{
-    setQOpen((prev)=>new Set(prev).add(i));
-    if((qState[i]?.a&&!forceRetry)||qLoading.has(i))return;
-    setQErrors((prev)=>{const n={...prev};delete n[i];return n;});
-    setQLoading((prev)=>new Set(prev).add(i));
+  // NEW — "पाठ अभ्यास समाधान" replaces the old open-discussion-question
+  // tab (which just printed lesson.key_questions with an on-demand AI
+  // answer, no textbook grounding). This reads the textbook-verbatim
+  // exercise set for THIS lesson from the `questions` table — populated
+  // automatically by preparePath()'s "questions" step when the lesson was
+  // built (see gemini.generateQuestions). A lesson created before this
+  // feature existed has none yet, so this loads whatever's there
+  // (possibly empty) and offers a one-tap backfill button.
+  const [exercises,setExercises]=useState([]);
+  const [exercisesLoading,setExercisesLoading]=useState(true);
+  const [exercisesGenerating,setExercisesGenerating]=useState(false);
+  const [exercisesError,setExercisesError]=useState("");
+  const loadExercises=useCallback(async()=>{
+    setExercisesLoading(true);
     try{
-      const prompt=`तपाईं नेपाली शिक्षक हुनुहुन्छ। "${chapterTitle}" पाठको सन्दर्भमा तलको कक्षा-छलफल प्रश्नको छोटो, स्पष्ट सुझाव-उत्तर (३-४ वाक्यमा, कक्षामा भन्न मिल्ने सरल भाषामा) दिनुहोस्। प्रश्न नदोहोर्‍याई सिधै उत्तर मात्र दिनुहोस्।\n\nप्रश्न: ${qState[i].q}`;
-      const answer=(await gemini.generateText(prompt)).trim();
-      if(!answer)throw new Error("empty");
-      const next=qState.map((it,idx)=>idx===i?{...it,a:answer}:it);
-      // FIX — this used to fire the db save without awaiting it or
-      // checking the result, so a failed save (network hiccup, expired
-      // session, etc.) looked identical to a successful one on screen —
-      // the answer showed up, but never actually reached the database,
-      // so it was gone again on the next reload. Now it's awaited and a
-      // failure is shown immediately instead of only being discovered
-      // later.
-      const{error}=await db.updateLesson(lesson.id,{key_questions:next.map((it)=>it.a?`${it.q}||${it.a}`:it.q)});
-      if(error){setQErrors((prev)=>({...prev,[i]:"उत्तर देखियो तर सुरक्षित हुन सकेन — फेरि प्रयास गर्नुहोस्।"}));return;}
-      setQState(next);
-    }catch{
-      setQErrors((prev)=>({...prev,[i]:"उत्तर तयार गर्न सकिएन।"}));
-    }finally{
-      setQLoading((prev)=>{const next=new Set(prev);next.delete(i);return next;});
-    }
-  };
-  const toggleQuestion=(i)=>{
-    if(qOpen.has(i)){setQOpen((prev)=>{const n=new Set(prev);n.delete(i);return n;});return;}
-    fetchAnswer(i);
+      const{data,error}=await db.getQuestionsByLesson(lesson.id);
+      if(error)throw error;
+      setExercises(data||[]);
+    }catch{ setExercises([]); }
+    setExercisesLoading(false);
+  },[lesson.id]);
+  useEffect(()=>{ loadExercises(); setExercisesError(""); },[loadExercises]);
+
+  const generateExercises=async()=>{
+    setExercisesGenerating(true);setExercisesError("");
+    try{
+      // NEW — textbook-only context, deliberately not the mixed
+      // materials+textbook ctx used elsewhere: the exercise questions must
+      // come verbatim from the textbook's own end-of-chapter section, not
+      // from whatever the teacher's own uploaded materials contain (those
+      // take priority in the normal shared ctx, which is wrong here).
+      const ctx=await getMaterialContext(chapterTitle,classLabel,lesson.id);
+      const textbookOnlyCtx={...ctx,materialParts:[]};
+      const qs=await gemini.generateQuestions(chapterTitle,textbookOnlyCtx,classContext,lesson.title);
+      if(!qs)throw new Error("AI ले अभ्यास समाधान बनाउन सकेन।");
+      if(qs.length){
+        for(const q of qs) await db.upsertQuestion({text:q.text,type:q.type||"छोटो उत्तर",difficulty:q.difficulty||"सजिलो",bloom_level:q.bloom||"सम्झना",chapter_id:lesson.chapter_id,lesson_id:lesson.id,options:q.options||[],correct_option:q.correct_option??null,answer:q.answer||null,match_pairs:q.match_pairs||null,source:q.source==="ai"?"ai":"textbook",class_label:classLabel});
+      }
+      await loadExercises();
+      // NEW — the prompt deliberately returns [] instead of inventing
+      // questions when the chapter's own exercise section can't be found
+      // in the uploaded textbook — surface that distinctly from a real
+      // error so a teacher knows to check the textbook upload/chapter
+      // title match rather than just "retry".
+      if(!qs.length)setExercisesError("यो अध्यायको अभ्यास खण्ड पाठ्यपुस्तकमा भेटिएन। सेटिङ्स → पाठ्यपुस्तक अपलोडमा सही पुस्तक अपलोड भएको र अध्यायको नाम मिलेको जाँच्नुहोस्।");
+    }catch(e){setExercisesError("AI त्रुटि: "+(e.message||"अभ्यास समाधान बनाउन सकिएन।"));}
+    setExercisesGenerating(false);
   };
 
-  // NEW — an AI-generated answer used to be view-only. Now it can be
-  // edited (in case the AI got something slightly wrong) or cleared
-  // entirely (to regenerate fresh, or just leave it blank) — same as any
-  // other content in this app should work once it exists.
-  const [qEditingIdx,setQEditingIdx]=useState(null);
-  const [qEditText,setQEditText]=useState("");
-  const persistQuestions=async(next)=>{
-    setQState(next);
-    const{error}=await db.updateLesson(lesson.id,{key_questions:next.map((it)=>it.a?`${it.q}||${it.a}`:it.q)});
-    if(error)alert("सुरक्षित हुन सकेन: "+(error.message||"कृपया फेरि प्रयास गर्नुहोस्।"));
-  };
-  const startEditAnswer=(i,e)=>{e.stopPropagation();setQEditingIdx(i);setQEditText(qState[i].a||"");};
-  const saveEditedAnswer=(i,e)=>{
-    e.stopPropagation();
-    persistQuestions(qState.map((it,idx)=>idx===i?{...it,a:qEditText.trim()||null}:it));
-    setQEditingIdx(null);
-  };
-  const deleteAnswer=(i,e)=>{
-    e.stopPropagation();
-    persistQuestions(qState.map((it,idx)=>idx===i?{...it,a:null}:it));
-    setQEditingIdx(null);
-  };
-
-  // NEW — the above only ever let you edit/clear the AI-generated answer;
-  // the question text itself, and the ability to remove a whole question
-  // from the lesson, didn't exist. Separate editing state from the answer
-  // editor above so a teacher can be mid-edit on one and not the other.
-  const [qTextEditingIdx,setQTextEditingIdx]=useState(null);
-  const [qTextEditText,setQTextEditText]=useState("");
-  const startEditQuestion=(i,e)=>{e.stopPropagation();setQTextEditingIdx(i);setQTextEditText(qState[i].q);};
-  const saveEditedQuestion=(i,e)=>{
-    e.stopPropagation();
-    const text=qTextEditText.trim();
-    if(!text)return;
-    persistQuestions(qState.map((it,idx)=>idx===i?{...it,q:text}:it));
-    setQTextEditingIdx(null);
-  };
-  const deleteQuestion=(i,e)=>{
-    e.stopPropagation();
-    if(!window.confirm("यो प्रश्न हटाउने?"))return;
-    persistQuestions(qState.filter((_,idx)=>idx!==i));
-    // indices shift after removal, so any open/loading/error state keyed
-    // by index would point at the wrong item now — reset it.
-    setQOpen(new Set());setQLoading(new Set());setQErrors({});
-    setQTextEditingIdx(null);
+  const removeExercise=async(id)=>{
+    if(!window.confirm("यो अभ्यास हटाउने?"))return;
+    await db.deleteQuestion(id);
+    setExercises((prev)=>prev.filter((q)=>q.id!==id));
   };
 
   const [activitiesState,setActivitiesState]=useState(()=>lesson.activities||[]);
@@ -2043,63 +2014,72 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
               )}
             </div>
           </li>);})}</ol>)}{lesson.notes&&<div style={{marginTop:14,background:WARN_BG,borderRadius:10,padding:12}}><div style={{fontSize:15,fontWeight:700,color:WARN,marginBottom:3}}>नोट</div><div style={{fontSize:16.5,color:INK}}>{lesson.notes}</div></div>}</div>)}
-        {tab==="questions"&&<div><SectionLabel icon={MessageSquare} color={VIOLET}>कक्षामा सोध्नुहोस्</SectionLabel><div style={{display:"flex",flexDirection:"column",gap:14}}>{qState.length===0?<div style={{color:INK_SOFT}}>प्रश्नहरू थपिएका छैनन्।</div>:qState.map((item,i)=>{
-          const isOpen=qOpen.has(i);const isLoading=qLoading.has(i);const isEditingAnswer=qEditingIdx===i;const isEditingQuestion=qTextEditingIdx===i;const color=PALETTE[i%PALETTE.length];
-          return(
-            <Card key={i} accentColor={color} onClick={isEditingQuestion?undefined:()=>toggleQuestion(i)} style={{cursor:isEditingQuestion?"default":"pointer",padding:"16px 18px"}}>
-              <div style={{display:"flex",alignItems:"flex-start",gap:14}}>
-                <div style={{width:32,height:32,borderRadius:"50%",background:`linear-gradient(160deg, ${color} 0%, color-mix(in srgb, ${color} 70%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:17,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div>
-                <div style={{flex:1,minWidth:0}}>
-                {isEditingQuestion?(
-                  <div onClick={(e)=>e.stopPropagation()}>
-                    <textarea autoFocus value={qTextEditText} onChange={(e)=>setQTextEditText(e.target.value)} rows={2} className="ss-field" style={{width:"100%",borderRadius:10,padding:"9px 11px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,resize:"vertical",marginBottom:8}}/>
-                    <div style={{display:"flex",gap:7}}>
-                      <button className="ss-btn" onClick={()=>setQTextEditingIdx(null)} style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,fontSize:14,cursor:"pointer"}}>रद्द</button>
-                      <button className="ss-btn" onClick={(e)=>saveEditedQuestion(i,e)} style={{padding:"6px 12px",borderRadius:8,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer"}}>सुरक्षित गर्नुहोस्</button>
+        {tab==="questions"&&<div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginBottom:10}}>
+            <SectionLabel icon={HelpCircle} color={VIOLET}>पाठ अभ्यास समाधान</SectionLabel>
+            {exercises.length>0&&<AIButton label={exercisesGenerating?"बनाउँदै...":"फेरि बनाउनुहोस्"} onClick={generateExercises} loading={exercisesGenerating}/>}
+          </div>
+          {exercisesError&&<ErrorMsg msg={exercisesError}/>}
+          {exercisesLoading?<Spinner/>:exercises.length===0?(
+            <div style={{textAlign:"center",padding:"22px 12px",color:INK_SOFT}}>
+              <div style={{marginBottom:12,fontSize:16}}>यो पाठको लागि अझै अभ्यास समाधान बनाइएको छैन।</div>
+              <AIButton label={exercisesGenerating?"बनाउँदै...":"AI बाट पाठ्यपुस्तकबाट अभ्यास ल्याउनुहोस्"} onClick={generateExercises} loading={exercisesGenerating}/>
+            </div>
+          ):(
+            <div style={{display:"flex",flexDirection:"column",gap:14}}>{exercises.map((item,i)=>{
+              const color=EXERCISE_TYPE_COLOR[item.type]||PALETTE[i%PALETTE.length];
+              const isTrueFalse=item.type==="सत्य/असत्य";
+              const isMCQ=item.type==="बहुविकल्पीय"&&Array.isArray(item.options)&&item.options.length>0;
+              const isMatch=item.type==="मिलान गर्नुहोस्"&&Array.isArray(item.match_pairs)&&item.match_pairs.length>0;
+              return(
+                <Card key={item.id} accentColor={color} style={{padding:"16px 18px"}}>
+                  <div style={{display:"flex",alignItems:"flex-start",gap:14}}>
+                    <div style={{width:32,height:32,borderRadius:"50%",background:`linear-gradient(160deg, ${color} 0%, color-mix(in srgb, ${color} 70%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:17,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:8}}>
+                        <span style={{fontSize:12,fontWeight:700,color,background:`color-mix(in srgb, ${color} 15%, white)`,padding:"2px 9px",borderRadius:999}}>{item.type}</span>
+                        <span style={{fontSize:11.5,fontWeight:700,color:item.source==="ai"?MARIGOLD_DARK:ACCENT,background:item.source==="ai"?`color-mix(in srgb, ${MARIGOLD_DARK} 15%, white)`:`color-mix(in srgb, ${ACCENT} 15%, white)`,padding:"2px 8px",borderRadius:999}}>{item.source==="ai"?"AI ज्ञानबाट":"पाठ्यपुस्तकबाट"}</span>
+                        <button className="ss-icon-btn" onClick={()=>removeExercise(item.id)} title="हटाउनुहोस्" style={{marginLeft:"auto",cursor:"pointer",padding:4,color:DANGER,display:"flex"}}><Trash2 size={14}/></button>
+                      </div>
+                      <div style={{fontSize:19,color:INK,fontWeight:600,lineHeight:1.5,marginBottom:10}}>{item.text}</div>
+                      {isMCQ&&(
+                        <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
+                          {item.options.map((opt,oi)=>(
+                            <div key={oi} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 11px",borderRadius:8,background:oi===item.correct_option?`color-mix(in srgb, ${ACCENT} 15%, white)`:SURFACE_2,fontSize:16,color:oi===item.correct_option?ACCENT:INK,fontWeight:oi===item.correct_option?700:500}}>
+                              {oi===item.correct_option&&<CheckCircle2 size={15} style={{flexShrink:0}}/>}
+                              <span>{opt}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {isMatch&&(
+                        <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
+                          {item.match_pairs.map((p,pi)=>(
+                            <div key={pi} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 11px",borderRadius:8,background:SURFACE_2,fontSize:16,color:INK}}>
+                              <span style={{fontWeight:700}}>{p.left}</span>
+                              <ArrowRight size={14} style={{flexShrink:0,color:INK_SOFT}}/>
+                              <span>{p.right}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {isTrueFalse?(
+                        <div style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 12px",borderRadius:999,fontWeight:700,fontSize:15,background:item.answer==="सत्य"?`color-mix(in srgb, ${ACCENT} 15%, white)`:DANGER_BG,color:item.answer==="सत्य"?ACCENT:DANGER}}>
+                          {item.answer==="सत्य"?<CheckCircle2 size={15}/>:<AlertCircle size={15}/>}
+                          {item.answer||"—"}
+                        </div>
+                      ):!isMatch&&item.answer&&(
+                        <div style={{background:SURFACE_2,borderRadius:10,padding:"10px 13px",fontSize:16.5,color:INK,lineHeight:1.55}}>
+                          <span style={{fontWeight:700,color:ACCENT}}>उत्तर: </span>{item.answer}
+                        </div>
+                      )}
                     </div>
                   </div>
-                ):(
-                  <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
-                    <div style={{fontSize:20,color:INK,fontWeight:isOpen?700:600,lineHeight:1.5}}>{item.q}</div>
-                    <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0,marginTop:3}}>
-                      <button className="ss-icon-btn" onClick={(e)=>startEditQuestion(i,e)} title="सम्पादन" style={{cursor:"pointer",padding:6,color:ACCENT,display:"flex"}}><PenSquare size={15}/></button>
-                      <button className="ss-icon-btn" onClick={(e)=>deleteQuestion(i,e)} title="हटाउनुहोस्" style={{cursor:"pointer",padding:6,color:DANGER,display:"flex"}}><Trash2 size={15}/></button>
-                      <span className="ss-icon-btn" style={{padding:6,color:INK_SOFT,display:"flex"}}><ArrowDown size={17} style={{flexShrink:0,transform:isOpen?"rotate(180deg)":"none",transition:"transform .15s ease"}}/></span>
-                    </div>
-                  </div>
-                )}
-                </div>
-              </div>
-              {isOpen&&(
-                <div style={{marginTop:12,paddingTop:12,paddingLeft:46,borderTop:`1px solid ${BORDER}`,fontSize:18,color:INK_SOFT,lineHeight:1.55}}>
-                  {isLoading?(
-                    <span style={{display:"flex",alignItems:"center",gap:7}}><Loader size={14} style={{animation:"spin 1s linear infinite"}}/>उत्तर तयार गर्दै...</span>
-                  ):qErrors[i]?(
-                    <span style={{color:DANGER}}>{qErrors[i]} <button className="ss-btn" onClick={(e)=>{e.stopPropagation();fetchAnswer(i,true);}} style={{color:ACCENT,fontWeight:700,background:"none",border:"none",cursor:"pointer",padding:0}}>फेरि प्रयास गर्नुहोस्</button></span>
-                  ):isEditingAnswer?(
-                    <div onClick={(e)=>e.stopPropagation()}>
-                      <textarea autoFocus value={qEditText} onChange={(e)=>setQEditText(e.target.value)} rows={3} className="ss-field" style={{width:"100%",borderRadius:10,padding:"9px 11px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,resize:"vertical",marginBottom:8}}/>
-                      <div style={{display:"flex",gap:7}}>
-                        <button className="ss-btn" onClick={()=>setQEditingIdx(null)} style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,fontSize:14,cursor:"pointer"}}>रद्द</button>
-                        <button className="ss-btn" onClick={(e)=>saveEditedAnswer(i,e)} style={{padding:"6px 12px",borderRadius:8,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer"}}>सुरक्षित गर्नुहोस्</button>
-                      </div>
-                    </div>
-                  ):item.a?(
-                    <div>
-                      <div style={{marginBottom:8}}>{item.a}</div>
-                      <div style={{display:"flex",gap:12}}>
-                        <button className="ss-btn" onClick={(e)=>startEditAnswer(i,e)} style={{display:"flex",alignItems:"center",gap:4,color:ACCENT,fontWeight:700,fontSize:14,background:"none",border:"none",cursor:"pointer",padding:0}}><PenSquare size={13}/>सम्पादन</button>
-                        <button className="ss-btn" onClick={(e)=>deleteAnswer(i,e)} style={{display:"flex",alignItems:"center",gap:4,color:DANGER,fontWeight:700,fontSize:14,background:"none",border:"none",cursor:"pointer",padding:0}}><Trash2 size={13}/>हटाउनुहोस्</button>
-                      </div>
-                    </div>
-                  ):(
-                    <button className="ss-btn" onClick={(e)=>{e.stopPropagation();fetchAnswer(i,true);}} style={{display:"flex",alignItems:"center",gap:5,color:ACCENT,fontWeight:700,fontSize:14.5,background:"none",border:"none",cursor:"pointer",padding:0}}><Sparkles size={13}/>उत्तर तयार गर्नुहोस्</button>
-                  )}
-                </div>
-              )}
-            </Card>
-          );
-        })}</div></div>}
+                </Card>
+              );
+            })}</div>
+          )}
+        </div>}
         {tab==="activities"&&<div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginBottom:10}}>
             <SectionLabel icon={Users} color={TEAL}>क्रियाकलापहरू</SectionLabel>
@@ -2936,7 +2916,7 @@ function StatCard({ icon:Icon, value, label, color, onClick, accent }) {
 // actually useful for: questions, activities, and an assessment rubric.
 const PREP_STEPS=[
   {id:"plan",label:"पाठ योजना"},
-  {id:"questions",label:"प्रश्नहरू"},
+  {id:"questions",label:"पाठ अभ्यास समाधान"},
   {id:"activities",label:"क्रियाकलाप"},
   {id:"assessment",label:"मूल्याङ्कन"},
 ];

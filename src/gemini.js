@@ -700,10 +700,39 @@ ${focusLine}
 };
 
 export const generateQuestions = async (chapterTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", pathTitle = null) => {
-  const focus = (pathTitle && pathTitle.trim() && pathTitle.trim() !== chapterTitle.trim()) ? ` को "${pathTitle}" पाठ` : "";
-  const prompt = `नेपालको ${classContext} "${chapterTitle}" अध्याय${focus}का लागि १० विभिन्न प्रकारका प्रश्नहरू भएको JSON array मात्र:
-[{"text":"प्रश्न?","type":"छोटो उत्तर","difficulty":"सजिलो","bloom":"सम्झना","answer":"उत्तर"},
-{"text":"प्रश्न?","type":"बहुविकल्पीय","difficulty":"मध्यम","bloom":"बुझाई","options":["क) विकल्प","ख) विकल्प","ग) विकल्प","घ) विकल्प"],"correct_option":0,"answer":"उत्तर"}]`;
+  const isWholeChapter = !pathTitle || !pathTitle.trim() || pathTitle.trim() === chapterTitle.trim();
+  const focusLine = isWholeChapter ? "" : `\n\nयो अध्याय भित्र यो खास पाठ (Path) मात्र: "${pathTitle}"। यदि यो अध्याय बहु-पाठ (multiple paths/periods) मा बाँडिएको छ भने, अभ्यास खण्डका प्रश्नहरूमध्ये ठ्याक्कै यही पाठको विषयवस्तुसँग मिल्नेहरू मात्र छान्नुहोस् — अरू पाठसँग सम्बन्धित प्रश्न यहाँ नराख्नुहोस्। यदि प्रश्नहरू कुन उप-विषयसँग हो भन्ने छुट्याउन नमिल्ने खालका (चाहे जुनसुकै उप-विषयमा लागू हुने खालका, समग्र अध्यायकै हुन्) भए ती पनि समावेश गर्न सक्नुहुन्छ।`;
+  // NEW — "पाठ अभ्यास समाधान": earlier version generated its own fresh
+  // quiz-style questions. That's wrong for this feature — the teacher
+  // needs the EXACT exercise questions already printed at the end of this
+  // chapter in the textbook (uploaded whole, in Settings → textbook
+  // upload), verbatim, with AI supplying only the answer/solution. No
+  // invented questions, ever — if the chapter's own exercise section
+  // can't be found in the given textbook text, this returns an empty
+  // array rather than making something up (caller shows an empty state
+  // instead of silently substituting AI-invented questions).
+  const prompt = `तपाईंलाई माथि नेपालको ${classContext}को पाठ्यपुस्तकको सान्दर्भिक अंश (वा पूरा पुस्तक) दिइएको छ। यसमा "${chapterTitle}" नामको अध्याय पत्ता लगाउनुहोस् — त्यो अध्यायको सुरुदेखि अन्त्यसम्म राम्ररी हेर्नुहोस्, र अध्यायको ठ्याक्कै अन्त्यमा छापिएको आफ्नै "अभ्यास" (वा "प्रश्नोत्तर"/"अभ्यास प्रश्नहरू" जस्तो शीर्षक भएको) खण्ड पत्ता लगाउनुहोस्।${focusLine}
+
+अत्यन्तै महत्त्वपूर्ण नियमहरू:
+1. त्यो अभ्यास खण्डमा भएका प्रश्नहरू मात्र लिनुहोस् — शब्द, क्रम, संख्या, विकल्प (options) समेत ठ्याक्कै पाठ्यपुस्तकमा जस्तो छ त्यस्तै (verbatim) राख्नुहोस्। कुनै पनि हालतमा आफैं नयाँ प्रश्न नबनाउनुहोस्, नथप्नुहोस्, वा शब्द नबदल्नुहोस्।
+2. यदि "${chapterTitle}" अध्याय यो दिइएको स्रोतमा नै भेटिएन, वा भेटिए पनि त्यसको छुट्टै अभ्यास खण्ड ठम्याउन सकिएन भने, अरू केही नबनाई ठ्याक्कै खाली array मात्र फर्काउनुहोस्: []
+3. हरेक प्रश्नको लागि उत्तर/हल दिनुहोस् — त्यो उत्तर सधैं पहिले यही अध्यायको (माथि दिइएको) मुख्य पाठ्य-सामग्रीबाटै खोजी दिनुहोस्; त्यहाँ प्रस्ट उत्तर भेटिएमा "source":"textbook" राख्नुहोस्। अध्यायको सामग्रीमा साँच्चै उत्तर नभेटिएमा मात्र आफ्नै सामान्य ज्ञानले उत्तर दिनुहोस् र "source":"ai" राख्नुहोस्। कुनै प्रश्नको उत्तर खाली नछोड्नुहोस्।
+4. हरेक प्रश्नलाई देखाइएका ठ्याक्कै यी ५ मध्ये सबैभन्दा मिल्दो "type" मा वर्गीकरण गर्नुहोस् (पाठ्यपुस्तकमा जुन प्रकारका प्रश्न वास्तवमा छन् ती मात्र देखिनेछन् — सबै ५ प्रकार हुनैपर्छ भन्ने छैन, र नक्कली/थप प्रश्न बनाएर संख्या पूरा गर्न पनि पर्दैन):
+   - "छोटो उत्तर" (लेखेर उत्तर दिने कुनै पनि प्रश्न, छोटो वा लामो)
+   - "बहुविकल्पीय" (options सहित)
+   - "सत्य/असत्य"
+   - "रिक्त स्थान" (खाली ठाउँ भर्ने)
+   - "मिलान गर्नुहोस्" (जोडा मिलाउने)
+
+ठ्याक्कै तलको आकारको JSON array मात्र फर्काउनुहोस्, अरू कुनै व्याख्या/पाठ नथप्नुहोस्:
+[
+{"text":"पाठ्यपुस्तकमै जस्तो प्रश्न, हुबहु","type":"छोटो उत्तर","answer":"उत्तर","source":"textbook"},
+{"text":"पाठ्यपुस्तकमै जस्तो प्रश्न, हुबहु","type":"बहुविकल्पीय","options":["क) विकल्प","ख) विकल्प","ग) विकल्प","घ) विकल्प"],"correct_option":0,"answer":"सही विकल्पको पूरा पाठ","source":"textbook"},
+{"text":"पाठ्यपुस्तकमै जस्तो कथन, हुबहु","type":"सत्य/असत्य","answer":"सत्य","source":"textbook"},
+{"text":"पाठ्यपुस्तकमै जस्तो वाक्य ______ सहित, हुबहु","type":"रिक्त स्थान","answer":"खाली ठाउँमा भर्ने ठ्याक्कै शब्द/वाक्यांश","source":"textbook"},
+{"text":"पाठ्यपुस्तकमै जस्तो निर्देशन, हुबहु","type":"मिलान गर्नुहोस्","match_pairs":[{"left":"पद १","right":"सही मिलान १"},{"left":"पद २","right":"सही मिलान २"}],"source":"textbook"}
+]
+"source" ठ्याक्कै "textbook" वा "ai" मात्र हुनुपर्छ।`;
   const text = await runPromptJSON(prompt, ctx);
   const result = parseJSON(text);
   if (!result) {

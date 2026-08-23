@@ -551,6 +551,19 @@ export const getQuestions = async (classLabel = null) => cachedFetch(`questions:
   return await query;
 });
 
+// NEW — "पाठ अभ्यास समाधान" tab reads one specific lesson's exercise set
+// directly (not the whole class's Question Bank), ordered so items appear
+// in the same order Gemini generated them in (oldest first == generation
+// order, since they're all inserted together in one preparePath run).
+export const getQuestionsByLesson = async (lessonId) => {
+  const { data, error } = await supabase
+    .from("questions")
+    .select("*")
+    .eq("lesson_id", lessonId)
+    .order("created_at", { ascending: true });
+  return { data, error };
+};
+
 export const upsertQuestion = async (question) => {
   const { data: { user } } = await supabase.auth.getUser();
   const { data, error } = await supabase
