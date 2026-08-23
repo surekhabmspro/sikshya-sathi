@@ -634,6 +634,33 @@ ${focusLine}
   return result;
 };
 
+// NEW — regenerates ONLY the vocabulary list for a lesson (see App.jsx's
+// regenerateVocabOnly), separate from the full generateLessonPlan call so
+// a teacher can top up hard/new words without touching objectives,
+// sequence, questions, activities, or a rubric they may have already
+// reviewed/edited. Returns a plain array of "शब्द: अर्थ" strings — same
+// format/shape as the "vocabulary" field inside generateLessonPlan's JSON
+// above — since the caller merges it directly into the existing
+// semicolon-joined vocabulary field by word.
+export const generateVocabulary = async (chapterTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", pathTitle = null) => {
+  const focusLine = (pathTitle && pathTitle.trim() && pathTitle.trim() !== chapterTitle.trim())
+    ? `यो अध्याय भित्रको यो खास पाठ (Path) का लागि मात्र शब्दावली दिनुहोस्: "${pathTitle}"। अध्यायका अरू पाठहरूसँग दोहोरिने शब्द नराख्नुहोस्।`
+    : "";
+  const prompt = `तपाईं नेपालको ${classContext}का लागि शब्दावली सूची बनाउँदै हुनुहुन्छ।
+अध्याय (Unit): "${chapterTitle}"
+${focusLine}
+यो पाठमा भएका कठिन/नयाँ शब्दहरूको सूची ठ्याक्कै यही JSON array संरचनामा मात्र दिनुहोस्, अरू कुनै व्याख्या वा पाठ नथप्नुहोस्:
+["शब्द १: छोटो र सरल अर्थ","शब्द २: छोटो र सरल अर्थ","शब्द ३: छोटो र सरल अर्थ","शब्द ४: छोटो र सरल अर्थ","शब्द ५: छोटो र सरल अर्थ","शब्द ६: छोटो र सरल अर्थ","शब्द ७: छोटो र सरल अर्थ","शब्द ८: छोटो र सरल अर्थ","शब्द ९: छोटो र सरल अर्थ","शब्द १०: छोटो र सरल अर्थ"]
+महत्त्वपूर्ण: हरेक शब्दसँग अनिवार्य रूपमा छोटो अर्थ ":" चिन्हले छुट्याएर दिनुहोस् (जस्तै "अनुभूति: महसुस भएको कुरा")। शब्द वा अर्थमा अल्पविराम (,) कहिल्यै नराख्नुहोस्। माथिको उदाहरणमा १० वटा शब्द देखाइए पनि, यो पाठमा जति पनि साँच्चै कठिन/नयाँ शब्दहरू छन् ती सबै समावेश गर्नुहोस् — १० मा सीमित नराख्नुहोस्, र १० भन्दा कम भए पनि कृत्रिम रूपमा नथप्नुहोस्।`;
+  const text = await runPromptJSON(prompt, ctx);
+  const result = parseJSON(text);
+  if (!result || !Array.isArray(result)) {
+    const preview = (text && text.trim()) ? text.trim().slice(0, 300) : "(खाली प्रतिक्रिया — Gemini बाट केही फर्केन)";
+    throw new Error("Gemini ले सही ढाँचामा जवाफ दिएन। जवाफको सुरुवात: " + preview);
+  }
+  return result;
+};
+
 export const generateQuestions = async (chapterTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", pathTitle = null) => {
   const focus = (pathTitle && pathTitle.trim() && pathTitle.trim() !== chapterTitle.trim()) ? ` को "${pathTitle}" पाठ` : "";
   const prompt = `नेपालको ${classContext} "${chapterTitle}" अध्याय${focus}का लागि १० विभिन्न प्रकारका प्रश्नहरू भएको JSON array मात्र:
@@ -892,6 +919,20 @@ export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, 
   // such tags outright; the surrounding text/layout still works, it just
   // loses that one (non-functional) picture.
   html = html.replace(/<img\b[^>]*>/gi, "");
+  // SAFETY NET — rule 5 ("स्क्रिनभित्रै अटाउने नियम") is the single most
+  // detailed instruction in this prompt, but it's still just an
+  // instruction — Gemini sometimes only partially follows it (e.g. gets
+  // width right but leaves body scrollable, or a stray element pokes past
+  // 100vh). Rather than rely purely on compliance, force the outer page
+  // to be non-scrolling with a hardening stylesheet injected LAST (right
+  // before </head>) with !important, so it wins over anything Gemini
+  // wrote. This only touches html/body — it never overrides a more
+  // specific inner selector like ".game-area{overflow-y:auto}" that a
+  // simulation may legitimately use for a scrollable content area, since
+  // that selector is more specific and still applies inside the fixed
+  // viewport.
+  const scrollHardening = `<style>html,body{margin:0!important;padding:0!important;overflow:hidden!important;width:100vw!important;height:100vh!important;box-sizing:border-box!important}</style>`;
+  html = /<\/head>/i.test(html) ? html.replace(/<\/head>/i, scrollHardening + "</head>") : scrollHardening + html;
   return { html, type };
 };
 

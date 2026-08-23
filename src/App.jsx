@@ -2464,12 +2464,22 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
     setGenerating(true);setError("");
     try{
       const ctx=await getMaterialContext(chapterTitle,classLabel);
-      // Which formats this lesson has already used — read from the saved
-      // simulations themselves (their `type` column), not session state,
-      // so variety is remembered permanently across visits/reloads, not
-      // just within one sitting. Simulations saved before this column
-      // existed have type=null and are simply ignored here.
-      const usedTypes=sims.map((s)=>s.type).filter(Boolean);
+      // Which formats were used recently — combine BOTH signals so variety
+      // holds within a single lesson (repeatedly hitting "generate" here)
+      // AND across different lessons (one generation per lesson, the more
+      // common workflow). pickNextSimulationType cares about (a) mechanic
+      // counts, to round-robin drag/tap/type/slider, and (b) the LAST
+      // element of the array, to avoid repeating the exact same type back
+      // to back — so both lists are reversed to oldest-first and this
+      // lesson's own history is appended last, making the most recent
+      // item always this lesson's latest simulation if it has one (the
+      // most relevant "don't repeat what we just did here" signal),
+      // falling back to the global most-recent item for a brand-new
+      // lesson with no history of its own yet.
+      const{data:recentTypesDesc}=await db.getRecentSimulationTypes(12);
+      const globalAsc=(recentTypesDesc||[]).slice().reverse();
+      const lessonAsc=sims.map((s)=>s.type).filter(Boolean).slice().reverse();
+      const usedTypes=[...globalAsc, ...lessonAsc];
       const nextType=gemini.pickNextSimulationType(usedTypes);
       const{html,type}=await gemini.generateSimulation(chapterTitle,lesson.title,ctx,classContext,nextType);
       const chapter_id=await resolveChapterId(chapterTitle,classLabel);

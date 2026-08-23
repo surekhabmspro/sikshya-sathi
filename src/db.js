@@ -743,6 +743,28 @@ export const getSimulationsByLesson = async (lessonId) => {
   return { data, error };
 };
 
+// NEW — recent simulation TYPES across ALL of this teacher's lessons, not
+// just one lesson. gemini.pickNextSimulationType() round-robins across
+// mechanics (drag/tap/type/slider) using whatever history it's given —
+// but a teacher who generates one simulation per lesson (the common case)
+// was always passing an empty per-lesson history, so every single lesson
+// got an independent fresh 25%-per-mechanic draw with no memory of "we
+// just did three drag ones in a row across the last three lessons". Using
+// the teacher's global recent history instead means the round-robin
+// actually corrects for that streak, so mechanics genuinely alternate
+// lesson-to-lesson rather than only within repeated generations on the
+// same lesson.
+export const getRecentSimulationTypes = async (limit = 12) => {
+  const { data: { user } } = await supabase.auth.getUser();
+  const { data, error } = await supabase
+    .from("simulations")
+    .select("type")
+    .eq("teacher_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  return { data: (data || []).map((r) => r.type).filter(Boolean), error };
+};
+
 export const saveSimulation = async (simulation) => {
   const { data: { user } } = await supabase.auth.getUser();
   const { data, error } = await supabase
