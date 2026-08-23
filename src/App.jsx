@@ -2621,26 +2621,21 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
     <div style={{fontSize:15.5,color:INK_SOFT,marginBottom:12,lineHeight:1.5}}>यस पाठका लागि AI ले प्रोजेक्टरमा देखाई कक्षालाई खेलाउन मिल्ने अन्तरक्रियात्मक अभ्यास बनाउँछ — तपाईंले ल्यापटपमा माउसले चलाउनुहुन्छ। हरेक पटक "नयाँ बनाउनुहोस्" थिच्दा फरक-फरक शैली प्रयास गरिन्छ, र पुरानोहरू पनि सुरक्षित रहन्छन्।</div>
     {!online&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",borderRadius:10,background:tint(WARN,15),color:WARN,fontSize:13.5,fontWeight:600,marginBottom:12}}><WifiOff size={16}/>अफलाइन — AI ले नयाँ सिमुलेसन बनाउन सक्दैन, तर पहिल्यै बनाइसकेका हेर्न मिल्छ।</div>}
     {usedCache&&<div style={{fontSize:13,color:INK_SOFT,marginBottom:12}}>⚠️ सर्भरसँग जडान भएन — यो यन्त्रमा सुरक्षित गरिएको पछिल्लो प्रति देखाइँदैछ।</div>}
-    <div style={{display:"flex",gap:8,marginBottom:10}}>
+    <div style={{display:"flex",gap:8,marginBottom:12}}>
       <button className="ss-btn" onClick={()=>setMode("new")} style={{flex:1,padding:"8px",borderRadius:10,border:mode==="new"?`2px solid ${VIOLET}`:"1px solid rgba(0,0,0,0.12)",background:mode==="new"?tint(VIOLET,12):"transparent",color:mode==="new"?VIOLET:INK_SOFT,fontWeight:700,fontSize:13.5,cursor:"pointer"}}>🆕 नयाँ सामग्री</button>
       <button className="ss-btn" onClick={()=>setMode("review")} style={{flex:1,padding:"8px",borderRadius:10,border:mode==="review"?`2px solid ${VIOLET}`:"1px solid rgba(0,0,0,0.12)",background:mode==="review"?tint(VIOLET,12):"transparent",color:mode==="review"?VIOLET:INK_SOFT,fontWeight:700,fontSize:13.5,cursor:"pointer"}}>🔁 पुनरावलोकन</button>
+      {/* NEW — fastMode as a compact icon toggle instead of a separate
+          full-width checkbox row: it's a modifier on top of whichever
+          mode is picked (not a third mode), so it sits beside the mode
+          pair rather than stacked under it. title="" gives a hover tip
+          on desktop; the pressed/amber state is the only cue needed at a
+          glance from across the room. */}
+      <button className="ss-btn" onClick={()=>setFastMode(!fastMode)} title="छिटो मोड — जाँच-चरण नछोडी, चाँडो बनाउनुहोस् (गुणस्तर अलि कम हुन सक्छ)" style={{width:44,flexShrink:0,padding:"8px",borderRadius:10,border:fastMode?"2px solid #F59E0B":"1px solid rgba(0,0,0,0.12)",background:fastMode?tint("#F59E0B",15):"transparent",color:fastMode?"#F59E0B":INK_SOFT,fontWeight:700,fontSize:16,cursor:"pointer"}}>⚡</button>
     </div>
-    {/* NEW — fastMode toggle: skips generateSimulation's AI self-review
-        pass, the single biggest time cost in a generation. */}
-    <label style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,cursor:"pointer",fontSize:13.5,color:INK_SOFT}}>
-      <input type="checkbox" checked={fastMode} onChange={(e)=>setFastMode(e.target.checked)} style={{width:16,height:16,cursor:"pointer",accentColor:VIOLET}}/>
-      ⚡ छिटो मोड (जाँच-चरण नछोडी, चाँडो बनाउनुहोस् — गुणस्तर अलि कम हुन सक्छ)
-    </label>
     {error&&<ErrorMsg msg={error}/>}
-    <button className="ss-btn" onClick={generateForThisLesson} disabled={generating||!!bulk||!online} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,width:"100%",padding:"13px",borderRadius:12,border:"none",background:`linear-gradient(180deg, ${VIOLET} 0%, color-mix(in srgb, ${VIOLET} 75%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:16.5,cursor:(generating||bulk)?"default":"pointer",boxShadow:SHADOW.accent,marginBottom:generating?6:10}}>
+    <button className="ss-btn" onClick={generateForThisLesson} disabled={generating||!!bulk||!online} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,width:"100%",padding:"13px",borderRadius:12,border:"none",background:`linear-gradient(180deg, ${VIOLET} 0%, color-mix(in srgb, ${VIOLET} 75%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:16.5,cursor:(generating||bulk)?"default":"pointer",boxShadow:SHADOW.accent,marginBottom:10}}>
       {generating?<><Loader size={17} style={{animation:"spin 1s linear infinite"}}/>{fastMode?"सिमुलेसन बनाउँदै... (छिटो मोड)":"सिमुलेसन बनाउँदै र जाँच्दै... (१-२ मिनेट लाग्न सक्छ)"}</>:<><Wand2 size={17}/>{sims.length?"नयाँ सिमुलेसन बनाउनुहोस्":"AI बाट सिमुलेसन बनाउनुहोस्"}</>}
     </button>
-    {/* NEW — this generation genuinely takes a while (large, detailed
-        output) — saying so up front avoids a teacher assuming it's stuck
-        and refreshing/retrying mid-generation. fastMode skips the
-        biggest chunk of that time (the review pass), so the wait copy
-        says so instead of still promising 1-2 minutes. */}
-    {generating&&<div style={{fontSize:13.5,color:INK_SOFT,textAlign:"center",marginBottom:16}}>{fastMode?"छिटो मोडमा जाँच-चरण छोडिएकोले चाँडै बन्नेछ — कृपया पर्खनुहोस्...":"यसमा १-२ मिनेटसम्म लाग्न सक्छ — कृपया पर्खनुहोस्..."}</div>}
     <button className="ss-icon-btn" onClick={bulkGenerate} disabled={generating||!!bulk||!online} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,width:"100%",padding:"10px",borderRadius:10,border:`1px dashed ${VIOLET}`,background:"transparent",color:VIOLET,fontWeight:600,fontSize:14,cursor:(generating||bulk)?"default":"pointer",marginBottom:16}}>
       {bulk?<><Loader size={15} style={{animation:"spin 1s linear infinite"}}/>{`यो अध्यायका पाठहरूमा बनाउँदै... (${bulk.done}/${bulk.total})`}</>:<><Layers size={15}/>यो अध्यायका सबै पाठमा सिमुलेसन बनाउनुहोस्</>}
     </button>
