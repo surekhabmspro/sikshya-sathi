@@ -762,9 +762,22 @@ async function preparePath({ chapterTitle, chapterId, pathTitle, lessonId, secti
     // it, on line 284 above) — every question generated through this
     // main "AI ले यो पाठ बनाओस्" flow was invisible to class-scoped
     // filtering in Question Bank/Document Search until this fix.
-    for (const q of qs) await db.upsertQuestion({ text: q.text, type: q.type || "छोटो उत्तर", difficulty: q.difficulty || "सजिलो", bloom_level: q.bloom || "सम्झना", chapter_id: cId, lesson_id: lid, options: q.options || [], correct_option: q.correct_option ?? null, answer: q.answer || null, match_pairs: q.match_pairs || null, source: q.source === "ai" ? "ai" : "textbook", class_label: classLabel });
-    questionsCount = qs.length;
-    emit("questions", "done");
+    // FIX — db.upsertQuestion returns {data,error} and never throws on
+    // its own; this used to ignore the return value, so any save failure
+    // (missing column, RLS, etc.) silently discarded every exercise with
+    // this step still reporting "done" — a teacher would never know. Now
+    // a save failure is reported through this step's own error state.
+    let saveError = null;
+    for (const q of qs) {
+      const { error } = await db.upsertQuestion({ text: q.text, type: q.type || "छोटो उत्तर", difficulty: q.difficulty || "सजिलो", bloom_level: q.bloom || "सम्झना", chapter_id: cId, lesson_id: lid, options: q.options || [], correct_option: q.correct_option ?? null, answer: q.answer || null, match_pairs: q.match_pairs || null, source: q.source === "ai" ? "ai" : "textbook", class_label: classLabel });
+      if (error && !saveError) saveError = error;
+    }
+    if (saveError) {
+      emit("questions", "error", saveError.message || "अभ्यास समाधान सुरक्षित हुन सकेन।");
+    } else {
+      questionsCount = qs.length;
+      emit("questions", "done");
+    }
   } else if (qs !== null) emit("questions", "error", "AI ले प्रश्न बनाउन सकेन।");
 
   let activitiesCount = 0;
@@ -1696,7 +1709,21 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
       const qs=await gemini.generateQuestions(chapterTitle,textbookOnlyCtx,classContext,lesson.title);
       if(!qs)throw new Error("AI ले अभ्यास समाधान बनाउन सकेन।");
       if(qs.length){
-        for(const q of qs) await db.upsertQuestion({text:q.text,type:q.type||"छोटो उत्तर",difficulty:q.difficulty||"सजिलो",bloom_level:q.bloom||"सम्झना",chapter_id:lesson.chapter_id,lesson_id:lesson.id,options:q.options||[],correct_option:q.correct_option??null,answer:q.answer||null,match_pairs:q.match_pairs||null,source:q.source==="ai"?"ai":"textbook",class_label:classLabel});
+        // FIX — db.upsertQuestion returns {data,error} and never throws on
+        // its own; this loop used to ignore that return value entirely, so
+        // a save failure (missing column, RLS, a null chapter_id — this
+        // lesson might predate chapter_id always being set) silently
+        // discarded every question with no error shown at all, looking
+        // exactly like "nothing happened" even though Gemini's call
+        // succeeded. Now the first save error is kept and thrown so it
+        // reaches the catch below and actually gets shown.
+        const cId=lesson.chapter_id||await resolveChapterId(chapterTitle,classLabel);
+        let saveError=null;
+        for(const q of qs){
+          const{error}=await db.upsertQuestion({text:q.text,type:q.type||"छोटो उत्तर",difficulty:q.difficulty||"सजिलो",bloom_level:q.bloom||"सम्झना",chapter_id:cId,lesson_id:lesson.id,options:q.options||[],correct_option:q.correct_option??null,answer:q.answer||null,match_pairs:q.match_pairs||null,source:q.source==="ai"?"ai":"textbook",class_label:classLabel});
+          if(error&&!saveError)saveError=error;
+        }
+        if(saveError)throw saveError;
       }
       await loadExercises();
       // NEW — the prompt deliberately returns [] instead of inventing
