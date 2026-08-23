@@ -2500,7 +2500,6 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
   // Off by default since the review pass does catch real issues — this
   // is for a teacher who needs something on screen right now.
   const [fastMode,setFastMode]=useState(false);
-  const [bulk,setBulk]=useState(null); // {done,total} while bulk-generating, else null
   const [usedCache,setUsedCache]=useState(false);
   const online=useOnlineStatus();
 
@@ -2577,36 +2576,6 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
     setGenerating(false);
   };
 
-  // NEW — generates a simulation for every lesson in this chapter that
-  // doesn't already have one, one at a time (sequential, not parallel —
-  // the Gemini call is already a heavy 1-2 minute generation, running
-  // several at once would just compete for the same rate limit). Shows
-  // running progress since this can take several minutes for a chapter
-  // with many lessons.
-  const bulkGenerate=async()=>{
-    if(!online){setError("अफलाइन छ — इन्टरनेट फर्केपछि पुनः प्रयास गर्नुहोस्।");return;}
-    setError("");
-    try{
-      const{data:allLessons}=await db.getLessons(null,classLabel);
-      const chapterLessons=(allLessons||[]).filter((l)=>(l.chapters?.title||l.chapter_title)===chapterTitle);
-      const targets=[];
-      for(const l of chapterLessons){
-        const{data:existing}=await db.getSimulationsByLesson(l.id);
-        if(!existing||existing.length===0)targets.push(l);
-      }
-      if(targets.length===0){setError("यस अध्यायका सबै पाठमा पहिल्यै सिमुलेसन छ।");return;}
-      setBulk({done:0,total:targets.length});
-      for(let i=0;i<targets.length;i++){
-        try{
-          const data=await generate(targets[i]);
-          if(data&&targets[i].id===lesson.id)setSims((prev)=>[data,...prev]);
-        }catch{ /* one lesson failing shouldn't stop the rest of the chapter */ }
-        setBulk({done:i+1,total:targets.length});
-      }
-    }catch(e){setError("AI त्रुटि: "+(e.message||"थोक-सिमुलेसन बनाउन सकिएन।"));}
-    setBulk(null);
-  };
-
   const remove=async(id,e)=>{
     e?.stopPropagation();
     setDeletingId(id);
@@ -2633,11 +2602,8 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
       <button className="ss-btn" onClick={()=>setFastMode(!fastMode)} title="छिटो मोड — जाँच-चरण नछोडी, चाँडो बनाउनुहोस् (गुणस्तर अलि कम हुन सक्छ)" style={{width:44,flexShrink:0,padding:"8px",borderRadius:10,border:fastMode?"2px solid #F59E0B":"1px solid rgba(0,0,0,0.12)",background:fastMode?tint("#F59E0B",15):"transparent",color:fastMode?"#F59E0B":INK_SOFT,fontWeight:700,fontSize:16,cursor:"pointer"}}>⚡</button>
     </div>
     {error&&<ErrorMsg msg={error}/>}
-    <button className="ss-btn" onClick={generateForThisLesson} disabled={generating||!!bulk||!online} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,width:"100%",padding:"13px",borderRadius:12,border:"none",background:`linear-gradient(180deg, ${VIOLET} 0%, color-mix(in srgb, ${VIOLET} 75%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:16.5,cursor:(generating||bulk)?"default":"pointer",boxShadow:SHADOW.accent,marginBottom:10}}>
+    <button className="ss-btn" onClick={generateForThisLesson} disabled={generating||!online} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,width:"100%",padding:"13px",borderRadius:12,border:"none",background:`linear-gradient(180deg, ${VIOLET} 0%, color-mix(in srgb, ${VIOLET} 75%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:16.5,cursor:generating?"default":"pointer",boxShadow:SHADOW.accent,marginBottom:16}}>
       {generating?<><Loader size={17} style={{animation:"spin 1s linear infinite"}}/>{fastMode?"सिमुलेसन बनाउँदै... (छिटो मोड)":"सिमुलेसन बनाउँदै र जाँच्दै... (१-२ मिनेट लाग्न सक्छ)"}</>:<><Wand2 size={17}/>{sims.length?"नयाँ सिमुलेसन बनाउनुहोस्":"AI बाट सिमुलेसन बनाउनुहोस्"}</>}
-    </button>
-    <button className="ss-icon-btn" onClick={bulkGenerate} disabled={generating||!!bulk||!online} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,width:"100%",padding:"10px",borderRadius:10,border:`1px dashed ${VIOLET}`,background:"transparent",color:VIOLET,fontWeight:600,fontSize:14,cursor:(generating||bulk)?"default":"pointer",marginBottom:16}}>
-      {bulk?<><Loader size={15} style={{animation:"spin 1s linear infinite"}}/>{`यो अध्यायका पाठहरूमा बनाउँदै... (${bulk.done}/${bulk.total})`}</>:<><Layers size={15}/>यो अध्यायका सबै पाठमा सिमुलेसन बनाउनुहोस्</>}
     </button>
     {loading?<Spinner/>:sims.length===0?<EmptyState icon={Gamepad2} text="अझै कुनै सिमुलेसन बनाइएको छैन। माथिको बटनबाट पहिलो बनाउनुहोस्।"/>:(
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
