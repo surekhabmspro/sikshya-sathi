@@ -30,14 +30,52 @@ const geminiUrl = (model) => `https://generativelanguage.googleapis.com/v1beta/m
 // ─── IndexedDB storage for large PDF files (no size limit issues) ─────────────
 const DB_NAME = "sikshya_sathi";
 const STORE_NAME = "files";
+// NEW — a second store for caching each lesson's last-known-good
+// simulation locally. Bumped the DB version to 2 so onupgradeneeded fires
+// and creates this store for teachers who already have the DB at
+// version 1 from before this feature existed (upgradeneeded still runs
+// even on an existing DB, it just skips creating STORE_NAME again since
+// it already exists).
+const DB_VERSION = 2;
+const SIM_STORE_NAME = "sim_cache";
 
 const openDB = () =>
   new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = (e) => e.target.result.createObjectStore(STORE_NAME);
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME);
+      if (!db.objectStoreNames.contains(SIM_STORE_NAME)) db.createObjectStore(SIM_STORE_NAME);
+    };
     req.onsuccess = (e) => resolve(e.target.result);
     req.onerror = () => reject(req.error);
   });
+
+// NEW — caches the last-known-good simulation HTML for a lesson locally,
+// so a teacher can still reopen the simulation they already generated if
+// Supabase is unreachable mid-class (a real concern at a rural school with
+// unreliable connectivity). Best-effort only — a caching failure should
+// never block the normal save/view flow, so callers should wrap these in
+// try/catch and just skip the cache on error.
+export const cacheSimulationLocally = async (lessonId, simulation) => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(SIM_STORE_NAME, "readwrite");
+    tx.objectStore(SIM_STORE_NAME).put(simulation, `lesson::${lessonId}`);
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => reject(tx.error);
+  });
+};
+
+export const getCachedSimulation = async (lessonId) => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(SIM_STORE_NAME, "readonly");
+    const req = tx.objectStore(SIM_STORE_NAME).get(`lesson::${lessonId}`);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+};
 
 // NEW — the IndexedDB key is now per-class ("textbook_pdf::कक्षा ६" etc.)
 // instead of one fixed slot, since the textbook changes when the class you
@@ -891,15 +929,36 @@ function applySimulationSafetyNets(html) {
   // "०-९ only" holds even on a generation that didn't follow the prompt.
   const devanagariScript = `<script>(function(){var d={'0':'०','1':'१','2':'२','3':'३','4':'४','5':'५','6':'६','7':'७','8':'८','9':'९'};function conv(s){return s.replace(/[0-9]/g,function(c){return d[c];});}function skip(n){return n&&n.tagName&&(n.tagName==='SCRIPT'||n.tagName==='STYLE');}function walk(n){if(n.nodeType===3){if(!skip(n.parentNode)&&/[0-9]/.test(n.nodeValue))n.nodeValue=conv(n.nodeValue);}else if(n.nodeType===1&&!skip(n)){for(var i=0;i<n.childNodes.length;i++)walk(n.childNodes[i]);}}function run(){try{walk(document.body);}catch(e){}}if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',run);else run();try{new MutationObserver(function(muts){muts.forEach(function(m){if(m.type==='characterData'){var n=m.target;if(!skip(n.parentNode)&&/[0-9]/.test(n.nodeValue))n.nodeValue=conv(n.nodeValue);}else if(m.type==='childList'){m.addedNodes.forEach(walk);}});}).observe(document.body,{childList:true,subtree:true,characterData:true});}catch(e){}})();</script>`;
   html = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, devanagariScript + "</body>") : html + devanagariScript;
-  // NEW — window.playCorrectSound()/window.playWrongSound(), always
-  // defined regardless of whether Gemini's generated JS calls them. Pure
-  // Web Audio API oscillator beeps, no external file/CDN (has to run
-  // fully offline). The generation prompt below tells Gemini to call
-  // these from its own correct/wrong handlers; defining them here means a
-  // generation that forgets simply gets no sound instead of a crashing
-  // "playCorrectSound is not a function" error.
-  const soundScript = `<script>(function(){var Ctx=window.AudioContext||window.webkitAudioContext;var ctx=null;function getCtx(){if(!ctx&&Ctx)ctx=new Ctx();return ctx;}function tone(freq,start,dur,type,vol){var c=getCtx();if(!c)return;var o=c.createOscillator();var g=c.createGain();o.type=type;o.frequency.value=freq;g.gain.value=vol;o.connect(g);g.connect(c.destination);var t=c.currentTime+start;o.start(t);g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(0.001,t+dur);o.stop(t+dur+0.02);}window.playCorrectSound=function(){try{tone(660,0,0.12,'sine',0.18);tone(880,0.1,0.18,'sine',0.18);}catch(e){}};window.playWrongSound=function(){try{tone(220,0,0.22,'sawtooth',0.13);}catch(e){}};})();</script>`;
+  // NEW — window.playCorrectSound()/window.playWrongSound()/
+  // window.playCelebrationSound()/window.playClickSound(), always defined
+  // regardless of whether Gemini's generated JS calls them. Pure Web
+  // Audio API (oscillators + synthesized noise for the clap/cheer), no
+  // external file/CDN (has to run fully offline). The generation prompt
+  // tells Gemini to call these from its own correct/wrong/completion
+  // handlers; defining them here means a generation that forgets simply
+  // gets no sound instead of a crashing "... is not a function" error.
+  // - playWrongSound: a short 3-pulse "ta-ta-ta" buzzer (sawtooth, low
+  //   pitch) — the classic game-show "wrong" horn.
+  // - playCorrectSound: a quick bright 3-note ascending chime.
+  // - playCelebrationSound: layered short bandpass-filtered noise bursts
+  //   (~16 of them, randomly timed over ~1.6s) approximate applause, plus
+  //   a few pitch-swept "whoop" tones layered in to approximate excited
+  //   cheering — meant to be triggered at the exact same moment as the
+  //   end-of-game confetti/color-burst celebration (see rule 10 below).
+  // - playClickSound: a soft, short neutral tap/pop for lighter UI
+  //   feedback (selecting a card, starting a drag, etc.) — kept quiet and
+  //   short so it doesn't compete with the correct/wrong/celebration
+  //   sounds when the AI wires it in.
+  const soundScript = `<script>(function(){var Ctx=window.AudioContext||window.webkitAudioContext;var ctx=null;function getCtx(){if(!ctx&&Ctx)ctx=new Ctx();return ctx;}function tone(freq,start,dur,type,vol){var c=getCtx();if(!c)return;var o=c.createOscillator();var g=c.createGain();o.type=type;o.frequency.value=freq;g.gain.value=vol;o.connect(g);g.connect(c.destination);var t=c.currentTime+start;o.start(t);g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(0.001,t+dur);o.stop(t+dur+0.02);}function noiseBurst(start,dur,lo,hi,vol){var c=getCtx();if(!c)return;var n=Math.max(1,Math.floor(c.sampleRate*dur));var buf=c.createBuffer(1,n,c.sampleRate);var d=buf.getChannelData(0);for(var i=0;i<n;i++)d[i]=Math.random()*2-1;var src=c.createBufferSource();src.buffer=buf;var bp=c.createBiquadFilter();bp.type='bandpass';bp.frequency.value=(lo+hi)/2;bp.Q.value=1.2;var g=c.createGain();src.connect(bp);bp.connect(g);g.connect(c.destination);var t=c.currentTime+start;g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(0.001,t+dur);src.start(t);src.stop(t+dur+0.02);}window.playCorrectSound=function(){try{tone(523,0,0.11,'sine',0.2);tone(659,0.09,0.11,'sine',0.2);tone(784,0.18,0.22,'sine',0.22);}catch(e){}};window.playWrongSound=function(){try{for(var i=0;i<3;i++)tone(170,i*0.17,0.12,'sawtooth',0.17);}catch(e){}};window.playClickSound=function(){try{tone(440,0,0.05,'sine',0.08);}catch(e){}};window.playCelebrationSound=function(){try{var c=getCtx();if(!c)return;for(var i=0;i<16;i++)noiseBurst(Math.random()*1.5,0.05+Math.random()*0.04,1500,4200,0.22+Math.random()*0.15);for(var j=0;j<4;j++){(function(j){var t0=0.1+j*0.25+Math.random()*0.15;var o=c.createOscillator();var g=c.createGain();o.type='sine';var base=300+Math.random()*150;o.frequency.setValueAtTime(base,c.currentTime+t0);o.frequency.exponentialRampToValueAtTime(base*2.2,c.currentTime+t0+0.35);o.frequency.exponentialRampToValueAtTime(base*1.4,c.currentTime+t0+0.6);g.gain.setValueAtTime(0.001,c.currentTime+t0);g.gain.linearRampToValueAtTime(0.13,c.currentTime+t0+0.08);g.gain.exponentialRampToValueAtTime(0.001,c.currentTime+t0+0.7);o.connect(g);g.connect(c.destination);o.start(c.currentTime+t0);o.stop(c.currentTime+t0+0.75);})(j);}}catch(e){}};})();</script>`;
   html = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, soundScript + "</body>") : html + soundScript;
+  // NEW — reports a genuine JS crash back to the parent app via
+  // postMessage, so the caller can run a one-shot self-test (load in a
+  // hidden iframe, wait briefly, retry once if this fires) before ever
+  // showing a broken generation to a teacher. postMessage works even
+  // though the iframe is sandbox="allow-scripts" only (no
+  // allow-same-origin) — it doesn't require same-origin access.
+  const errorReportScript = `<script>window.onerror=function(msg){try{parent.postMessage({ssSimError:String(msg)},'*');}catch(e){}};</script>`;
+  html = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, errorReportScript + "</body>") : html + errorReportScript;
   return html;
 }
 
@@ -928,7 +987,7 @@ async function reviewAndFixSimulation(html, type, chapterTitle, lessonTitle) {
 10. हरेक वास्तविक वस्तु इमोजी वा स्पष्ट नेपाली लेबलसहित चिनिन्छ — खाली अमूर्त आयत/वृत्त छैन।
 11. कुनै <img> ट्याग छैन, कुनै तत्व स्क्रिनबाट बाहिर/काटिएको/ओभरल्याप भएको छैन, "फेरि खेल्नुहोस्" बटन सधैं देखिने ठाउँमा छ।
 12. वस्तु/कार्डको डाटा-सूची पहिलो लोड र प्रत्येक "फेरि खेल्नुहोस्" मा Fisher-Yates शफल भएर मात्र UI मा देखिन्छ — प्रत्येक "फेरि खेल्नुहोस्" पछि क्रम फेरिन्छ, हरेक पटक ठ्याक्कै उही क्रम देखिँदैन।
-13. सही छान्दा window.playCorrectSound(), गलत छान्दा window.playWrongSound() कल गरिएको छ (यी फंक्सन पहिल्यै परिभाषित छन्, केवल कल मात्र गर्ने हो)।
+13. सही छान्दा window.playCorrectSound(), गलत छान्दा window.playWrongSound() कल गरिएको छ, र अन्त्यको उत्सव-एनिमेसन देखा पर्दा window.playCelebrationSound() पनि कल गरिएको छ (यी फंक्सन पहिल्यै परिभाषित छन्, केवल कल मात्र गर्ने हो)।
 
 यदि माथिका सबै बुँदा पहिल्यै ठीक छन् भने, दिइएको HTML लाई जस्ताको त्यस्तै फिर्ता दिनुहोस्। कुनै बुँदामा समस्या भेटिएमा त्यो/ती मात्र सुधारेर बाँकी सबै जस्ताको त्यस्तै राखी पूरा HTML फर्काउनुहोस्। जवाफमा कुनै व्याख्या, markdown फेन्स, वा अगाडि/पछाडिको वाक्य नथप्नुहोस् — ठ्याक्कै <!DOCTYPE html> बाट सुरु भएर </html> मा सकिने एउटै पूर्ण दस्तावेज मात्र दिनुहोस्।
 
@@ -939,9 +998,18 @@ ${html}`;
   return applySimulationSafetyNets(reviewed);
 }
 
-export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", simulationType = null) => {
+export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", simulationType = null, mode = "new") => {
   const type = simulationType || pickNextSimulationType();
+  // NEW — "review" mode. Every generation used to pull fresh content from
+  // the chapter with no way to ask for a recap/quiz-style pass instead —
+  // a teacher revisiting a chapter a week later has no way to signal
+  // "test what we already covered" vs. "teach something new". This line
+  // is empty for the default "new" mode (unchanged prompt/behavior).
+  const modeLine = mode === "review"
+    ? `\nयो पुनरावलोकन (review) मोड हो — यो पाठ कक्षालाई पहिल्यै पढाइसकिएको मानेर, नयाँ कुरा सिकाउनुको सट्टा पहिल्यै पढेका तथ्य/अवधारणा सम्झना गर्न/जाँच्न मिल्ने गरी वस्तुहरू छान्नुहोस् — सबैभन्दा महत्त्वपूर्ण र सामान्यतया झुक्किने तथ्यहरूलाई प्राथमिकता दिनुहोस्।\n`
+    : "";
   const prompt = `तपाईं नेपालको ${classContext}का लागि एउटा इन्टरएक्टिभ (अन्तरक्रियात्मक) सिमुलेसन/खेल बनाउँदै हुनुहुन्छ।
+${modeLine}
 
 महत्त्वपूर्ण सन्दर्भ — यसले पूरा डिजाइनलाई असर गर्छ: यो विद्यार्थीको आफ्नै मोबाइलमा होइन। शिक्षकले ल्यापटपमा माउस/ट्र्याकप्याडबाट चलाउनुहुन्छ, र प्रोजेक्टरबाट कक्षाकोठाको पर्खालमा ठूलो गरी देखाइन्छ — सम्पूर्ण कक्षाले टाढाबाट हेर्छन्, र शिक्षकले नै क्लिक/ड्र्याग गर्नुहुन्छ (वा विद्यार्थी पालैपालो अगाडि आएर चलाउँछन्)। त्यसैले:
 - यो एउटा फराकिलो (landscape) ल्यापटप/प्रोजेक्टर स्क्रिनका लागि हो, साँघुरो फोन स्क्रिनका लागि होइन। कम्तिमा 1280×720 देखि 1920×1080 सम्मको landscape रिजोल्युसनमा राम्रोसँग मिल्नुपर्छ।
@@ -1033,9 +1101,9 @@ export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, 
 9. **नियन्त्रण बटनहरू सधैं देखिने ठाउँमा राख्नुहोस् (माथिको flex-column संरचनाकै एउटा सामान्य तल्लो flex-child पट्टीको रूपमा — नियम ५ हेर्नुहोस्), स्क्रोल गर्दा वा राउन्ड बदल्दा पनि हराउनु हुँदैन। यो पट्टी कहिल्यै "position:fixed/sticky" नबनाइ सामान्य दस्तावेज-प्रवाह (normal flow) मै राख्नुहोस्, र यसमा माथिको निर्देशन/शीर्षक-पाठ फेरि नदोहोर्याउनुहोस् — बटन/नियन्त्रण मात्र राख्नुहोस्:
    - एउटा "फेरि खेल्नुहोस्" (restart) बटन राख्नुहोस् जसले पूरै अवस्था (सबै वस्तु, स्कोर, प्रगति) पूर्ण रूपमा सुरुको स्थितिमा फर्काओस् — यो बटन जुनसुकै बेला, अड्किएको अवस्थामा पनि, तुरुन्तै देख्न र थिच्न मिल्ने ठाउँमा (जस्तै कुनामा स्थिर रूपमा) राख्नुहोस्, कतै तल गएर/लुकेर बस्नु हुँदैन।
    - **"फेरि खेल्नुहोस्" थिच्दा वस्तु/कार्डहरूको क्रम पहिलेकै जस्तो ठ्याक्कै उही देखिनु हुँदैन** — डाटा-सूची (array) लाई हरेक पटक (पहिलो लोड हुँदा र प्रत्येक "फेरि खेल्नुहोस्" थिच्दा दुवैमा) Fisher-Yates जस्तो शफल-फंक्सनले क्रम फेरेर मात्र UI मा देखाउनुहोस्, ताकि दोहोर्याएर खेल्दा पनि उही क्रम नदेखियोस् र हरेक पटक अलि फरक महसुस होस्। (सही उत्तर/जोडी भने डाटासँगै जोडिएको रहन्छ, क्रम फेरेर मात्र होइन।)
-   - **सही/गलत भएको बेला आवाज पनि बजाउनुहोस्** — यो फाइलमा window.playCorrectSound() र window.playWrongSound() भन्ने दुई फंक्सन पहिल्यै उपलब्ध छन् (थप्नु पर्दैन, तपाईंले परिभाषित गर्नै पर्दैन) — विद्यार्थीले सही छान्दा window.playCorrectSound(), गलत छान्दा window.playWrongSound() कल गर्नुहोस्।
+   - **सही/गलत भएको बेला आवाज पनि बजाउनुहोस्** — यो फाइलमा window.playCorrectSound() र window.playWrongSound() भन्ने दुई फंक्सन पहिल्यै उपलब्ध छन् (थप्नु पर्दैन, तपाईंले परिभाषित गर्नै पर्दैन) — विद्यार्थीले सही छान्दा window.playCorrectSound(), गलत छान्दा window.playWrongSound() कल गर्नुहोस्। साथै, वस्तु छनोट/ड्र्याग सुरु जस्ता सानो कार्यमा पनि उपयुक्त भए window.playClickSound() (यो पनि पहिल्यै परिभाषित छ) प्रयोग गरी हल्का प्रतिक्रिया-आवाज थप्न सकिन्छ — तर यो अनिवार्य होइन, सही/गलत आवाजभन्दा बढी हावी नहोस्।
    - यदि सामग्री धेरै भई राउन्ड/समूहमा बाँडिएको छ भने, "← अघिल्लो" र "अर्को →" जस्ता स्पष्ट नेभिगेसन बटन राख्नुहोस् ताकि शिक्षकले आफ्नै गतिमा, कक्षालाई व्याख्या गर्दै, एक-एक वस्तु/राउन्ड अगाडि बढाउन सक्नुहुन्छ — सबै कुरा एकैचोटि नआओस्, शिक्षकको नियन्त्रणमा होस्।
-10. **पूरा सिमुलेसन सफलतापूर्वक सकिँदा (सबै वस्तु/राउन्ड पूरा भएपछि) एउटा छोटो, ठूलो, रमाइलो उत्सव-एनिमेसन देखाउनुहोस्** — जस्तै रंगीन कन्फेटी/तारा CSS एनिमेसनले स्क्रिन भरिने, "सबै सही!" वा "बधाई छ!" जस्तो ठूलो पाठसहित। यो एनिमेसन/सन्देश पनि कम्तिमा ३.५ सेकेन्ड रहनुपर्छ र त्यसपछि मात्र सामान्य सारांश देखिनुपर्छ। यो CSS/JS ले नै बनाउनुहोस् (कुनै बाह्य लाइब्रेरी/CDN चाहिँदैन), र यसले स्क्रिनको अरू भाग ढाकेर स्थायी रूपमा नरहोस् — केही सेकेन्डपछि सामान्य सारांशमा फर्किनुपर्छ।
+10. **पूरा सिमुलेसन सफलतापूर्वक सकिँदा (सबै वस्तु/राउन्ड पूरा भएपछि) एउटा छोटो, ठूलो, रमाइलो उत्सव-एनिमेसन देखाउनुहोस्** — जस्तै रंगीन कन्फेटी/तारा CSS एनिमेसनले स्क्रिन भरिने, "सबै सही!" वा "बधाई छ!" जस्तो ठूलो पाठसहित। **यो एनिमेसन देखा पर्ने ठ्याक्कै त्यही क्षणमा window.playCelebrationSound() पनि कल गर्नुहोस्** (यो फंक्सन पहिल्यै परिभाषित छ — ताली बजाउने र बालबालिका उल्लासमा आएको आवाज मिलेर बज्छ, थप्नु/परिभाषित गर्नु पर्दैन, कल मात्र गर्नुहोस्)। यो एनिमेसन/सन्देश पनि कम्तिमा ३.५ सेकेन्ड रहनुपर्छ र त्यसपछि मात्र सामान्य सारांश देखिनुपर्छ। यो CSS/JS ले नै बनाउनुहोस् (कुनै बाह्य लाइब्रेरी/CDN चाहिँदैन), र यसले स्क्रिनको अरू भाग ढाकेर स्थायी रूपमा नरहोस् — केही सेकेन्डपछि सामान्य सारांशमा फर्किनुपर्छ।
 11. viewport meta ट्याग राख्नुहोस्: <meta name="viewport" content="width=device-width, initial-scale=1">
 12. कहिल्यै <img>, background-image, वा कुनै पनि src/url() मार्फत बाहिरी फाइल/तस्विर नल्याउनुहोस् — यस्तो कुनै फाइल इन्टरनेटमा वा डिभाइसमा अवस्थित हुँदैन, त्यसैले त्यो सधैं टुटेको/खाली देखिन्छ। "यो चित्र हेर्नुहोस्" जस्तो कुनै पनि कार्य दिनुभएमा, त्यो चित्र/नक्सा/वस्तु अनिवार्य रूपमा ठूलो इमोजी वा इनलाइन SVG (<svg>...</svg>, सीधै HTML भित्र लेखिएको, स्पष्ट नेपाली लेबलसहित) प्रयोग गरेरै आफैं कोड गरेर देखाउनुहोस् (माथिको नियम ४क हेर्नुहोस्) — लेबल/इमोजी नभएको खाली आकार कहिल्यै प्रयोग नगर्नुहोस्।
 13. कुनै पनि तस्विर/नक्सा/चित्र देखिनु आवश्यक भएको सिमुलेसन बनाउनुभएमा, त्यो चित्र पूर्ण रूपमा देखिन्छ र त्यसको कन्टेनरभित्रै भरिन्छ भनी सुनिश्चित गर्नुहोस् — कुनै अधुरो, कटिएको, वा नदेखिने तत्व नराख्नुहोस्।

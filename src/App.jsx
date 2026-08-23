@@ -10,7 +10,7 @@ import {
   Settings as SettingsIcon, Trash2, RefreshCw, BookMarked, Zap,
   Sun, Moon, Lightbulb, Paperclip, ArrowDown, Pin, RotateCw,
   GraduationCap, PartyPopper, Bell, Palmtree, Megaphone, AlertTriangle, Download,
-  Upload, ChevronDown,
+  Upload, ChevronDown, WifiOff,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import * as db from "./db";
@@ -2439,6 +2439,44 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
   );
 }
 
+// NEW — tracks navigator.onLine so the simulation panel can warn a teacher
+// (and disable AI calls) instead of just throwing a network error mid-class
+// — the classroom's own unreliable connectivity is exactly the situation
+// this app has to be honest about instead of silently failing.
+function useOnlineStatus() {
+  const [online,setOnline]=useState(typeof navigator==="undefined"?true:navigator.onLine);
+  useEffect(()=>{
+    const on=()=>setOnline(true), off=()=>setOnline(false);
+    window.addEventListener("online",on);
+    window.addEventListener("offline",off);
+    return()=>{window.removeEventListener("online",on);window.removeEventListener("offline",off);};
+  },[]);
+  return online;
+}
+
+const simTypeLabel=(typeId)=>gemini.SIMULATION_TYPES.find((t)=>t.id===typeId)?.label||typeId;
+
+// NEW — loads the given HTML into a hidden, disconnected iframe and waits
+// briefly for the safety-net's window.onerror→postMessage report (see
+// gemini.applySimulationSafetyNets) before resolving. This is a genuine
+// render self-test — it catches a generation that's syntactically fine
+// (passed extractHtmlDoc's </html> check) but throws immediately on load,
+// before a teacher ever opens it in class.
+function selfTestSimulation(html, timeoutMs=4000){
+  return new Promise((resolve)=>{
+    let done=false;
+    const finish=(ok)=>{if(done)return;done=true;window.removeEventListener("message",onMsg);iframe.remove();resolve(ok);};
+    const onMsg=(e)=>{if(e.data&&e.data.ssSimError)finish(false);};
+    window.addEventListener("message",onMsg);
+    const iframe=document.createElement("iframe");
+    iframe.style.cssText="position:fixed;left:-9999px;top:-9999px;width:1280px;height:720px;visibility:hidden;";
+    iframe.sandbox="allow-scripts";
+    iframe.srcdoc=html;
+    document.body.appendChild(iframe);
+    setTimeout(()=>finish(true),timeoutMs);
+  });
+}
+
 // NEW — per-lesson library of AI-generated interactive simulations. Each
 // generation is saved as its own row (see db.saveSimulation) so a teacher
 // can build up several attempts for the same lesson and keep whichever
@@ -2451,50 +2489,112 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
   const [error,setError]=useState("");
   const [viewing,setViewing]=useState(null);
   const [deletingId,setDeletingId]=useState(null);
+  const [mode,setMode]=useState("new"); // "new" | "review"
+  const [bulk,setBulk]=useState(null); // {done,total} while bulk-generating, else null
+  const [usedCache,setUsedCache]=useState(false);
+  const online=useOnlineStatus();
 
   const load=useCallback(async()=>{
     setLoading(true);
-    const{data}=await db.getSimulationsByLesson(lesson.id);
-    setSims(data||[]);
+    try{
+      const{data,error}=await db.getSimulationsByLesson(lesson.id);
+      if(error)throw error;
+      setSims(data||[]);
+      setUsedCache(false);
+    }catch{
+      // NEW — Supabase unreachable: fall back to whatever this lesson's
+      // last-known-good simulation was, cached locally in IndexedDB, so a
+      // teacher without connectivity can still show something instead of
+      // an empty "अझै कुनै सिमुलेसन बनाइएको छैन" screen.
+      try{
+        const cached=await gemini.getCachedSimulation(lesson.id);
+        setSims(cached?[cached]:[]);
+        setUsedCache(!!cached);
+      }catch{ setSims([]); }
+    }
     setLoading(false);
   },[lesson.id]);
   useEffect(()=>{load();},[load]);
 
-  const generate=async()=>{
+  const generate=async(targetLesson=lesson)=>{
+    if(!online){setError("अफलाइन छ — इन्टरनेट फर्केपछि पुनः प्रयास गर्नुहोस्।");return null;}
+    const ctx=await getMaterialContext(chapterTitle,classLabel);
+    // Which formats were used recently — combine BOTH signals so variety
+    // holds within a single lesson (repeatedly hitting "generate" here)
+    // AND across different lessons (one generation per lesson, the more
+    // common workflow). pickNextSimulationType cares about (a) mechanic
+    // counts, to round-robin drag/tap/type/slider, and (b) the LAST
+    // element of the array, to avoid repeating the exact same type back
+    // to back — so both lists are reversed to oldest-first and this
+    // lesson's own history is appended last, making the most recent
+    // item always this lesson's latest simulation if it has one (the
+    // most relevant "don't repeat what we just did here" signal),
+    // falling back to the global most-recent item for a brand-new
+    // lesson with no history of its own yet.
+    const{data:recentTypesDesc}=await db.getRecentSimulationTypes(12);
+    const globalAsc=(recentTypesDesc||[]).slice().reverse();
+    const lessonAsc=(targetLesson.id===lesson.id?sims:[]).map((s)=>s.type).filter(Boolean).slice().reverse();
+    const usedTypes=[...globalAsc, ...lessonAsc];
+    const nextType=gemini.pickNextSimulationType(usedTypes);
+    let{html,type}=await gemini.generateSimulation(chapterTitle,targetLesson.title,ctx,classContext,nextType,mode);
+    // NEW — render self-test (see selfTestSimulation above). One silent
+    // retry on failure, same "don't interrupt the classroom flow" pattern
+    // already used for a truncated/cut-off response.
+    const ok=await selfTestSimulation(html);
+    if(!ok){
+      const retry=await gemini.generateSimulation(chapterTitle,targetLesson.title,ctx,classContext,nextType,mode);
+      html=retry.html; type=retry.type;
+    }
+    const chapter_id=await resolveChapterId(chapterTitle,classLabel);
+    // NEW — 2-3 discussion questions for after the game ends, generated
+    // alongside the simulation itself. Best-effort: a failure here
+    // (rate limit, malformed JSON) should never block saving/showing
+    // the simulation, which is the part that actually matters in class.
+    let discussionTips=[];
+    try{discussionTips=await gemini.generateDiscussionTips(chapterTitle,targetLesson.title,type.label,ctx,classContext);}catch{ /* keep empty — footer just won't show tips */ }
+    const{data,error}=await db.saveSimulation({lesson_id:targetLesson.id,chapter_id,chapter_title:chapterTitle,title:`${targetLesson.title} — ${type.label}`,type:type.id,html_content:html,discussion_tips:discussionTips});
+    if(error)throw error;
+    try{await gemini.cacheSimulationLocally(targetLesson.id,data);}catch{ /* best-effort */ }
+    return data;
+  };
+
+  const generateForThisLesson=async()=>{
     setGenerating(true);setError("");
     try{
-      const ctx=await getMaterialContext(chapterTitle,classLabel);
-      // Which formats were used recently — combine BOTH signals so variety
-      // holds within a single lesson (repeatedly hitting "generate" here)
-      // AND across different lessons (one generation per lesson, the more
-      // common workflow). pickNextSimulationType cares about (a) mechanic
-      // counts, to round-robin drag/tap/type/slider, and (b) the LAST
-      // element of the array, to avoid repeating the exact same type back
-      // to back — so both lists are reversed to oldest-first and this
-      // lesson's own history is appended last, making the most recent
-      // item always this lesson's latest simulation if it has one (the
-      // most relevant "don't repeat what we just did here" signal),
-      // falling back to the global most-recent item for a brand-new
-      // lesson with no history of its own yet.
-      const{data:recentTypesDesc}=await db.getRecentSimulationTypes(12);
-      const globalAsc=(recentTypesDesc||[]).slice().reverse();
-      const lessonAsc=sims.map((s)=>s.type).filter(Boolean).slice().reverse();
-      const usedTypes=[...globalAsc, ...lessonAsc];
-      const nextType=gemini.pickNextSimulationType(usedTypes);
-      const{html,type}=await gemini.generateSimulation(chapterTitle,lesson.title,ctx,classContext,nextType);
-      const chapter_id=await resolveChapterId(chapterTitle,classLabel);
-      // NEW — 2-3 discussion questions for after the game ends, generated
-      // alongside the simulation itself. Best-effort: a failure here
-      // (rate limit, malformed JSON) should never block saving/showing
-      // the simulation, which is the part that actually matters in class.
-      let discussionTips=[];
-      try{discussionTips=await gemini.generateDiscussionTips(chapterTitle,lesson.title,type.label,ctx,classContext);}catch{ /* keep empty — footer just won't show tips */ }
-      const{data,error}=await db.saveSimulation({lesson_id:lesson.id,chapter_id,chapter_title:chapterTitle,title:`${lesson.title} — ${type.label}`,type:type.id,html_content:html,discussion_tips:discussionTips});
-      if(error)throw error;
-      setSims((prev)=>[data,...prev]);
-      setViewing(data);
+      const data=await generate(lesson);
+      if(data){setSims((prev)=>[data,...prev]);setViewing(data);}
     }catch(e){setError("AI त्रुटि: "+(e.message||"सिमुलेसन बनाउन सकिएन।"));}
     setGenerating(false);
+  };
+
+  // NEW — generates a simulation for every lesson in this chapter that
+  // doesn't already have one, one at a time (sequential, not parallel —
+  // the Gemini call is already a heavy 1-2 minute generation, running
+  // several at once would just compete for the same rate limit). Shows
+  // running progress since this can take several minutes for a chapter
+  // with many lessons.
+  const bulkGenerate=async()=>{
+    if(!online){setError("अफलाइन छ — इन्टरनेट फर्केपछि पुनः प्रयास गर्नुहोस्।");return;}
+    setError("");
+    try{
+      const{data:allLessons}=await db.getLessons(null,classLabel);
+      const chapterLessons=(allLessons||[]).filter((l)=>(l.chapters?.title||l.chapter_title)===chapterTitle);
+      const targets=[];
+      for(const l of chapterLessons){
+        const{data:existing}=await db.getSimulationsByLesson(l.id);
+        if(!existing||existing.length===0)targets.push(l);
+      }
+      if(targets.length===0){setError("यस अध्यायका सबै पाठमा पहिल्यै सिमुलेसन छ।");return;}
+      setBulk({done:0,total:targets.length});
+      for(let i=0;i<targets.length;i++){
+        try{
+          const data=await generate(targets[i]);
+          if(data&&targets[i].id===lesson.id)setSims((prev)=>[data,...prev]);
+        }catch{ /* one lesson failing shouldn't stop the rest of the chapter */ }
+        setBulk({done:i+1,total:targets.length});
+      }
+    }catch(e){setError("AI त्रुटि: "+(e.message||"थोक-सिमुलेसन बनाउन सकिएन।"));}
+    setBulk(null);
   };
 
   const remove=async(id,e)=>{
@@ -2509,14 +2609,23 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
   return(<div>
     <SectionLabel icon={Gamepad2} color={VIOLET}>इन्टरएक्टिभ सिमुलेसन</SectionLabel>
     <div style={{fontSize:15.5,color:INK_SOFT,marginBottom:12,lineHeight:1.5}}>यस पाठका लागि AI ले प्रोजेक्टरमा देखाई कक्षालाई खेलाउन मिल्ने अन्तरक्रियात्मक अभ्यास बनाउँछ — तपाईंले ल्यापटपमा माउसले चलाउनुहुन्छ। हरेक पटक "नयाँ बनाउनुहोस्" थिच्दा फरक-फरक शैली प्रयास गरिन्छ, र पुरानोहरू पनि सुरक्षित रहन्छन्।</div>
+    {!online&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",borderRadius:10,background:tint(WARN,15),color:WARN,fontSize:13.5,fontWeight:600,marginBottom:12}}><WifiOff size={16}/>अफलाइन — AI ले नयाँ सिमुलेसन बनाउन सक्दैन, तर पहिल्यै बनाइसकेका हेर्न मिल्छ।</div>}
+    {usedCache&&<div style={{fontSize:13,color:INK_SOFT,marginBottom:12}}>⚠️ सर्भरसँग जडान भएन — यो यन्त्रमा सुरक्षित गरिएको पछिल्लो प्रति देखाइँदैछ।</div>}
+    <div style={{display:"flex",gap:8,marginBottom:10}}>
+      <button className="ss-btn" onClick={()=>setMode("new")} style={{flex:1,padding:"8px",borderRadius:10,border:mode==="new"?`2px solid ${VIOLET}`:"1px solid rgba(0,0,0,0.12)",background:mode==="new"?tint(VIOLET,12):"transparent",color:mode==="new"?VIOLET:INK_SOFT,fontWeight:700,fontSize:13.5,cursor:"pointer"}}>🆕 नयाँ सामग्री</button>
+      <button className="ss-btn" onClick={()=>setMode("review")} style={{flex:1,padding:"8px",borderRadius:10,border:mode==="review"?`2px solid ${VIOLET}`:"1px solid rgba(0,0,0,0.12)",background:mode==="review"?tint(VIOLET,12):"transparent",color:mode==="review"?VIOLET:INK_SOFT,fontWeight:700,fontSize:13.5,cursor:"pointer"}}>🔁 पुनरावलोकन</button>
+    </div>
     {error&&<ErrorMsg msg={error}/>}
-    <button className="ss-btn" onClick={generate} disabled={generating} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,width:"100%",padding:"13px",borderRadius:12,border:"none",background:`linear-gradient(180deg, ${VIOLET} 0%, color-mix(in srgb, ${VIOLET} 75%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:16.5,cursor:generating?"default":"pointer",boxShadow:SHADOW.accent,marginBottom:generating?6:16}}>
+    <button className="ss-btn" onClick={generateForThisLesson} disabled={generating||!!bulk||!online} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,width:"100%",padding:"13px",borderRadius:12,border:"none",background:`linear-gradient(180deg, ${VIOLET} 0%, color-mix(in srgb, ${VIOLET} 75%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:16.5,cursor:(generating||bulk)?"default":"pointer",boxShadow:SHADOW.accent,marginBottom:generating?6:10}}>
       {generating?<><Loader size={17} style={{animation:"spin 1s linear infinite"}}/>सिमुलेसन बनाउँदै र जाँच्दै... (१-२ मिनेट लाग्न सक्छ)</>:<><Wand2 size={17}/>{sims.length?"नयाँ सिमुलेसन बनाउनुहोस्":"AI बाट सिमुलेसन बनाउनुहोस्"}</>}
     </button>
     {/* NEW — this generation genuinely takes a while (large, detailed
         output) — saying so up front avoids a teacher assuming it's stuck
         and refreshing/retrying mid-generation. */}
     {generating&&<div style={{fontSize:13.5,color:INK_SOFT,textAlign:"center",marginBottom:16}}>यसमा १-२ मिनेटसम्म लाग्न सक्छ — कृपया पर्खनुहोस्...</div>}
+    <button className="ss-icon-btn" onClick={bulkGenerate} disabled={generating||!!bulk||!online} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,width:"100%",padding:"10px",borderRadius:10,border:`1px dashed ${VIOLET}`,background:"transparent",color:VIOLET,fontWeight:600,fontSize:14,cursor:(generating||bulk)?"default":"pointer",marginBottom:16}}>
+      {bulk?<><Loader size={15} style={{animation:"spin 1s linear infinite"}}/>{`यो अध्यायका पाठहरूमा बनाउँदै... (${bulk.done}/${bulk.total})`}</>:<><Layers size={15}/>यो अध्यायका सबै पाठमा सिमुलेसन बनाउनुहोस्</>}
+    </button>
     {loading?<Spinner/>:sims.length===0?<EmptyState icon={Gamepad2} text="अझै कुनै सिमुलेसन बनाइएको छैन। माथिको बटनबाट पहिलो बनाउनुहोस्।"/>:(
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         {sims.map((s,i)=>{const color=PALETTE[i%PALETTE.length];return(
@@ -2524,7 +2633,10 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
             <div style={{width:40,height:40,borderRadius:10,background:`linear-gradient(160deg, ${color} 0%, color-mix(in srgb, ${color} 70%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Gamepad2 size={19} color="#fff"/></div>
             <div style={{minWidth:0,flex:1}}>
               <div style={{fontWeight:700,fontSize:16.5,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.title}</div>
-              <div style={{fontSize:14,color:INK_SOFT}}>{new Date(s.created_at).toLocaleDateString("ne-NP",{day:"2-digit",month:"short",year:"numeric"})}</div>
+              <div style={{display:"flex",alignItems:"center",gap:6,fontSize:14,color:INK_SOFT}}>
+                <span style={{fontSize:12,fontWeight:700,color,background:tint(color,15),padding:"1px 7px",borderRadius:999}}>{simTypeLabel(s.type)}</span>
+                <span>{new Date(s.created_at).toLocaleDateString("ne-NP",{day:"2-digit",month:"short",year:"numeric"})}</span>
+              </div>
             </div>
             <button className="ss-icon-btn" onClick={(e)=>remove(s.id,e)} disabled={deletingId===s.id} style={{color:DANGER,cursor:"pointer",padding:6,flexShrink:0}}><Trash2 size={16}/></button>
           </Card>
@@ -2532,36 +2644,94 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
       </div>
     )}
     {viewing&&(
-      <div className="no-print" style={{position:"fixed",inset:0,zIndex:90,background:"#000",display:"flex",flexDirection:"column"}}>
-        {/* FIX — this row used flexWrap:"wrap", so on a narrow phone the
-            "designed for laptop/projector" subtitle wrapped onto its own
-            second line, silently doubling the header's height and eating
-            into the vertical space the game itself had to render in — that
-            extra fixed-height band above the content is what read as "a
-            notification hiding the content." No wrap now, and the subtitle
-            (which is informational, not essential) hides below 560px via
-            the media query, instead of ever pushing onto a second line. */}
-        {/* FIX — background was `INK`, a CSS var that TEXT uses and that
-            flips to a pale cream color in dark theme (the app's default —
-            see index.html: --ink:#FBEEDD in [data-theme="dark"]). Used as a
-            background behind white text/icons, that's white-ish-on-white —
-            invisible, exactly the "white bar, nothing visible" bug. This
-            whole overlay is a fixed always-dark "cinema mode" viewer (the
-            outer div is literally background:"#000"), so the bar needs a
-            fixed dark literal, not a theme-dependent variable that was
-            never meant to be used as a background at all. */}
-        <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"#1C1006",color:"#fff",flexShrink:0}}>
-          <div style={{flex:1,minWidth:0,fontWeight:700,fontSize:15.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{viewing.title}</div>
-          <span className="ss-sim-subtitle" style={{fontSize:13,color:"rgba(255,255,255,0.6)",fontWeight:600,whiteSpace:"nowrap"}}>🖥️ ल्यापटप/प्रोजेक्टरका लागि डिजाइन गरिएको</span>
-          <IconButton icon={generating?Loader:RefreshCw} spin={generating} onClick={generate} disabled={generating} title="अर्को नयाँ सिमुलेसन बनाउनुहोस्" variant="hero" size={17} style={{borderRadius:8,padding:8}}/>
-          <IconButton icon={X} onClick={()=>setViewing(null)} variant="hero" size={19} style={{borderRadius:8,padding:8}}/>
-          <style>{`@media (max-width:560px){.ss-sim-subtitle{display:none;}}`}</style>
-        </div>
-        <SimulationStage html={viewing.html_content} title={viewing.title}/>
-        {viewing.discussion_tips?.length>0&&<DiscussionTipsFooter tips={viewing.discussion_tips}/>}
-      </div>
+      <SimulationViewerOverlay
+        viewing={viewing}
+        generating={generating}
+        onRegenerate={generateForThisLesson}
+        onClose={()=>setViewing(null)}
+        onTipsUpdated={(tips)=>{setViewing((v)=>({...v,discussion_tips:tips}));setSims((prev)=>prev.map((s)=>s.id===viewing.id?{...s,discussion_tips:tips}:s));}}
+        chapterTitle={chapterTitle}
+        lesson={lesson}
+        classContext={classContext}
+      />
     )}
   </div>);
+}
+
+// NEW — split out of SimulationPanel's render so the high-contrast/zoom
+// controls and the discussion-tips footer have somewhere self-contained
+// to live, instead of piling more state into SimulationPanel.
+function SimulationViewerOverlay({ viewing, generating, onRegenerate, onClose, onTipsUpdated, chapterTitle, lesson, classContext }){
+  const [highContrast,setHighContrast]=useState(false);
+  const [printingTips,setPrintingTips]=useState(false);
+  const [regeneratingTips,setRegeneratingTips]=useState(false);
+  const displayHtml=highContrast?withHighContrast(viewing.html_content):viewing.html_content;
+
+  const regenerateTips=async()=>{
+    setRegeneratingTips(true);
+    try{
+      const ctx=await getMaterialContext(chapterTitle,null);
+      const tips=await gemini.generateDiscussionTips(chapterTitle,lesson.title,simTypeLabel(viewing.type),ctx,classContext);
+      if(tips.length)onTipsUpdated(tips);
+    }catch{ /* best-effort — keep whatever tips were already showing */ }
+    setRegeneratingTips(false);
+  };
+
+  if(printingTips){
+    return (
+      <PrintableSheet title={viewing.title} subtitle="छलफल प्रश्न" chip={chapterTitle} chipColor={VIOLET} onClose={()=>setPrintingTips(false)}>
+        <ol style={{paddingLeft:20,display:"flex",flexDirection:"column",gap:10}}>
+          {(viewing.discussion_tips||[]).map((t,i)=><li key={i} style={{fontSize:16,lineHeight:1.6}}>{t}</li>)}
+        </ol>
+      </PrintableSheet>
+    );
+  }
+
+  return (
+    <div className="no-print" style={{position:"fixed",inset:0,zIndex:90,background:"#000",display:"flex",flexDirection:"column"}}>
+      {/* FIX — this row used flexWrap:"wrap", so on a narrow phone the
+          "designed for laptop/projector" subtitle wrapped onto its own
+          second line, silently doubling the header's height and eating
+          into the vertical space the game itself had to render in — that
+          extra fixed-height band above the content is what read as "a
+          notification hiding the content." No wrap now, and the subtitle
+          (which is informational, not essential) hides below 560px via
+          the media query, instead of ever pushing onto a second line. */}
+      {/* FIX — background was `INK`, a CSS var that TEXT uses and that
+          flips to a pale cream color in dark theme (the app's default —
+          see index.html: --ink:#FBEEDD in [data-theme="dark"]). Used as a
+          background behind white text/icons, that's white-ish-on-white —
+          invisible, exactly the "white bar, nothing visible" bug. This
+          whole overlay is a fixed always-dark "cinema mode" viewer (the
+          outer div is literally background:"#000"), so the bar needs a
+          fixed dark literal, not a theme-dependent variable that was
+          never meant to be used as a background at all. */}
+      <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"#1C1006",color:"#fff",flexShrink:0}}>
+        <div style={{flex:1,minWidth:0,fontWeight:700,fontSize:15.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{viewing.title}</div>
+        <span className="ss-sim-subtitle" style={{fontSize:13,color:"rgba(255,255,255,0.6)",fontWeight:600,whiteSpace:"nowrap"}}>🖥️ ल्यापटप/प्रोजेक्टरका लागि डिजाइन गरिएको</span>
+        <IconButton icon={highContrast?EyeOff:Eye} onClick={()=>setHighContrast((v)=>!v)} title="उच्च कन्ट्रास्ट मोड" variant="hero" size={17} style={{borderRadius:8,padding:8}}/>
+        <IconButton icon={generating?Loader:RefreshCw} spin={generating} onClick={onRegenerate} disabled={generating} title="अर्को नयाँ सिमुलेसन बनाउनुहोस्" variant="hero" size={17} style={{borderRadius:8,padding:8}}/>
+        <IconButton icon={X} onClick={onClose} variant="hero" size={19} style={{borderRadius:8,padding:8}}/>
+        <style>{`@media (max-width:560px){.ss-sim-subtitle{display:none;}}`}</style>
+      </div>
+      <SimulationStage html={displayHtml} title={viewing.title}/>
+      {(viewing.discussion_tips?.length>0)&&(
+        <DiscussionTipsFooter tips={viewing.discussion_tips} onRegenerate={regenerateTips} regenerating={regeneratingTips} onPrint={()=>setPrintingTips(true)}/>
+      )}
+    </div>
+  );
+}
+
+// NEW — pure post-processing toggle for a teacher viewing a simulation on
+// a low-contrast/washed-out projector. Rather than re-deriving per-element
+// colors (which would need to understand the generated markup), this
+// applies a universal invert+hue-rotate filter to the whole page — the
+// same trick OS/browser "high contrast" accessibility modes use — so any
+// low-contrast pairing Gemini produced gets punched up regardless of what
+// colors it actually used.
+function withHighContrast(html){
+  const style=`<style>html{filter:invert(1) hue-rotate(180deg) contrast(1.15)!important;}</style>`;
+  return /<\/head>/i.test(html)?html.replace(/<\/head>/i,style+"</head>"):style+html;
 }
 
 // NEW — collapsible footer with 2-3 teacher discussion questions for after
@@ -2571,7 +2741,7 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
 // way to tell the parent "the game just ended", so instead this stays
 // tucked away (collapsed by default, doesn't compete with the game for
 // attention) and the teacher opens it whenever they're ready to wrap up.
-function DiscussionTipsFooter({ tips }) {
+function DiscussionTipsFooter({ tips, onRegenerate, regenerating, onPrint }) {
   const [open,setOpen]=useState(false);
   return (
     <div style={{flexShrink:0,background:"#1C1006",color:"#fff",borderTop:"1px solid rgba(255,255,255,0.12)"}}>
@@ -2581,10 +2751,14 @@ function DiscussionTipsFooter({ tips }) {
         <span style={{fontSize:12,opacity:0.7}}>{open?"▲":"▼"}</span>
       </button>
       {open&&(
-        <div style={{padding:"0 14px 12px",display:"flex",flexDirection:"column",gap:6}}>
+        <div style={{padding:"0 14px 12px",display:"flex",flexDirection:"column",gap:8}}>
           {tips.map((t,i)=>(
             <div key={i} style={{fontSize:14,lineHeight:1.5,color:"rgba(255,255,255,0.9)"}}>{i+1}. {t}</div>
           ))}
+          <div style={{display:"flex",gap:14,marginTop:2}}>
+            <button className="ss-icon-btn" onClick={onRegenerate} disabled={regenerating} style={{display:"flex",alignItems:"center",gap:5,color:"rgba(255,255,255,0.75)",cursor:"pointer",fontSize:12.5,fontWeight:600}}><RefreshCw size={12} style={regenerating?{animation:"spin 1s linear infinite"}:{}}/>फेरि प्रश्न बनाउनुहोस्</button>
+            <button className="ss-icon-btn" onClick={onPrint} style={{display:"flex",alignItems:"center",gap:5,color:"rgba(255,255,255,0.75)",cursor:"pointer",fontSize:12.5,fontWeight:600}}><Printer size={12}/>प्रिन्ट गर्नुहोस्</button>
+          </div>
         </div>
       )}
     </div>
@@ -2605,8 +2779,13 @@ function DiscussionTipsFooter({ tips }) {
 // artificial letterbox on any screen. A brief, dismissable hint (not an
 // overlay that blocks the game) nudges toward landscape on narrow phones,
 // since the content still reads best wide.
+// NEW — added a small zoom control (A-/reset/A+) for projector distance,
+// independent of the device/browser's own page zoom — a teacher standing
+// at the back of the room can bump this up without affecting the rest of
+// the app's UI.
 function SimulationStage({ html, title }) {
   const [hintDismissed, setHintDismissed] = useState(false);
+  const [zoom, setZoom] = useState(1);
   const isNarrowPortrait = typeof window !== "undefined" && window.innerWidth < 700 && window.innerHeight > window.innerWidth;
   return (
     <div style={{flex:1,minHeight:0,display:"flex",flexDirection:"column",background:"#000",overflow:"hidden"}}>
@@ -2616,7 +2795,16 @@ function SimulationStage({ html, title }) {
           <button className="ss-icon-btn" onClick={()=>setHintDismissed(true)} style={{color:"inherit",cursor:"pointer",fontWeight:700,padding:"3px 7px"}}>✕</button>
         </div>
       )}
-      <iframe title={title} srcDoc={html} sandbox="allow-scripts" style={{flex:1,minHeight:0,width:"100%",border:"none",background:"#fff"}}/>
+      <div style={{flex:1,minHeight:0,position:"relative",overflow:"auto",background:"#000"}}>
+        <div style={{width:"100%",height:"100%",zoom}}>
+          <iframe title={title} srcDoc={html} sandbox="allow-scripts" style={{width:"100%",height:"100%",border:"none",background:"#fff"}}/>
+        </div>
+        <div style={{position:"absolute",right:8,bottom:8,display:"flex",gap:4,background:"rgba(0,0,0,0.55)",borderRadius:10,padding:4}}>
+          <button className="ss-icon-btn" onClick={()=>setZoom((z)=>Math.max(0.6,+(z-0.1).toFixed(2)))} style={{color:"#fff",cursor:"pointer",padding:"4px 9px",fontWeight:700}}>A-</button>
+          <button className="ss-icon-btn" onClick={()=>setZoom(1)} style={{color:"#fff",cursor:"pointer",padding:"4px 9px",fontSize:12}}>{Math.round(zoom*100)}%</button>
+          <button className="ss-icon-btn" onClick={()=>setZoom((z)=>Math.min(1.6,+(z+0.1).toFixed(2)))} style={{color:"#fff",cursor:"pointer",padding:"4px 9px",fontWeight:700}}>A+</button>
+        </div>
+      </div>
     </div>
   );
 }
