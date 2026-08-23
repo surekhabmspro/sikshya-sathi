@@ -849,6 +849,17 @@ function applySimulationSafetyNets(html) {
   // outright; the surrounding text/layout still works, it just loses that
   // one (non-functional) picture.
   html = html.replace(/<img\b[^>]*>/gi, "");
+  // NEW — guaranteed backstop for the "no pre-ticked answer" rule (see the
+  // giant prompt's rule about checked/selected/correct-indicators below).
+  // The prompt asks Gemini never to render an option as checked/selected
+  // or "correct"-colored on first load, but that's still just an
+  // instruction — this strips any literal checked/selected boolean
+  // attribute Gemini emits in the raw markup regardless of whether it
+  // followed the prompt, so a pre-ticked answer can never reach a
+  // student's screen even on a generation that ignored the rule. Requires
+  // whitespace immediately before the attribute name so it never touches
+  // something like data-checked="...".
+  html = html.replace(/\s+(checked|selected)(\s*=\s*(["']).*?\3)?(?=[\s/>])/gi, "");
   // Rule 5 ("स्क्रिनभित्रै अटाउने नियम") is the single most detailed
   // instruction in this prompt, but it's still just an instruction —
   // Gemini sometimes only partially follows it. Force the outer page to
@@ -857,8 +868,38 @@ function applySimulationSafetyNets(html) {
   // wrote. This only touches html/body — it never overrides a more
   // specific inner selector like ".game-area{overflow-y:auto}" that a
   // simulation may legitimately use for a scrollable content area.
-  const scrollHardening = `<style>html,body{margin:0!important;padding:0!important;overflow:hidden!important;width:100vw!important;height:100vh!important;box-sizing:border-box!important}</style>`;
+  // NEW — also adds an emoji-capable font fallback on body. These
+  // simulations lean heavily on emoji to label concrete objects (rule 12
+  // in the prompt), but Gemini's own font-family choice is usually just a
+  // Devanagari/Latin web-safe stack — on older school lab PCs (common
+  // Windows builds with no color-emoji font installed) that renders emoji
+  // as a blank box or ".notdef" tofu glyph instead of the picture. Listing
+  // the common color-emoji font families as fallbacks on body (not
+  // !important — so any more specific font-family Gemini set on a
+  // particular element still wins for that element) means the OS picks
+  // whichever one it actually has instead of falling through to nothing.
+  const scrollHardening = `<style>html,body{margin:0!important;padding:0!important;overflow:hidden!important;width:100vw!important;height:100vh!important;box-sizing:border-box!important}body{font-family:inherit,'Noto Sans Devanagari','Segoe UI','Noto Color Emoji','Segoe UI Emoji','Apple Color Emoji','Noto Emoji',sans-serif}</style>`;
   html = /<\/head>/i.test(html) ? html.replace(/<\/head>/i, scrollHardening + "</head>") : scrollHardening + html;
+  // NEW — guaranteed backstop for Devanagari-numeral consistency. Scores,
+  // counters, and progress indicators ("३/१०") are built by Gemini's own
+  // JS at runtime, so nothing in the static HTML can be regex-fixed ahead
+  // of time — this instead injects a small script that walks every text
+  // node on load AND on every later DOM change (MutationObserver, since
+  // scores/counters update live as the class plays) and swaps any ASCII
+  // 0-9 digit it finds for its Devanagari equivalent. Runs regardless of
+  // whether Gemini's own generated code used ASCII digits anywhere, so
+  // "०-९ only" holds even on a generation that didn't follow the prompt.
+  const devanagariScript = `<script>(function(){var d={'0':'०','1':'१','2':'२','3':'३','4':'४','5':'५','6':'६','7':'७','8':'८','9':'९'};function conv(s){return s.replace(/[0-9]/g,function(c){return d[c];});}function skip(n){return n&&n.tagName&&(n.tagName==='SCRIPT'||n.tagName==='STYLE');}function walk(n){if(n.nodeType===3){if(!skip(n.parentNode)&&/[0-9]/.test(n.nodeValue))n.nodeValue=conv(n.nodeValue);}else if(n.nodeType===1&&!skip(n)){for(var i=0;i<n.childNodes.length;i++)walk(n.childNodes[i]);}}function run(){try{walk(document.body);}catch(e){}}if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',run);else run();try{new MutationObserver(function(muts){muts.forEach(function(m){if(m.type==='characterData'){var n=m.target;if(!skip(n.parentNode)&&/[0-9]/.test(n.nodeValue))n.nodeValue=conv(n.nodeValue);}else if(m.type==='childList'){m.addedNodes.forEach(walk);}});}).observe(document.body,{childList:true,subtree:true,characterData:true});}catch(e){}})();</script>`;
+  html = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, devanagariScript + "</body>") : html + devanagariScript;
+  // NEW — window.playCorrectSound()/window.playWrongSound(), always
+  // defined regardless of whether Gemini's generated JS calls them. Pure
+  // Web Audio API oscillator beeps, no external file/CDN (has to run
+  // fully offline). The generation prompt below tells Gemini to call
+  // these from its own correct/wrong handlers; defining them here means a
+  // generation that forgets simply gets no sound instead of a crashing
+  // "playCorrectSound is not a function" error.
+  const soundScript = `<script>(function(){var Ctx=window.AudioContext||window.webkitAudioContext;var ctx=null;function getCtx(){if(!ctx&&Ctx)ctx=new Ctx();return ctx;}function tone(freq,start,dur,type,vol){var c=getCtx();if(!c)return;var o=c.createOscillator();var g=c.createGain();o.type=type;o.frequency.value=freq;g.gain.value=vol;o.connect(g);g.connect(c.destination);var t=c.currentTime+start;o.start(t);g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(0.001,t+dur);o.stop(t+dur+0.02);}window.playCorrectSound=function(){try{tone(660,0,0.12,'sine',0.18);tone(880,0.1,0.18,'sine',0.18);}catch(e){}};window.playWrongSound=function(){try{tone(220,0,0.22,'sawtooth',0.13);}catch(e){}};})();</script>`;
+  html = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, soundScript + "</body>") : html + soundScript;
   return html;
 }
 
@@ -886,6 +927,8 @@ async function reviewAndFixSimulation(html, type, chapterTitle, lessonTitle) {
 9. कति बाँकी छ भन्ने प्रगति-सूचक (जस्तै "३/१०") कतै देखिन्छ।
 10. हरेक वास्तविक वस्तु इमोजी वा स्पष्ट नेपाली लेबलसहित चिनिन्छ — खाली अमूर्त आयत/वृत्त छैन।
 11. कुनै <img> ट्याग छैन, कुनै तत्व स्क्रिनबाट बाहिर/काटिएको/ओभरल्याप भएको छैन, "फेरि खेल्नुहोस्" बटन सधैं देखिने ठाउँमा छ।
+12. वस्तु/कार्डको डाटा-सूची पहिलो लोड र प्रत्येक "फेरि खेल्नुहोस्" मा Fisher-Yates शफल भएर मात्र UI मा देखिन्छ — प्रत्येक "फेरि खेल्नुहोस्" पछि क्रम फेरिन्छ, हरेक पटक ठ्याक्कै उही क्रम देखिँदैन।
+13. सही छान्दा window.playCorrectSound(), गलत छान्दा window.playWrongSound() कल गरिएको छ (यी फंक्सन पहिल्यै परिभाषित छन्, केवल कल मात्र गर्ने हो)।
 
 यदि माथिका सबै बुँदा पहिल्यै ठीक छन् भने, दिइएको HTML लाई जस्ताको त्यस्तै फिर्ता दिनुहोस्। कुनै बुँदामा समस्या भेटिएमा त्यो/ती मात्र सुधारेर बाँकी सबै जस्ताको त्यस्तै राखी पूरा HTML फर्काउनुहोस्। जवाफमा कुनै व्याख्या, markdown फेन्स, वा अगाडि/पछाडिको वाक्य नथप्नुहोस् — ठ्याक्कै <!DOCTYPE html> बाट सुरु भएर </html> मा सकिने एउटै पूर्ण दस्तावेज मात्र दिनुहोस्।
 
@@ -989,6 +1032,8 @@ export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, 
 8ख. **कति वस्तु/राउन्ड बाँकी छ भन्ने सधैं देखिनुपर्छ** — माथिको निर्देशन-पट्टी वा नियन्त्रण-पट्टीमै सानो प्रगति-सूचक राख्नुहोस् (जस्तै "३/१०" वा प्रगति-पट्टी), जुन हरेक वस्तु पूरा हुँदा स्वतः अपडेट होस् — यसले शिक्षक र कक्षा दुवैलाई अरू कति बाँकी छ भनी थाहा दिन्छ र समय मिलाउन सजिलो बनाउँछ।
 9. **नियन्त्रण बटनहरू सधैं देखिने ठाउँमा राख्नुहोस् (माथिको flex-column संरचनाकै एउटा सामान्य तल्लो flex-child पट्टीको रूपमा — नियम ५ हेर्नुहोस्), स्क्रोल गर्दा वा राउन्ड बदल्दा पनि हराउनु हुँदैन। यो पट्टी कहिल्यै "position:fixed/sticky" नबनाइ सामान्य दस्तावेज-प्रवाह (normal flow) मै राख्नुहोस्, र यसमा माथिको निर्देशन/शीर्षक-पाठ फेरि नदोहोर्याउनुहोस् — बटन/नियन्त्रण मात्र राख्नुहोस्:
    - एउटा "फेरि खेल्नुहोस्" (restart) बटन राख्नुहोस् जसले पूरै अवस्था (सबै वस्तु, स्कोर, प्रगति) पूर्ण रूपमा सुरुको स्थितिमा फर्काओस् — यो बटन जुनसुकै बेला, अड्किएको अवस्थामा पनि, तुरुन्तै देख्न र थिच्न मिल्ने ठाउँमा (जस्तै कुनामा स्थिर रूपमा) राख्नुहोस्, कतै तल गएर/लुकेर बस्नु हुँदैन।
+   - **"फेरि खेल्नुहोस्" थिच्दा वस्तु/कार्डहरूको क्रम पहिलेकै जस्तो ठ्याक्कै उही देखिनु हुँदैन** — डाटा-सूची (array) लाई हरेक पटक (पहिलो लोड हुँदा र प्रत्येक "फेरि खेल्नुहोस्" थिच्दा दुवैमा) Fisher-Yates जस्तो शफल-फंक्सनले क्रम फेरेर मात्र UI मा देखाउनुहोस्, ताकि दोहोर्याएर खेल्दा पनि उही क्रम नदेखियोस् र हरेक पटक अलि फरक महसुस होस्। (सही उत्तर/जोडी भने डाटासँगै जोडिएको रहन्छ, क्रम फेरेर मात्र होइन।)
+   - **सही/गलत भएको बेला आवाज पनि बजाउनुहोस्** — यो फाइलमा window.playCorrectSound() र window.playWrongSound() भन्ने दुई फंक्सन पहिल्यै उपलब्ध छन् (थप्नु पर्दैन, तपाईंले परिभाषित गर्नै पर्दैन) — विद्यार्थीले सही छान्दा window.playCorrectSound(), गलत छान्दा window.playWrongSound() कल गर्नुहोस्।
    - यदि सामग्री धेरै भई राउन्ड/समूहमा बाँडिएको छ भने, "← अघिल्लो" र "अर्को →" जस्ता स्पष्ट नेभिगेसन बटन राख्नुहोस् ताकि शिक्षकले आफ्नै गतिमा, कक्षालाई व्याख्या गर्दै, एक-एक वस्तु/राउन्ड अगाडि बढाउन सक्नुहुन्छ — सबै कुरा एकैचोटि नआओस्, शिक्षकको नियन्त्रणमा होस्।
 10. **पूरा सिमुलेसन सफलतापूर्वक सकिँदा (सबै वस्तु/राउन्ड पूरा भएपछि) एउटा छोटो, ठूलो, रमाइलो उत्सव-एनिमेसन देखाउनुहोस्** — जस्तै रंगीन कन्फेटी/तारा CSS एनिमेसनले स्क्रिन भरिने, "सबै सही!" वा "बधाई छ!" जस्तो ठूलो पाठसहित। यो एनिमेसन/सन्देश पनि कम्तिमा ३.५ सेकेन्ड रहनुपर्छ र त्यसपछि मात्र सामान्य सारांश देखिनुपर्छ। यो CSS/JS ले नै बनाउनुहोस् (कुनै बाह्य लाइब्रेरी/CDN चाहिँदैन), र यसले स्क्रिनको अरू भाग ढाकेर स्थायी रूपमा नरहोस् — केही सेकेन्डपछि सामान्य सारांशमा फर्किनुपर्छ।
 11. viewport meta ट्याग राख्नुहोस्: <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1032,6 +1077,22 @@ export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, 
   } catch { /* keep the original, already-safety-netted html */ }
 
   return { html, type };
+};
+
+// NEW — 2-3 short discussion questions a teacher can ask the class right
+// after a simulation ends, to turn the game into a talking point instead
+// of just a score. Kept as its own small JSON call (same pattern as
+// generateMoreActivities above) rather than folded into the big HTML
+// generation — mixing a large freeform HTML document and a JSON array in
+// one response is exactly the "large HTML document inside a JSON string"
+// fragility generateSimulation's own comment above already avoids.
+export const generateDiscussionTips = async (chapterTitle, lessonTitle, type, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन") => {
+  const focus = lessonTitle && lessonTitle.trim() && lessonTitle.trim() !== chapterTitle.trim() ? `"${lessonTitle}" पाठ (अध्याय: "${chapterTitle}")` : `"${chapterTitle}"`;
+  const prompt = `नेपाल ${classContext}का लागि ${focus} बारे "${type || "इन्टरएक्टिभ सिमुलेसन"}" खेल्नु सकिएपछि शिक्षकले कक्षालाई सोध्न मिल्ने २-३ वटा छोटो छलफल-प्रश्न भएको JSON array मात्र दिनुहोस् — हरेक प्रश्न एक वाक्यमा, कक्षा ५ का विद्यार्थीले सजिलै बुझ्ने सरल भाषामा, खेलमा भर्खर सिकेको कुरालाई वास्तविक जीवन/अनुभवसँग जोड्ने खालको होस्:
+["प्रश्न १","प्रश्न २","प्रश्न ३"]`;
+  const text = await runPromptJSON(prompt, ctx);
+  const result = parseJSON(text);
+  return Array.isArray(result) ? result.slice(0, 3) : [];
 };
 
 // NEW — used by AssessmentBuilder for the rubric JSON. Same JSON-mode

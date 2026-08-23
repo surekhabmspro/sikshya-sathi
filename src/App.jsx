@@ -2483,7 +2483,13 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
       const nextType=gemini.pickNextSimulationType(usedTypes);
       const{html,type}=await gemini.generateSimulation(chapterTitle,lesson.title,ctx,classContext,nextType);
       const chapter_id=await resolveChapterId(chapterTitle,classLabel);
-      const{data,error}=await db.saveSimulation({lesson_id:lesson.id,chapter_id,chapter_title:chapterTitle,title:`${lesson.title} — ${type.label}`,type:type.id,html_content:html});
+      // NEW — 2-3 discussion questions for after the game ends, generated
+      // alongside the simulation itself. Best-effort: a failure here
+      // (rate limit, malformed JSON) should never block saving/showing
+      // the simulation, which is the part that actually matters in class.
+      let discussionTips=[];
+      try{discussionTips=await gemini.generateDiscussionTips(chapterTitle,lesson.title,type.label,ctx,classContext);}catch{ /* keep empty — footer just won't show tips */ }
+      const{data,error}=await db.saveSimulation({lesson_id:lesson.id,chapter_id,chapter_title:chapterTitle,title:`${lesson.title} — ${type.label}`,type:type.id,html_content:html,discussion_tips:discussionTips});
       if(error)throw error;
       setSims((prev)=>[data,...prev]);
       setViewing(data);
@@ -2552,9 +2558,37 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
           <style>{`@media (max-width:560px){.ss-sim-subtitle{display:none;}}`}</style>
         </div>
         <SimulationStage html={viewing.html_content} title={viewing.title}/>
+        {viewing.discussion_tips?.length>0&&<DiscussionTipsFooter tips={viewing.discussion_tips}/>}
       </div>
     )}
   </div>);
+}
+
+// NEW — collapsible footer with 2-3 teacher discussion questions for after
+// the game ends (see gemini.generateDiscussionTips). Kept as a normal-flow
+// footer below the iframe rather than something detected/triggered from
+// inside the sandboxed simulation — the sandboxed iframe has no reliable
+// way to tell the parent "the game just ended", so instead this stays
+// tucked away (collapsed by default, doesn't compete with the game for
+// attention) and the teacher opens it whenever they're ready to wrap up.
+function DiscussionTipsFooter({ tips }) {
+  const [open,setOpen]=useState(false);
+  return (
+    <div style={{flexShrink:0,background:"#1C1006",color:"#fff",borderTop:"1px solid rgba(255,255,255,0.12)"}}>
+      <button className="ss-icon-btn" onClick={()=>setOpen((o)=>!o)} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"9px 14px",color:"inherit",cursor:"pointer",fontWeight:700,fontSize:14}}>
+        <MessageSquare size={15}/>
+        <span style={{flex:1,textAlign:"left"}}>छलफल प्रश्न (खेल सकिएपछि सोध्नुहोस्)</span>
+        <span style={{fontSize:12,opacity:0.7}}>{open?"▲":"▼"}</span>
+      </button>
+      {open&&(
+        <div style={{padding:"0 14px 12px",display:"flex",flexDirection:"column",gap:6}}>
+          {tips.map((t,i)=>(
+            <div key={i} style={{fontSize:14,lineHeight:1.5,color:"rgba(255,255,255,0.9)"}}>{i+1}. {t}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // FIX — this used to wrap the iframe in a fixed 1280×720 "stage" and scale
