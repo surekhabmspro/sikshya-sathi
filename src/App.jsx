@@ -769,7 +769,7 @@ async function preparePath({ chapterTitle, chapterId, pathTitle, lessonId, secti
     // a save failure is reported through this step's own error state.
     let saveError = null;
     for (const q of qs) {
-      const { error } = await db.upsertQuestion({ text: q.text, type: q.type || "छोटो उत्तर", difficulty: q.difficulty || "सजिलो", bloom_level: q.bloom || "सम्झना", chapter_id: cId, lesson_id: lid, options: q.options || [], correct_option: q.correct_option ?? null, answer: q.answer || null, match_pairs: q.match_pairs || null, source: q.source === "ai" ? "ai" : "textbook", class_label: classLabel });
+      const { error } = await db.upsertQuestion({ text: q.text, type: q.type || "छोटो उत्तर", difficulty: (q.difficulty === "easy" || q.difficulty === "medium" || q.difficulty === "hard") ? q.difficulty : "easy", bloom_level: q.bloom || "सम्झना", chapter_id: cId, lesson_id: lid, options: q.options || [], correct_option: q.correct_option ?? null, answer: q.answer || null, match_pairs: q.match_pairs || null, source: q.source === "ai" ? "ai" : "textbook", class_label: classLabel });
       if (error && !saveError) saveError = error;
     }
     if (saveError) {
@@ -1720,7 +1720,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
         const cId=lesson.chapter_id||await resolveChapterId(chapterTitle,classLabel);
         let saveError=null;
         for(const q of qs){
-          const{error}=await db.upsertQuestion({text:q.text,type:q.type||"छोटो उत्तर",difficulty:q.difficulty||"सजिलो",bloom_level:q.bloom||"सम्झना",chapter_id:cId,lesson_id:lesson.id,options:q.options||[],correct_option:q.correct_option??null,answer:q.answer||null,match_pairs:q.match_pairs||null,source:q.source==="ai"?"ai":"textbook",class_label:classLabel});
+          const{error}=await db.upsertQuestion({text:q.text,type:q.type||"छोटो उत्तर",difficulty:(q.difficulty==="easy"||q.difficulty==="medium"||q.difficulty==="hard")?q.difficulty:"easy",bloom_level:q.bloom||"सम्झना",chapter_id:cId,lesson_id:lesson.id,options:q.options||[],correct_option:q.correct_option??null,answer:q.answer||null,match_pairs:q.match_pairs||null,source:q.source==="ai"?"ai":"textbook",class_label:classLabel});
           if(error&&!saveError)saveError=error;
         }
         if(saveError)throw saveError;
