@@ -61,6 +61,7 @@ const PALETTE = [ACCENT, MARIGOLD_DARK, TEAL, VIOLET, ROSE, BLUE];
 // through PALETTE by position like most other lists in this app.
 const EXERCISE_TYPE_COLOR = {
   "छोटो उत्तर": ACCENT,
+  "लामो उत्तर": BLUE,
   "बहुविकल्पीय": VIOLET,
   "सत्य/असत्य": TEAL,
   "रिक्त स्थान": MARIGOLD_DARK,
@@ -769,7 +770,7 @@ async function preparePath({ chapterTitle, chapterId, pathTitle, lessonId, secti
     // a save failure is reported through this step's own error state.
     let saveError = null;
     for (const q of qs) {
-      const { error } = await db.upsertQuestion({ text: q.text, type: q.type || "छोटो उत्तर", difficulty: (q.difficulty === "easy" || q.difficulty === "medium" || q.difficulty === "hard") ? q.difficulty : "easy", bloom_level: q.bloom || "सम्झना", chapter_id: cId, lesson_id: lid, options: q.options || [], correct_option: q.correct_option ?? null, answer: q.answer || null, match_pairs: q.match_pairs || null, source: q.source === "ai" ? "ai" : "textbook", class_label: classLabel });
+      const { error } = await db.upsertQuestion({ text: q.text, type: q.type || "छोटो उत्तर", difficulty: (q.difficulty === "easy" || q.difficulty === "medium" || q.difficulty === "hard") ? q.difficulty : "easy", bloom_level: q.bloom || "सम्झना", chapter_id: cId, lesson_id: lid, options: (q.type === "सत्य/असत्य" && q.answer === "असत्य" && q.correction) ? [q.correction] : (q.options || []), correct_option: q.correct_option ?? null, answer: q.answer || null, match_pairs: q.match_pairs || null, source: q.source === "ai" ? "ai" : "textbook", class_label: classLabel });
       if (error && !saveError) saveError = error;
     }
     if (saveError) {
@@ -1720,7 +1721,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
         const cId=lesson.chapter_id||await resolveChapterId(chapterTitle,classLabel);
         let saveError=null;
         for(const q of qs){
-          const{error}=await db.upsertQuestion({text:q.text,type:q.type||"छोटो उत्तर",difficulty:(q.difficulty==="easy"||q.difficulty==="medium"||q.difficulty==="hard")?q.difficulty:"easy",bloom_level:q.bloom||"सम्झना",chapter_id:cId,lesson_id:lesson.id,options:q.options||[],correct_option:q.correct_option??null,answer:q.answer||null,match_pairs:q.match_pairs||null,source:q.source==="ai"?"ai":"textbook",class_label:classLabel});
+          const{error}=await db.upsertQuestion({text:q.text,type:q.type||"छोटो उत्तर",difficulty:(q.difficulty==="easy"||q.difficulty==="medium"||q.difficulty==="hard")?q.difficulty:"easy",bloom_level:q.bloom||"सम्झना",chapter_id:cId,lesson_id:lesson.id,options:(q.type==="सत्य/असत्य"&&q.answer==="असत्य"&&q.correction)?[q.correction]:(q.options||[]),correct_option:q.correct_option??null,answer:q.answer||null,match_pairs:q.match_pairs||null,source:q.source==="ai"?"ai":"textbook",class_label:classLabel});
           if(error&&!saveError)saveError=error;
         }
         if(saveError)throw saveError;
@@ -2091,9 +2092,14 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                         </div>
                       )}
                       {isTrueFalse?(
-                        <div style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 12px",borderRadius:999,fontWeight:700,fontSize:15,background:item.answer==="सत्य"?`color-mix(in srgb, ${ACCENT} 15%, white)`:DANGER_BG,color:item.answer==="सत्य"?ACCENT:DANGER}}>
-                          {item.answer==="सत्य"?<CheckCircle2 size={15}/>:<AlertCircle size={15}/>}
-                          {item.answer||"—"}
+                        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                          <div style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 12px",borderRadius:999,fontWeight:700,fontSize:15,background:item.answer==="सत्य"?`color-mix(in srgb, ${ACCENT} 15%, white)`:DANGER_BG,color:item.answer==="सत्य"?ACCENT:DANGER,width:"fit-content"}}>
+                            {item.answer==="सत्य"?<CheckCircle2 size={15}/>:<AlertCircle size={15}/>}
+                            {item.answer||"—"}
+                          </div>
+                          {item.answer==="असत्य"&&Array.isArray(item.options)&&item.options[0]&&(
+                            <div style={{fontSize:15,color:INK_SOFT}}>सही: {item.options[0]}</div>
+                          )}
                         </div>
                       ):!isMatch&&item.answer&&(
                         <div style={{background:SURFACE_2,borderRadius:10,padding:"10px 13px",fontSize:16.5,color:INK,lineHeight:1.55}}>
@@ -2420,6 +2426,46 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
           <div style={{fontWeight:700,fontSize:13.5,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1.5px solid #111",paddingBottom:3,marginBottom:7}}>क्रियाकलापहरू</div>
           {activities.length===0?<div>—</div>:<ol style={{margin:0,paddingLeft:20,lineHeight:1.65}}>{activities.map((a,i)=><li key={i} style={{marginBottom:5}}>{a}</li>)}</ol>}
         </div>
+
+        {/* NEW — "अभ्यासका प्रश्नोत्तर": a proper printable answer-key layout
+            for the "पाठ अभ्यास समाधान" exercises, matching the exam-paper
+            style teachers actually submit/photocopy — grouped by question
+            type with Devanagari numbering (१, २, ३...) per group and
+            Devanagari lettering (क, ख, ग...) per item within a group, each
+            followed by a plain "उत्तर : ..." line. This is separate from the
+            on-screen card view above (which stays interactive with badges/
+            edit/delete) — print gets the clean document format instead. */}
+        {exercises.length>0&&(()=>{
+          const DEV_LETTERS=["क","ख","ग","घ","ङ","च","छ","ज","झ","ञ","ट","ठ","ड","ढ","ण","त","थ","द","ध","न","प","फ","ब","भ","म","य","र","ल","व","श","ष","स","ह"];
+          const DEV_NUM=["१","२","३","४","५","६","७","८","९","१०"];
+          const TYPE_ORDER=["छोटो उत्तर","लामो उत्तर","बहुविकल्पीय","सत्य/असत्य","रिक्त स्थान","मिलान गर्नुहोस्"];
+          const groups=TYPE_ORDER.map((t)=>({type:t,items:exercises.filter((it)=>it.type===t)})).filter((g)=>g.items.length>0);
+          return(
+            <div style={{marginBottom:16,breakInside:"avoid"}}>
+              <div style={{fontWeight:700,fontSize:13.5,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1.5px solid #111",paddingBottom:3,marginBottom:7}}>अभ्यासका प्रश्नोत्तर</div>
+              {groups.map((g,gi)=>(
+                <div key={g.type} style={{marginBottom:14,breakInside:"avoid"}}>
+                  <div style={{fontWeight:700,fontSize:14,marginBottom:8}}>{DEV_NUM[gi]||gi+1}. {g.type==="सत्य/असत्य"?"तलका वाक्य ठिक भए ठिक (✓) र बेठिक भए बेठिक (✗) चिन्ह लगाउनुहोस् :":g.type==="बहुविकल्पीय"?"तलका प्रश्नहरूको सही उत्तर छान्नुहोस् :":g.type==="रिक्त स्थान"?"तलका खाली ठाउँ भर्नुहोस् :":g.type==="मिलान गर्नुहोस्"?"तलका जोडा मिलाउनुहोस् :":g.type==="लामो उत्तर"?"तलका प्रश्नहरूको लामो उत्तर दिनुहोस् :":"तलका प्रश्नहरूको छोटो उत्तर दिनुहोस् :"}</div>
+                  {g.items.map((it,ii)=>(
+                    <div key={it.id} style={{marginBottom:10,paddingLeft:18}}>
+                      <div style={{fontWeight:600,marginBottom:3}}>{DEV_LETTERS[ii]||ii+1}. {it.text}</div>
+                      {it.type==="बहुविकल्पीय"&&Array.isArray(it.options)&&it.options.length>0&&(
+                        <div style={{paddingLeft:16,marginBottom:3,color:"#333"}}>{it.options.join("   ")}</div>
+                      )}
+                      {it.type==="मिलान गर्नुहोस्"&&Array.isArray(it.match_pairs)?(
+                        <div style={{paddingLeft:16}}>उत्तर : {it.match_pairs.map((p)=>`${p.left} → ${p.right}`).join(" ,  ")}</div>
+                      ):it.type==="सत्य/असत्य"?(
+                        <div style={{paddingLeft:16}}>उत्तर : {it.answer==="सत्य"?"✓":"✗"}{it.answer==="असत्य"&&Array.isArray(it.options)&&it.options[0]?` (${it.options[0]})`:""}</div>
+                      ):(
+                        <div style={{paddingLeft:16}}>उत्तर : {it.answer||"—"}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          );
+        })()}
 
         <div style={{marginBottom:16,breakInside:"avoid"}}>
           <div style={{fontWeight:700,fontSize:13.5,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1.5px solid #111",paddingBottom:3,marginBottom:7}}>गृहकार्य</div>
