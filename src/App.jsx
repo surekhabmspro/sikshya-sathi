@@ -2478,7 +2478,24 @@ function selfTestSimulation(html, timeoutMs=1500){
     iframe.sandbox="allow-scripts";
     iframe.srcdoc=html;
     document.body.appendChild(iframe);
-    setTimeout(()=>finish(true),timeoutMs);
+    setTimeout(()=>{
+      // NEW — a generation can finish with zero JS errors yet still render
+      // visually blank (e.g. content that silently fails to get appended,
+      // or a null querySelector swallowed by an internal try/catch).
+      // window.onerror alone never sees this since nothing throws — this
+      // is exactly the failure mode fast mode is most exposed to, since it
+      // skips the AI review pass that would normally have caught it. So
+      // also do a cheap direct check here: does the page actually have a
+      // meaningful amount of real content in it?
+      let contentOk=true;
+      try{
+        const body=iframe.contentDocument&&iframe.contentDocument.body;
+        const text=(body&&body.innerText||"").trim();
+        const elCount=body?body.querySelectorAll("*").length:0;
+        if(!body||text.length<15||elCount<5)contentOk=false;
+      }catch(e){ /* couldn't inspect it — don't fail the sim over that */ }
+      finish(contentOk);
+    },timeoutMs);
   });
 }
 
