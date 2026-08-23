@@ -2765,7 +2765,39 @@ function DiscussionTipsFooter({ tips, onRegenerate, regenerating, onPrint }) {
 function SimulationStage({ html, title }) {
   const [hintDismissed, setHintDismissed] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const iframeRef = useRef(null);
   const isNarrowPortrait = typeof window !== "undefined" && window.innerWidth < 700 && window.innerHeight > window.innerWidth;
+  // NEW — the simulation runs in a sandboxed iframe (sandbox="allow-scripts",
+  // no allow-same-origin, by design — AI-generated content should never be
+  // able to reach the real app's storage/session). On some desktop
+  // browsers that sandboxing also cuts the iframe off from a usable
+  // SpeechSynthesis voice list (silently — Web Audio tones still work
+  // since those don't touch the OS voice engine), even though the outer
+  // app page has normal voices. So the iframe no longer tries to speak
+  // itself — it posts {__ssSpeak,text,opts} up to this parent frame,
+  // which always has full, unsandboxed access to the browser's voices,
+  // and speaks on the iframe's behalf.
+  useEffect(() => {
+    function onMsg(e) {
+      if (!e.data || !e.data.__ssSpeak || e.source !== iframeRef.current?.contentWindow) return;
+      try {
+        if (!window.speechSynthesis) return;
+        const opts = e.data.opts || {};
+        const u = new SpeechSynthesisUtterance(e.data.text);
+        const vs = window.speechSynthesis.getVoices();
+        const voice = (vs.find((v) => v.lang && v.lang.toLowerCase().indexOf("ne") === 0)
+          || vs.find((v) => v.lang && v.lang.toLowerCase().indexOf("hi") === 0)
+          || vs.find((v) => v.default) || vs[0]);
+        if (voice) { u.voice = voice; u.lang = voice.lang; } else { u.lang = "ne-NP"; }
+        u.rate = opts.rate || 0.92;
+        u.pitch = opts.pitch || 1.08;
+        u.volume = opts.volume || 0.85;
+        window.speechSynthesis.speak(u);
+      } catch (err) { /* best-effort, same as every other sound call */ }
+    }
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, []);
   return (
     <div style={{flex:1,minHeight:0,display:"flex",flexDirection:"column",background:"#000",overflow:"hidden"}}>
       {isNarrowPortrait && !hintDismissed && (
@@ -2776,7 +2808,7 @@ function SimulationStage({ html, title }) {
       )}
       <div style={{flex:1,minHeight:0,position:"relative",overflow:"auto",background:"#000"}}>
         <div style={{width:"100%",height:"100%",zoom}}>
-          <iframe title={title} srcDoc={html} sandbox="allow-scripts" style={{width:"100%",height:"100%",border:"none",background:"#fff"}}/>
+          <iframe ref={iframeRef} title={title} srcDoc={html} sandbox="allow-scripts" style={{width:"100%",height:"100%",border:"none",background:"#fff"}}/>
         </div>
         <div style={{position:"absolute",right:8,bottom:8,display:"flex",gap:4,background:"rgba(0,0,0,0.55)",borderRadius:10,padding:4}}>
           <button className="ss-icon-btn" onClick={()=>setZoom((z)=>Math.max(0.6,+(z-0.1).toFixed(2)))} style={{color:"#fff",cursor:"pointer",padding:"4px 9px",fontWeight:700}}>A-</button>
