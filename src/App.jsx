@@ -1700,6 +1700,18 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
   const generateExercises=async()=>{
     setExercisesGenerating(true);setExercisesError("");
     try{
+      // FIX — always force a fresh chapter-text extraction for this
+      // feature specifically, instead of reusing whatever's cached. A
+      // cached extraction made before the extraction token budget was
+      // raised (see gemini.extractChapterText) could have been truncated
+      // before ever reaching the trailing अभ्यास section — which then
+      // looks exactly like "chapter/lesson name doesn't match the book"
+      // even though it matches fine. This button is a deliberate, manual
+      // action (not something that fires on every page load), so paying
+      // for one fresh whole-book read here each time is worth never
+      // getting stuck on a stale, truncated cache again.
+      const cIdForCache=lesson.chapter_id||await resolveChapterId(chapterTitle,classLabel);
+      if(cIdForCache)await db.clearTextbookChapterTextForChapter(cIdForCache);
       // NEW — textbook-only context, deliberately not the mixed
       // materials+textbook ctx used elsewhere: the exercise questions must
       // come verbatim from the textbook's own end-of-chapter section, not

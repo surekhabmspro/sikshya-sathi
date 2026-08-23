@@ -592,7 +592,16 @@ export async function extractChapterText(chapterTitle, classLabel) {
   if (!part) return null;
   const prompt = `यो नेपाली पाठ्यपुस्तकबाट "${chapterTitle}" नामक अध्याय/पाठ पत्ता लगाउनुहोस् र त्यसको पूरा विषयवस्तु — नछोटाई, संक्षेप नगरी, कुनै तथ्य/वाक्य नछुटाई — सादा पाठको रूपमा मात्र फिर्ता दिनुहोस्। कुनै व्याख्या, शीर्षक, वा फर्म्याटिङ नथप्नुहोस्, केवल अध्यायको वास्तविक विषयवस्तु मात्र दिनुहोस्। यदि यस्तो नामको अध्याय ठ्याक्कै भेटिएन भने अरू केही नलेखी ठ्याक्कै यही शब्द मात्र लेख्नुहोस्: NOT_FOUND${RAW_TEXT_LAYER_WARNING}`;
   let text;
-  try { text = await callGemini([part, { text: prompt }], { maxOutputTokens: 8192 }); }
+  // FIX — this was maxOutputTokens: 8192. An एकाइ (unit) with several पाठ
+  // plus its own trailing अभ्यास section easily runs past that in Devanagari
+  // token count, so the extraction silently got cut off mid-unit — almost
+  // always losing the exercise block at the very end since it's written
+  // last. That produced exactly this symptom: chapter/lesson names line up
+  // perfectly, but generateQuestions genuinely can't find an exercise
+  // section, because the cached textbookText never contained it in the
+  // first place. Matches the 16000 cap already used elsewhere for
+  // similarly long single-call generations.
+  try { text = await callGemini([part, { text: prompt }], { maxOutputTokens: 16000 }); }
   catch { return null; } // extraction failures fall back silently — the caller re-tries with the whole book for this one call
   const trimmed = (text || "").trim();
   if (!trimmed || trimmed === "NOT_FOUND" || trimmed.length < 40) return null;

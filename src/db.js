@@ -195,6 +195,18 @@ export const saveTextbookChapterText = async (chapterId, text) => {
   const { data: { user } } = await supabase.auth.getUser();
   await supabase.from("textbook_chapter_text").upsert({ chapter_id: chapterId, teacher_id: user.id, extracted_text: text }, { onConflict: "chapter_id" });
 };
+// NEW — clears just ONE chapter's cached extract (unlike the class-wide
+// wipe below). Used before "पाठ अभ्यास समाधान" generation: that feature
+// needs the trailing अभ्यास section specifically, and an earlier cached
+// extraction (from before the extraction token budget was raised) could
+// have been truncated before ever reaching it — silently making the
+// exercise look "not found" even though the chapter/lesson names match
+// fine. Re-extracting fresh each time this is deliberately triggered
+// avoids ever getting stuck on a stale, truncated cache again.
+export const clearTextbookChapterTextForChapter = async (chapterId) => {
+  if (!chapterId) return;
+  await supabase.from("textbook_chapter_text").delete().eq("chapter_id", chapterId);
+};
 // Wipes the cache — call this whenever a class's textbook PDF is replaced
 // or removed, since cached text extracted from the OLD book would silently
 // keep being served as if it were still accurate otherwise.
