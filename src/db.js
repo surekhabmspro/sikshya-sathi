@@ -780,6 +780,19 @@ export const renameSimulation = async (id, title) => {
   return { data, error };
 };
 
+// NEW — updates an EXISTING simulation's generated content in place
+// (used by "पुनरावलोकन" regenerate: same row, same type, just fresh
+// content) instead of always inserting a brand-new row via saveSimulation.
+export const updateSimulationContent = async (id, { title, html_content, discussion_tips }) => {
+  const { data, error } = await supabase
+    .from("simulations")
+    .update({ title, html_content, discussion_tips })
+    .eq("id", id)
+    .select()
+    .single();
+  return { data, error };
+};
+
 export const deleteSimulation = async (id) => {
   const { error } = await supabase.from("simulations").delete().eq("id", id);
   return { error };

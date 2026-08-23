@@ -2542,26 +2542,37 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
   },[lesson.id]);
   useEffect(()=>{load();},[load]);
 
-  const generate=async(targetLesson=lesson)=>{
+  // NEW — opts.forceTypeId + opts.updateId together drive "पुनरावलोकन"
+  // in-place regeneration: forceTypeId skips the round-robin picker and
+  // reuses the exact type/mechanic the teacher is already looking at, and
+  // updateId tells the save step to overwrite that same row (via
+  // db.updateSimulationContent) instead of inserting a new one via
+  // db.saveSimulation. Called with no opts (the normal "🆕 नयाँ सिमुलेसन
+  // बनाउनुहोस्" button), behavior is unchanged — pick the next type in
+  // rotation and always insert a new row.
+  const generate=async(targetLesson=lesson,opts={})=>{
     if(!online){setError("अफलाइन छ — इन्टरनेट फर्केपछि पुनः प्रयास गर्नुहोस्।");return null;}
     const ctx=await getMaterialContext(chapterTitle,classLabel);
-    // Which formats were used recently — combine BOTH signals so variety
-    // holds within a single lesson (repeatedly hitting "generate" here)
-    // AND across different lessons (one generation per lesson, the more
-    // common workflow). pickNextSimulationType cares about (a) mechanic
-    // counts, to round-robin drag/tap/type/slider, and (b) the LAST
-    // element of the array, to avoid repeating the exact same type back
-    // to back — so both lists are reversed to oldest-first and this
-    // lesson's own history is appended last, making the most recent
-    // item always this lesson's latest simulation if it has one (the
-    // most relevant "don't repeat what we just did here" signal),
-    // falling back to the global most-recent item for a brand-new
-    // lesson with no history of its own yet.
-    const{data:recentTypesDesc}=await db.getRecentSimulationTypes(12);
-    const globalAsc=(recentTypesDesc||[]).slice().reverse();
-    const lessonAsc=(targetLesson.id===lesson.id?sims:[]).map((s)=>s.type).filter(Boolean).slice().reverse();
-    const usedTypes=[...globalAsc, ...lessonAsc];
-    const nextType=gemini.pickNextSimulationType(usedTypes);
+    let nextType=opts.forceTypeId?gemini.SIMULATION_TYPES.find((t)=>t.id===opts.forceTypeId):null;
+    if(!nextType){
+      // Which formats were used recently — combine BOTH signals so variety
+      // holds within a single lesson (repeatedly hitting "generate" here)
+      // AND across different lessons (one generation per lesson, the more
+      // common workflow). pickNextSimulationType cares about (a) mechanic
+      // counts, to round-robin drag/tap/type/slider, and (b) the LAST
+      // element of the array, to avoid repeating the exact same type back
+      // to back — so both lists are reversed to oldest-first and this
+      // lesson's own history is appended last, making the most recent
+      // item always this lesson's latest simulation if it has one (the
+      // most relevant "don't repeat what we just did here" signal),
+      // falling back to the global most-recent item for a brand-new
+      // lesson with no history of its own yet.
+      const{data:recentTypesDesc}=await db.getRecentSimulationTypes(12);
+      const globalAsc=(recentTypesDesc||[]).slice().reverse();
+      const lessonAsc=(targetLesson.id===lesson.id?sims:[]).map((s)=>s.type).filter(Boolean).slice().reverse();
+      const usedTypes=[...globalAsc, ...lessonAsc];
+      nextType=gemini.pickNextSimulationType(usedTypes);
+    }
     let{html,type}=await gemini.generateSimulation(chapterTitle,targetLesson.title,ctx,classContext,nextType,mode,fastMode);
     // NEW — render self-test (see selfTestSimulation above). One silent
     // retry on failure, same "don't interrupt the classroom flow" pattern
@@ -2571,24 +2582,38 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
       const retry=await gemini.generateSimulation(chapterTitle,targetLesson.title,ctx,classContext,nextType,mode,fastMode);
       html=retry.html; type=retry.type;
     }
-    const chapter_id=await resolveChapterId(chapterTitle,classLabel);
     // NEW — 2-3 discussion questions for after the game ends, generated
     // alongside the simulation itself. Best-effort: a failure here
     // (rate limit, malformed JSON) should never block saving/showing
     // the simulation, which is the part that actually matters in class.
     let discussionTips=[];
     try{discussionTips=await gemini.generateDiscussionTips(chapterTitle,targetLesson.title,type.label,ctx,classContext);}catch{ /* keep empty — footer just won't show tips */ }
-    const{data,error}=await db.saveSimulation({lesson_id:targetLesson.id,chapter_id,chapter_title:chapterTitle,title:`${targetLesson.title} — ${type.label}`,type:type.id,html_content:html,discussion_tips:discussionTips});
+    const title=`${targetLesson.title} — ${type.label}`;
+    if(opts.updateId){
+      const{data,error}=await db.updateSimulationContent(opts.updateId,{title,html_content:html,discussion_tips:discussionTips});
+      if(error)throw error;
+      try{await gemini.cacheSimulationLocally(targetLesson.id,data);}catch{ /* best-effort */ }
+      return data;
+    }
+    const chapter_id=await resolveChapterId(chapterTitle,classLabel);
+    const{data,error}=await db.saveSimulation({lesson_id:targetLesson.id,chapter_id,chapter_title:chapterTitle,title,type:type.id,html_content:html,discussion_tips:discussionTips});
     if(error)throw error;
     try{await gemini.cacheSimulationLocally(targetLesson.id,data);}catch{ /* best-effort */ }
     return data;
   };
 
-  const generateForThisLesson=async()=>{
+  const generateForThisLesson=async(opts={})=>{
     setGenerating(true);setError("");
     try{
-      const data=await generate(lesson);
-      if(data){setSims((prev)=>[data,...prev]);setViewing(data);}
+      const data=await generate(lesson,opts);
+      if(data){
+        if(opts.updateId){
+          setSims((prev)=>prev.map((s)=>s.id===data.id?data:s));
+        }else{
+          setSims((prev)=>[data,...prev]);
+        }
+        setViewing(data);
+      }
     }catch(e){setError("AI त्रुटि: "+(e.message||"सिमुलेसन बनाउन सकिएन।"));}
     setGenerating(false);
   };
@@ -2619,7 +2644,7 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
       <button className="ss-btn" onClick={()=>setFastMode(!fastMode)} title="छिटो मोड — जाँच-चरण नछोडी, चाँडो बनाउनुहोस् (गुणस्तर अलि कम हुन सक्छ)" style={{width:44,flexShrink:0,padding:"8px",borderRadius:10,border:fastMode?"2px solid #F59E0B":"1px solid rgba(0,0,0,0.12)",background:fastMode?tint("#F59E0B",15):"transparent",color:fastMode?"#F59E0B":INK_SOFT,fontWeight:700,fontSize:16,cursor:"pointer"}}>⚡</button>
     </div>
     {error&&<ErrorMsg msg={error}/>}
-    <button className="ss-btn" onClick={generateForThisLesson} disabled={generating||!online} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,width:"100%",padding:"13px",borderRadius:12,border:"none",background:`linear-gradient(180deg, ${VIOLET} 0%, color-mix(in srgb, ${VIOLET} 75%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:16.5,cursor:generating?"default":"pointer",boxShadow:SHADOW.accent,marginBottom:16}}>
+    <button className="ss-btn" onClick={()=>generateForThisLesson()} disabled={generating||!online} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,width:"100%",padding:"13px",borderRadius:12,border:"none",background:`linear-gradient(180deg, ${VIOLET} 0%, color-mix(in srgb, ${VIOLET} 75%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:16.5,cursor:generating?"default":"pointer",boxShadow:SHADOW.accent,marginBottom:16}}>
       {generating?<><Loader size={17} style={{animation:"spin 1s linear infinite"}}/>{fastMode?"सिमुलेसन बनाउँदै... (छिटो मोड)":"सिमुलेसन बनाउँदै र जाँच्दै... (१-२ मिनेट लाग्न सक्छ)"}</>:<><Wand2 size={17}/>{sims.length?"नयाँ सिमुलेसन बनाउनुहोस्":"AI बाट सिमुलेसन बनाउनुहोस्"}</>}
     </button>
     {loading?<Spinner/>:sims.length===0?<EmptyState icon={Gamepad2} text="अझै कुनै सिमुलेसन बनाइएको छैन। माथिको बटनबाट पहिलो बनाउनुहोस्।"/>:(
@@ -2643,7 +2668,8 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
       <SimulationViewerOverlay
         viewing={viewing}
         generating={generating}
-        onRegenerate={generateForThisLesson}
+        mode={mode}
+        onRegenerate={()=>generateForThisLesson(mode==="review"?{forceTypeId:viewing.type,updateId:viewing.id}:{})}
         onClose={()=>setViewing(null)}
         onTipsUpdated={(tips)=>{setViewing((v)=>({...v,discussion_tips:tips}));setSims((prev)=>prev.map((s)=>s.id===viewing.id?{...s,discussion_tips:tips}:s));}}
         chapterTitle={chapterTitle}
@@ -2657,7 +2683,7 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
 // NEW — split out of SimulationPanel's render so the high-contrast/zoom
 // controls and the discussion-tips footer have somewhere self-contained
 // to live, instead of piling more state into SimulationPanel.
-function SimulationViewerOverlay({ viewing, generating, onRegenerate, onClose, onTipsUpdated, chapterTitle, lesson, classContext }){
+function SimulationViewerOverlay({ viewing, generating, mode, onRegenerate, onClose, onTipsUpdated, chapterTitle, lesson, classContext }){
   const [highContrast,setHighContrast]=useState(false);
   const [printingTips,setPrintingTips]=useState(false);
   const [regeneratingTips,setRegeneratingTips]=useState(false);
@@ -2706,7 +2732,7 @@ function SimulationViewerOverlay({ viewing, generating, onRegenerate, onClose, o
         <div style={{flex:1,minWidth:0,fontWeight:700,fontSize:15.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{viewing.title}</div>
         <span className="ss-sim-subtitle" style={{fontSize:13,color:"rgba(255,255,255,0.6)",fontWeight:600,whiteSpace:"nowrap"}}>🖥️ ल्यापटप/प्रोजेक्टरका लागि डिजाइन गरिएको</span>
         <IconButton icon={highContrast?EyeOff:Eye} onClick={()=>setHighContrast((v)=>!v)} title="उच्च कन्ट्रास्ट मोड" variant="hero" size={17} style={{borderRadius:8,padding:8}}/>
-        <IconButton icon={generating?Loader:RefreshCw} spin={generating} onClick={onRegenerate} disabled={generating} title="अर्को नयाँ सिमुलेसन बनाउनुहोस्" variant="hero" size={17} style={{borderRadius:8,padding:8}}/>
+        <IconButton icon={generating?Loader:RefreshCw} spin={generating} onClick={onRegenerate} disabled={generating} title={mode==="review"?"यही सिमुलेसनको सामग्री बदल्नुहोस् (उही किसिम राखेर)":"अर्को नयाँ सिमुलेसन बनाउनुहोस्"} variant="hero" size={17} style={{borderRadius:8,padding:8}}/>
         <IconButton icon={X} onClick={onClose} variant="hero" size={19} style={{borderRadius:8,padding:8}}/>
         <style>{`@media (max-width:560px){.ss-sim-subtitle{display:none;}}`}</style>
       </div>
