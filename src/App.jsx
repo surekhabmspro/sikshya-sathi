@@ -2461,8 +2461,13 @@ const simTypeLabel=(typeId)=>gemini.SIMULATION_TYPES.find((t)=>t.id===typeId)?.l
 // gemini.applySimulationSafetyNets) before resolving. This is a genuine
 // render self-test — it catches a generation that's syntactically fine
 // (passed extractHtmlDoc's </html> check) but throws immediately on load,
-// before a teacher ever opens it in class.
-function selfTestSimulation(html, timeoutMs=4000){
+// before a teacher ever opens it in class. A crash-on-load throws almost
+// instantly, so this window only needs to be long enough to catch that —
+// it doesn't need to cover how long the simulation itself might run.
+// Shortened from 4000ms since that was mostly dead waiting once the
+// script had already errored (or hadn't, in which case the extra time
+// bought nothing).
+function selfTestSimulation(html, timeoutMs=1500){
   return new Promise((resolve)=>{
     let done=false;
     const finish=(ok)=>{if(done)return;done=true;window.removeEventListener("message",onMsg);iframe.remove();resolve(ok);};
@@ -2490,6 +2495,11 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
   const [viewing,setViewing]=useState(null);
   const [deletingId,setDeletingId]=useState(null);
   const [mode,setMode]=useState("new"); // "new" | "review"
+  // NEW — opt-in fast mode: skips generateSimulation's AI self-review
+  // pass (see gemini.js), the single biggest time cost in a generation.
+  // Off by default since the review pass does catch real issues — this
+  // is for a teacher who needs something on screen right now.
+  const [fastMode,setFastMode]=useState(false);
   const [bulk,setBulk]=useState(null); // {done,total} while bulk-generating, else null
   const [usedCache,setUsedCache]=useState(false);
   const online=useOnlineStatus();
@@ -2536,13 +2546,13 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
     const lessonAsc=(targetLesson.id===lesson.id?sims:[]).map((s)=>s.type).filter(Boolean).slice().reverse();
     const usedTypes=[...globalAsc, ...lessonAsc];
     const nextType=gemini.pickNextSimulationType(usedTypes);
-    let{html,type}=await gemini.generateSimulation(chapterTitle,targetLesson.title,ctx,classContext,nextType,mode);
+    let{html,type}=await gemini.generateSimulation(chapterTitle,targetLesson.title,ctx,classContext,nextType,mode,fastMode);
     // NEW — render self-test (see selfTestSimulation above). One silent
     // retry on failure, same "don't interrupt the classroom flow" pattern
     // already used for a truncated/cut-off response.
     const ok=await selfTestSimulation(html);
     if(!ok){
-      const retry=await gemini.generateSimulation(chapterTitle,targetLesson.title,ctx,classContext,nextType,mode);
+      const retry=await gemini.generateSimulation(chapterTitle,targetLesson.title,ctx,classContext,nextType,mode,fastMode);
       html=retry.html; type=retry.type;
     }
     const chapter_id=await resolveChapterId(chapterTitle,classLabel);
@@ -2615,14 +2625,22 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
       <button className="ss-btn" onClick={()=>setMode("new")} style={{flex:1,padding:"8px",borderRadius:10,border:mode==="new"?`2px solid ${VIOLET}`:"1px solid rgba(0,0,0,0.12)",background:mode==="new"?tint(VIOLET,12):"transparent",color:mode==="new"?VIOLET:INK_SOFT,fontWeight:700,fontSize:13.5,cursor:"pointer"}}>🆕 नयाँ सामग्री</button>
       <button className="ss-btn" onClick={()=>setMode("review")} style={{flex:1,padding:"8px",borderRadius:10,border:mode==="review"?`2px solid ${VIOLET}`:"1px solid rgba(0,0,0,0.12)",background:mode==="review"?tint(VIOLET,12):"transparent",color:mode==="review"?VIOLET:INK_SOFT,fontWeight:700,fontSize:13.5,cursor:"pointer"}}>🔁 पुनरावलोकन</button>
     </div>
+    {/* NEW — fastMode toggle: skips generateSimulation's AI self-review
+        pass, the single biggest time cost in a generation. */}
+    <label style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,cursor:"pointer",fontSize:13.5,color:INK_SOFT}}>
+      <input type="checkbox" checked={fastMode} onChange={(e)=>setFastMode(e.target.checked)} style={{width:16,height:16,cursor:"pointer",accentColor:VIOLET}}/>
+      ⚡ छिटो मोड (जाँच-चरण नछोडी, चाँडो बनाउनुहोस् — गुणस्तर अलि कम हुन सक्छ)
+    </label>
     {error&&<ErrorMsg msg={error}/>}
     <button className="ss-btn" onClick={generateForThisLesson} disabled={generating||!!bulk||!online} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,width:"100%",padding:"13px",borderRadius:12,border:"none",background:`linear-gradient(180deg, ${VIOLET} 0%, color-mix(in srgb, ${VIOLET} 75%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:16.5,cursor:(generating||bulk)?"default":"pointer",boxShadow:SHADOW.accent,marginBottom:generating?6:10}}>
-      {generating?<><Loader size={17} style={{animation:"spin 1s linear infinite"}}/>सिमुलेसन बनाउँदै र जाँच्दै... (१-२ मिनेट लाग्न सक्छ)</>:<><Wand2 size={17}/>{sims.length?"नयाँ सिमुलेसन बनाउनुहोस्":"AI बाट सिमुलेसन बनाउनुहोस्"}</>}
+      {generating?<><Loader size={17} style={{animation:"spin 1s linear infinite"}}/>{fastMode?"सिमुलेसन बनाउँदै... (छिटो मोड)":"सिमुलेसन बनाउँदै र जाँच्दै... (१-२ मिनेट लाग्न सक्छ)"}</>:<><Wand2 size={17}/>{sims.length?"नयाँ सिमुलेसन बनाउनुहोस्":"AI बाट सिमुलेसन बनाउनुहोस्"}</>}
     </button>
     {/* NEW — this generation genuinely takes a while (large, detailed
         output) — saying so up front avoids a teacher assuming it's stuck
-        and refreshing/retrying mid-generation. */}
-    {generating&&<div style={{fontSize:13.5,color:INK_SOFT,textAlign:"center",marginBottom:16}}>यसमा १-२ मिनेटसम्म लाग्न सक्छ — कृपया पर्खनुहोस्...</div>}
+        and refreshing/retrying mid-generation. fastMode skips the
+        biggest chunk of that time (the review pass), so the wait copy
+        says so instead of still promising 1-2 minutes. */}
+    {generating&&<div style={{fontSize:13.5,color:INK_SOFT,textAlign:"center",marginBottom:16}}>{fastMode?"छिटो मोडमा जाँच-चरण छोडिएकोले चाँडै बन्नेछ — कृपया पर्खनुहोस्...":"यसमा १-२ मिनेटसम्म लाग्न सक्छ — कृपया पर्खनुहोस्..."}</div>}
     <button className="ss-icon-btn" onClick={bulkGenerate} disabled={generating||!!bulk||!online} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,width:"100%",padding:"10px",borderRadius:10,border:`1px dashed ${VIOLET}`,background:"transparent",color:VIOLET,fontWeight:600,fontSize:14,cursor:(generating||bulk)?"default":"pointer",marginBottom:16}}>
       {bulk?<><Loader size={15} style={{animation:"spin 1s linear infinite"}}/>{`यो अध्यायका पाठहरूमा बनाउँदै... (${bulk.done}/${bulk.total})`}</>:<><Layers size={15}/>यो अध्यायका सबै पाठमा सिमुलेसन बनाउनुहोस्</>}
     </button>
