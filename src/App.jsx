@@ -2386,7 +2386,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
 
         <div style={{marginBottom:16,breakInside:"avoid"}}>
           <div style={{fontWeight:700,fontSize:13.5,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1.5px solid #111",paddingBottom:3,marginBottom:7}}>कक्षामा सोध्ने प्रश्नहरू</div>
-          {keyQuestions.length===0?<div>—</div>:<ol style={{margin:0,paddingLeft:20,lineHeight:1.65}}>{keyQuestions.map((q,i)=><li key={i} style={{marginBottom:5}}>{q.includes("||")?q.slice(0,q.indexOf("||")):q}</li>)}</ol>}
+          {(lesson.key_questions||[]).length===0?<div>—</div>:<ol style={{margin:0,paddingLeft:20,lineHeight:1.65}}>{(lesson.key_questions||[]).map((q,i)=><li key={i} style={{marginBottom:5}}>{q.includes("||")?q.slice(0,q.indexOf("||")):q}</li>)}</ol>}
         </div>
 
         <div style={{marginBottom:16,breakInside:"avoid"}}>
