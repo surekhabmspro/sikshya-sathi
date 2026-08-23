@@ -2438,14 +2438,27 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
         {exercises.length>0&&(()=>{
           const DEV_LETTERS=["क","ख","ग","घ","ङ","च","छ","ज","झ","ञ","ट","ठ","ड","ढ","ण","त","थ","द","ध","न","प","फ","ब","भ","म","य","र","ल","व","श","ष","स","ह"];
           const DEV_NUM=["१","२","३","४","५","६","७","८","९","१०"];
-          const TYPE_ORDER=["छोटो उत्तर","लामो उत्तर","बहुविकल्पीय","सत्य/असत्य","रिक्त स्थान","मिलान गर्नुहोस्"];
-          const groups=TYPE_ORDER.map((t)=>({type:t,items:exercises.filter((it)=>it.type===t)})).filter((g)=>g.items.length>0);
+          // Group order follows the order types actually appear in `exercises`
+          // (Gemini extracts these in textbook order), not a fixed type list —
+          // this lets chapters with a different exercise order, or an extra
+          // type not in our known set (e.g. word-meanings), print correctly.
+          const seenTypes=[];
+          exercises.forEach((it)=>{const t=it.type||"छोटो उत्तर";if(!seenTypes.includes(t))seenTypes.push(t);});
+          const groups=seenTypes.map((t)=>({type:t,items:exercises.filter((it)=>(it.type||"छोटो उत्तर")===t)})).filter((g)=>g.items.length>0);
+          const KNOWN_HEADERS={
+            "सत्य/असत्य":"तलका वाक्य ठिक भए ठिक (✓) र बेठिक भए बेठिक (✗) चिन्ह लगाउनुहोस् :",
+            "बहुविकल्पीय":"तलका प्रश्नहरूको सही उत्तर छान्नुहोस् :",
+            "रिक्त स्थान":"तलका खाली ठाउँ भर्नुहोस् :",
+            "मिलान गर्नुहोस्":"तलका जोडा मिलाउनुहोस् :",
+            "लामो उत्तर":"तलका प्रश्नहरूको लामो उत्तर दिनुहोस् :",
+            "छोटो उत्तर":"तलका प्रश्नहरूको छोटो उत्तर दिनुहोस् :",
+          };
           return(
             <div style={{marginBottom:16,breakInside:"avoid"}}>
               <div style={{fontWeight:700,fontSize:13.5,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1.5px solid #111",paddingBottom:3,marginBottom:7}}>अभ्यासका प्रश्नोत्तर</div>
               {groups.map((g,gi)=>(
                 <div key={g.type} style={{marginBottom:14,breakInside:"avoid"}}>
-                  <div style={{fontWeight:700,fontSize:14,marginBottom:8}}>{DEV_NUM[gi]||gi+1}. {g.type==="सत्य/असत्य"?"तलका वाक्य ठिक भए ठिक (✓) र बेठिक भए बेठिक (✗) चिन्ह लगाउनुहोस् :":g.type==="बहुविकल्पीय"?"तलका प्रश्नहरूको सही उत्तर छान्नुहोस् :":g.type==="रिक्त स्थान"?"तलका खाली ठाउँ भर्नुहोस् :":g.type==="मिलान गर्नुहोस्"?"तलका जोडा मिलाउनुहोस् :":g.type==="लामो उत्तर"?"तलका प्रश्नहरूको लामो उत्तर दिनुहोस् :":"तलका प्रश्नहरूको छोटो उत्तर दिनुहोस् :"}</div>
+                  <div style={{fontWeight:700,fontSize:14,marginBottom:8}}>{DEV_NUM[gi]||gi+1}. {KNOWN_HEADERS[g.type]||`${g.type} :`}</div>
                   {g.items.map((it,ii)=>(
                     <div key={it.id} style={{marginBottom:10,paddingLeft:18}}>
                       <div style={{fontWeight:600,marginBottom:3}}>{DEV_LETTERS[ii]||ii+1}. {it.text}</div>
