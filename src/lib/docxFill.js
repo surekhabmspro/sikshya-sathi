@@ -219,10 +219,38 @@ export async function fillRubricDocx(templateBlob, rubricRows) {
   return { blob: await saveDocxXml(zip, doc) };
 }
 
-export function downloadBlob(blob, filename) {
+// FIX — on mobile (installed PWA / in-app webviews on Android & iOS), the
+// classic <a download> click is silently swallowed: no download starts, no
+// error is thrown, so the teacher just sees nothing happen after export.
+// The reliable mobile path is the Web Share API's file-sharing (works from
+// inside a PWA on both platforms and hands the file straight to "Save to
+// Files"/Drive/etc.); the old anchor-click stays as the desktop-browser
+// fallback since navigator.share with files isn't available there.
+export async function downloadBlob(blob, filename) {
+  const file = new File([blob], filename, { type: blob.type });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: filename });
+      return;
+    } catch (e) {
+      // User cancelled the share sheet, or share failed — fall through to
+      // the anchor-download path below instead of leaving the export stuck.
+      if (e?.name === "AbortError") return;
+    }
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url; a.download = filename;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+// Bundles several named blobs into one .docx.zip so a multi-lesson export
+// (several lesson-plan + rubric files) becomes a single share/download
+// instead of many auto-downloads in a row, which mobile browsers throttle
+// or block outright after the first one or two.
+export async function zipFiles(namedBlobs) {
+  const zip = new JSZip();
+  for (const { filename, blob } of namedBlobs) zip.file(filename, blob);
+  return zip.generateAsync({ type: "blob", mimeType: "application/zip" });
 }
