@@ -2796,21 +2796,32 @@ function SimulationStage({ html, title }) {
   // and speaks on the iframe's behalf.
   useEffect(() => {
     function onMsg(e) {
-      if (!e.data || !e.data.__ssSpeak || e.source !== iframeRef.current?.contentWindow) return;
+      console.log("[SS-DEBUG][parent] message event received, data=", e.data, "source matches iframe?", e.source === iframeRef.current?.contentWindow);
+      if (!e.data || !e.data.__ssSpeak || e.source !== iframeRef.current?.contentWindow) {
+        if (e.data && e.data.__ssSpeak) console.log("[SS-DEBUG][parent] DROPPED: __ssSpeak present but source did not match iframeRef");
+        return;
+      }
       try {
+        console.log("[SS-DEBUG][parent] window.speechSynthesis exists?", !!window.speechSynthesis);
         if (!window.speechSynthesis) return;
         const opts = e.data.opts || {};
         const u = new SpeechSynthesisUtterance(e.data.text);
         const vs = window.speechSynthesis.getVoices();
+        console.log("[SS-DEBUG][parent] voices available:", vs.length, vs.map(v => v.lang + (v.default ? " (default)" : "")));
         const voice = (vs.find((v) => v.lang && v.lang.toLowerCase().indexOf("ne") === 0)
           || vs.find((v) => v.lang && v.lang.toLowerCase().indexOf("hi") === 0)
           || vs.find((v) => v.default) || vs[0]);
+        console.log("[SS-DEBUG][parent] chosen voice:", voice ? (voice.name + " / " + voice.lang) : "NONE — falling back to lang=ne-NP with no voice object");
         if (voice) { u.voice = voice; u.lang = voice.lang; } else { u.lang = "ne-NP"; }
         u.rate = opts.rate || 0.92;
         u.pitch = opts.pitch || 1.08;
         u.volume = opts.volume || 0.85;
+        u.onstart = () => console.log("[SS-DEBUG][parent] utterance onstart fired — browser began speaking");
+        u.onend = () => console.log("[SS-DEBUG][parent] utterance onend fired — finished normally");
+        u.onerror = (ev) => console.log("[SS-DEBUG][parent] utterance onerror fired:", ev.error);
+        console.log("[SS-DEBUG][parent] calling speechSynthesis.speak() now, speaking flag before call:", window.speechSynthesis.speaking, "pending:", window.speechSynthesis.pending);
         window.speechSynthesis.speak(u);
-      } catch (err) { /* best-effort, same as every other sound call */ }
+      } catch (err) { console.log("[SS-DEBUG][parent] onMsg catch:", err); }
     }
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
