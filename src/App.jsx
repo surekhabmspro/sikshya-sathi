@@ -5975,13 +5975,8 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
         {classMsg&&<div style={{marginTop:8,fontSize:15,color:ACCENT,fontWeight:600}}>{classMsg}</div>}
       </Card>
 
-      <Card style={{marginBottom:14}}>
-        <SectionLabel icon={Sun} color={MARIGOLD_DARK}>देखावट (उज्यालो / गाढा)</SectionLabel>
-        <div style={{display:"flex",gap:8}}>
-          <button onClick={()=>theme!=="light"&&onToggleTheme()} className="ss-chip" style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"13px",borderRadius:12,border:`2px solid ${theme==="light"?ACCENT:BORDER}`,background:theme==="light"?ACCENT_LIGHT:SURFACE,color:theme==="light"?ACCENT:INK_SOFT,fontWeight:700,fontSize:16,cursor:"pointer"}}><Sun size={17}/>उज्यालो</button>
-          <button onClick={()=>theme!=="dark"&&onToggleTheme()} className="ss-chip" style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"13px",borderRadius:12,border:`2px solid ${theme==="dark"?ACCENT:BORDER}`,background:theme==="dark"?ACCENT_LIGHT:SURFACE,color:theme==="dark"?ACCENT:INK_SOFT,fontWeight:700,fontSize:16,cursor:"pointer"}}><Moon size={17}/>गाढा</button>
-        </div>
-      </Card>
+      {/* REMOVED — देखावट (उज्यालो/गाढा) card: already available as the
+          sun/moon icon in the topbar, so this was a duplicate control. */}
 
       <Card style={{marginBottom:14}}>
         <SectionLabel icon={BookMarked} color={TEAL}>पाठ्यपुस्तक PDF</SectionLabel>
