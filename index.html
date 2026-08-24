@@ -20,18 +20,30 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="शिक्षा साथी" />
 
-    <!-- Fonts — Hind (warm, rounded, Devanagari-native humanist face) carries
-         all body/UI text — Nepali and Latin alike, from one family, so
-         nothing ever falls back to a thin, badly-spaced system Devanagari
-         font. Baloo 2 (bold, rounded, playful — also Devanagari-native) is
-         reserved for headings, big numbers and the app wordmark, giving the
-         "warm & vibrant, energetic classroom" personality its display voice.
-         Loaded here (not just @import'd inside App.jsx) so text is never
-         rendered in the fallback font, even for a split second.
-         preconnect speeds up the first paint. -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Hind:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <!-- FIX — every font in the app must be only Kalimati (Devanagari) or
+         Times New Roman (Latin), in-app and on print/PDF — no other font,
+         ever. This used to load Google-hosted Hind/Baloo 2 and set them as
+         the base body font here in <head>, which rendered (and briefly
+         flashed, before React/App.jsx's own 'SSText' font-face mounted) a
+         completely different typeface on every single load. Removed the
+         Google Fonts import entirely and point straight at the two allowed,
+         locally-installed fonts instead — see 'SSText' below and the
+         matching @font-face pair inside App.jsx's own <style> block, which
+         together are now the ONLY font stack used anywhere in the app. -->
+    <style>
+      @font-face{
+        font-family:'SSText';
+        src:local('Kalimati'),local('Kalimati Regular');
+        unicode-range:U+0900-097F,U+0980-09FF,U+1CD0-1CFF,U+A8E0-A8FF,U+11B00-11B5F;
+        font-display:swap;
+      }
+      @font-face{
+        font-family:'SSText';
+        src:local('Times New Roman'),local('Times'),local('Liberation Serif'),local('Nimbus Roman');
+        unicode-range:U+0000-024F,U+0300-036F,U+2000-206F,U+2070-209F;
+        font-display:swap;
+      }
+    </style>
 
     <!-- NEW — light/dark theme colors, defined here (not just inside App.jsx)
          so they exist from the very first paint: the login screen and the
@@ -76,9 +88,9 @@
       html, body {
         background: radial-gradient(1100px 620px at 12% -8%, var(--bg-grad), var(--bg) 55%);
         color: var(--ink);
-        font-family: 'Hind','Baloo 2',sans-serif;
+        font-family: 'SSText','Kalimati','Times New Roman',serif;
       }
-      .ss-display { font-family: 'Baloo 2','Hind',sans-serif; }
+      .ss-display { font-family: 'SSText','Kalimati','Times New Roman',serif; }
       /* NEW — this stylesheet did not exist at all before, which is why
          printing produced a blank page: the .no-print class referenced
          throughout the app had no rule hiding it, and the printable
@@ -108,7 +120,7 @@
           background: #fff !important;
           color: #000 !important;
         }
-        .print-area * { overflow: visible !important; color: #000 !important; }
+        .print-area * { overflow: visible !important; color: #000 !important; font-family: 'SSText','Kalimati','Times New Roman',serif !important; }
         html, body { background:#fff !important; }
       }
     </style>
