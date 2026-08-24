@@ -710,6 +710,24 @@ ${focusLine}
 
 export const generateQuestions = async (chapterTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", pathTitle = null) => {
   const isWholeChapter = !pathTitle || !pathTitle.trim() || pathTitle.trim() === chapterTitle.trim();
+  // FIX — root cause of "exercise not found" for a lesson whose exercise
+  // genuinely exists in the book: most Nepali textbooks (confirmed by
+  // checking an actual उदाहरण — an एकाइ with 4 separate पाठ) print a
+  // SEPARATE "अभ्यास" block right after EACH individual पाठ's own content
+  // (vocabulary/activities/exercise/project-work, then the next पाठ
+  // starts) — NOT one combined block at the very end of the whole एकाइ.
+  // The old instruction told Gemini to look "ठ्याक्कै अध्यायको अन्त्यमा"
+  // (right at the END OF THE CHAPTER) even when a specific पाठ was asked
+  // for. For पाठ १ of a 4-पाठ chapter, that pointed Gemini at the LAST
+  // पाठ's own exercise section instead — topically unrelated to पाठ १, so
+  // the focusLine's own filtering correctly found nothing relevant and
+  // returned [], even though पाठ १'s own exercise was right there, just a
+  // couple of pages after its own content (long before the chapter ends).
+  // Now: for a specific पाठ, look for the exercise that follows THAT पाठ
+  // specifically, not the chapter as a whole.
+  const scopeLine = isWholeChapter
+    ? `यसमा "${chapterTitle}" नामको अध्याय पत्ता लगाउनुहोस् — त्यो अध्यायको सुरुदेखि अन्त्यसम्म राम्ररी हेर्नुहोस्, र अध्यायको ठ्याक्कै अन्त्यमा छापिएको आफ्नै "अभ्यास" (वा "प्रश्नोत्तर"/"अभ्यास प्रश्नहरू" जस्तो शीर्षक भएको) खण्ड पत्ता लगाउनुहोस्।`
+    : `यसमा "${chapterTitle}" नामको अध्याय भित्र "${pathTitle}" नामको खास पाठ (Path/पाठ) पत्ता लगाउनुहोस्। **महत्त्वपूर्ण**: धेरैजसो नेपाली पाठ्यपुस्तकमा एउटै अध्याय (एकाइ) भित्र धेरै पाठ (Path) हुन्छन्, र हरेक पाठको आफ्नै छुट्टै "अभ्यास" (वा "प्रश्नोत्तर") खण्ड सोही पाठको सामग्री (जस्तै शब्द भण्डार/वोकेब्लरी, क्रियाकलाप पछि) सकिएर, अर्को पाठ सुरु हुनुभन्दा ठ्याक्कै अगाडि नै छापिएको हुन्छ — अध्यायको सम्पूर्ण अन्त्यमा (पछिल्लो पाठको पछाडि) पुग्नु पर्दैन। त्यसैले अध्यायको अन्त्यसम्म नपुगी, "${pathTitle}" यही पाठको आफ्नै सामग्री सकिएपछि, ठ्याक्कै त्यसको ठीक पछाडि (अर्को पाठ सुरु हुनुभन्दा अगाडि) आफ्नै "अभ्यास"/"प्रश्नोत्तर" खण्ड छ कि भनेर पत्ता लगाउनुहोस् — यही नै सही ठाउँ हो, चाहे अध्याय अझै धेरै पाठ बाँकी भएर लामो नै किन नहोस्।`;
   const focusLine = isWholeChapter ? "" : `\n\nयो अध्याय भित्र यो खास पाठ (Path) मात्र: "${pathTitle}"। यदि यो अध्याय बहु-पाठ (multiple paths/periods) मा बाँडिएको छ भने, अभ्यास खण्डका प्रश्नहरूमध्ये ठ्याक्कै यही पाठको विषयवस्तुसँग मिल्नेहरू मात्र छान्नुहोस् — अरू पाठसँग सम्बन्धित प्रश्न यहाँ नराख्नुहोस्। यदि प्रश्नहरू कुन उप-विषयसँग हो भन्ने छुट्याउन नमिल्ने खालका (चाहे जुनसुकै उप-विषयमा लागू हुने खालका, समग्र अध्यायकै हुन्) भए ती पनि समावेश गर्न सक्नुहुन्छ।`;
   // NEW — "पाठ अभ्यास समाधान": earlier version generated its own fresh
   // quiz-style questions. That's wrong for this feature — the teacher
@@ -720,11 +738,11 @@ export const generateQuestions = async (chapterTitle, ctx = null, classContext =
   // can't be found in the given textbook text, this returns an empty
   // array rather than making something up (caller shows an empty state
   // instead of silently substituting AI-invented questions).
-  const prompt = `तपाईंलाई माथि नेपालको ${classContext}को पाठ्यपुस्तकको सान्दर्भिक अंश (वा पूरा पुस्तक) दिइएको छ। यसमा "${chapterTitle}" नामको अध्याय पत्ता लगाउनुहोस् — त्यो अध्यायको सुरुदेखि अन्त्यसम्म राम्ररी हेर्नुहोस्, र अध्यायको ठ्याक्कै अन्त्यमा छापिएको आफ्नै "अभ्यास" (वा "प्रश्नोत्तर"/"अभ्यास प्रश्नहरू" जस्तो शीर्षक भएको) खण्ड पत्ता लगाउनुहोस्।${focusLine}
+  const prompt = `तपाईंलाई माथि नेपालको ${classContext}को पाठ्यपुस्तकको सान्दर्भिक अंश (वा पूरा पुस्तक) दिइएको छ। ${scopeLine}${focusLine}
 
 अत्यन्तै महत्त्वपूर्ण नियमहरू:
 1. त्यो अभ्यास खण्डमा भएका प्रश्नहरू मात्र लिनुहोस् — शब्द, क्रम, संख्या, विकल्प (options) समेत ठ्याक्कै पाठ्यपुस्तकमा जस्तो छ त्यस्तै (verbatim) राख्नुहोस्। कुनै पनि हालतमा आफैं नयाँ प्रश्न नबनाउनुहोस्, नथप्नुहोस्, वा शब्द नबदल्नुहोस्।
-2. यदि "${chapterTitle}" अध्याय यो दिइएको स्रोतमा नै भेटिएन, वा भेटिए पनि त्यसको छुट्टै अभ्यास खण्ड ठम्याउन सकिएन भने, अरू केही नबनाई ठ्याक्कै खाली array मात्र फर्काउनुहोस्: []
+2. यदि "${chapterTitle}"${isWholeChapter ? "" : ` को "${pathTitle}"`} अध्याय/पाठ यो दिइएको स्रोतमा नै भेटिएन, वा भेटिए पनि त्यसको छुट्टै अभ्यास खण्ड ठम्याउन सकिएन भने, अरू केही नबनाई ठ्याक्कै खाली array मात्र फर्काउनुहोस्: []
 3. हरेक प्रश्नको लागि उत्तर/हल दिनुहोस् — त्यो उत्तर सधैं पहिले यही अध्यायको (माथि दिइएको) मुख्य पाठ्य-सामग्रीबाटै खोजी दिनुहोस्; त्यहाँ प्रस्ट उत्तर भेटिएमा "source":"textbook" राख्नुहोस्। अध्यायको सामग्रीमा साँच्चै उत्तर नभेटिएमा मात्र आफ्नै सामान्य ज्ञानले उत्तर दिनुहोस् र "source":"ai" राख्नुहोस्। कुनै प्रश्नको उत्तर खाली नछोड्नुहोस्।
 4. हरेक प्रश्नलाई तलका ६ चाहिँ "type" मध्ये सबैभन्दा मिल्दोमा वर्गीकरण गर्नुहोस् (पाठ्यपुस्तकमा जुन प्रकारका प्रश्न वास्तवमा छन् ती मात्र देखिनेछन् — सबै ६ प्रकार हुनैपर्छ भन्ने छैन, र नक्कली/थप प्रश्न बनाएर संख्या पूरा गर्न पनि पर्दैन):
    - "छोटो उत्तर" (पाठ्यपुस्तकमा "अति छोटो उत्तर" वा उस्तै उपशीर्षक भएका, एक/दुई वाक्यमै सकिने प्रश्नहरू — परिभाषा, नाम, सूची जस्ता)

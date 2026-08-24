@@ -561,10 +561,10 @@ async function buildGuidePart(guideRow) {
 
 async function getMaterialContext(chapterTitle, classLabel = null, lessonId = null) {
   if (!chapterTitle || !chapterTitle.trim()) {
-    return { pdfBase64: await getTextbookPDF(classLabel), materialParts: [], textbookText: null, matchedCount: 0 };
+    return { pdfBase64: await getTextbookPDF(classLabel), materialParts: [], textbookText: null, matchedCount: 0, chapterId: null, sourceKind: "no-title" };
   }
   const chapterId = await db.getChapterIdByTitle(chapterTitle.trim(), classLabel);
-  if (!chapterId) return { pdfBase64: await getTextbookPDF(classLabel), materialParts: [], textbookText: null, matchedCount: 0 };
+  if (!chapterId) return { pdfBase64: await getTextbookPDF(classLabel), materialParts: [], textbookText: null, matchedCount: 0, chapterId: null, sourceKind: "no-chapter" };
   // FIX — materials now belong to a specific पाठ (Path), not the whole
   // अध्याय (Unit): a lesson plan/PPT uploaded for Path 2 was previously
   // fed into every Path's AI context just because they shared a chapter.
@@ -585,15 +585,25 @@ async function getMaterialContext(chapterTitle, classLabel = null, lessonId = nu
 
   let textbookText = await db.getTextbookChapterText(chapterId);
   let pdfBase64 = null;
+  // NEW — sourceKind tells callers (see generateExercises) HOW the
+  // textbook content was obtained, so an empty result downstream can be
+  // explained accurately instead of always blaming a title mismatch:
+  // "cached"/"extracted" means the chapter's own text WAS isolated (so an
+  // empty exercise list means that content genuinely has no separate
+  // exercise section — check the unit's own end pages), while
+  // "fallback-pdf" means isolation failed and the whole book was handed
+  // over instead (a real title/upload problem is more likely here).
+  let sourceKind = "cached";
   if (!textbookText) {
     try {
       const extracted = await gemini.extractChapterText(chapterTitle.trim(), classLabel);
-      if (extracted) { textbookText = extracted; db.saveTextbookChapterText(chapterId, extracted); }
-      else pdfBase64 = await getTextbookPDF(classLabel); // couldn't isolate this chapter (e.g. title doesn't match the book's wording) — fall back to the whole book for this call only, don't cache a miss
-    } catch { pdfBase64 = await getTextbookPDF(classLabel); }
+      if (extracted) { textbookText = extracted; sourceKind = "extracted"; db.saveTextbookChapterText(chapterId, extracted); }
+      else { pdfBase64 = await getTextbookPDF(classLabel); sourceKind = "fallback-pdf"; } // couldn't isolate this chapter (e.g. title doesn't match the book's wording) — fall back to the whole book for this call only, don't cache a miss
+    } catch { pdfBase64 = await getTextbookPDF(classLabel); sourceKind = "fallback-pdf"; }
   }
-  return { pdfBase64, materialParts, textbookText, matchedCount: materials.length };
+  return { pdfBase64, materialParts, textbookText, matchedCount: materials.length, chapterId, sourceKind };
 }
+
 
 // FIX — the root cause of the "wrong/broken tagging" problem: every screen
 // (Planner, Question Bank, Activities, Assessment) let a teacher pick a
@@ -1743,8 +1753,22 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
       // questions when the chapter's own exercise section can't be found
       // in the uploaded textbook — surface that distinctly from a real
       // error so a teacher knows to check the textbook upload/chapter
-      // title match rather than just "retry".
-      if(!qs.length)setExercisesError("यो अध्यायको अभ्यास खण्ड पाठ्यपुस्तकमा भेटिएन। सेटिङ्स → पाठ्यपुस्तक अपलोडमा सही पुस्तक अपलोड भएको र अध्यायको नाम मिलेको जाँच्नुहोस्।");
+      // title match rather than just "retry". Message now depends on
+      // ctx.sourceKind: if the chapter's own text WAS isolated fine
+      // ("extracted"/"cached") and it's still empty, the title/upload is
+      // NOT the problem — that content genuinely has no separate exercise
+      // section for this specific पाठ, so the teacher should check
+      // whether this एकाइ prints its अभ्यास once at the very end (after
+      // ALL its पाठ), further along than this लेसन's own pages. Only the
+      // "fallback-pdf"/"no-chapter" cases point back to a real title/
+      // upload mismatch, since those mean isolation itself failed.
+      if(!qs.length){
+        setExercisesError(
+          (ctx.sourceKind==="extracted"||ctx.sourceKind==="cached")
+            ? "पाठ्यपुस्तकबाट यो अध्यायको सामग्री त भेटियो, तर यो खास पाठ (\""+lesson.title+"\") सँग छुट्टै जोडिएको अभ्यास/प्रश्नोत्तर खण्ड फेला परेन। धेरैजसो पाठ्यपुस्तकमा एउटै एकाइभित्रका सबै पाठ सकिएपछि अभ्यास एकैचोटि (एकाइको ठ्याक्कै अन्त्यमा) छापिएको हुन्छ — त्यो हिस्सा यो पाठको भन्दा धेरै पछाडि पर्न सक्छ। पाठ्यपुस्तकमा यस एकाइको अन्त्यमा (अर्को एकाइ सुरु हुनुअघि) कुनै \"अभ्यास\"/\"प्रश्नोत्तर\" खण्ड छ कि छैन जाँच्नुहोस्।"
+            : "यो अध्यायको अभ्यास खण्ड पाठ्यपुस्तकमा भेटिएन। सेटिङ्स → पाठ्यपुस्तक अपलोडमा सही पुस्तक अपलोड भएको र अध्यायको नाम मिलेको जाँच्नुहोस्।"
+        );
+      }
     }catch(e){setExercisesError("AI त्रुटि: "+(e.message||"अभ्यास समाधान बनाउन सकिएन।"));}
     setExercisesGenerating(false);
   };
