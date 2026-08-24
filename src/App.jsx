@@ -1435,14 +1435,14 @@ function LoginScreen({ onLogin }) {
   );
 }
 
-function SectionSelector({ sections, current, onChange, onAdd }) {
+function SectionSelector({ sections, current, onChange, onAdd, classLabel }) {
   const [adding,setAdding]=useState(false);
   const [name,setName]=useState("");
   const [loading,setLoading]=useState(false);
   const save=async()=>{
     if(!name.trim())return;
     setLoading(true);
-    const{data,error}=await db.createSection(name.trim());
+    const{data,error}=await db.createSection(name.trim(),classLabel);
     setLoading(false);
     if(!error){onAdd(data);setName("");setAdding(false);}
   };
@@ -5912,7 +5912,7 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
       setSectionMsg("यो नामको सेक्सन पहिल्यै छ।");setTimeout(()=>setSectionMsg(""),2500);return;
     }
     setSaving(true);
-    const{data,error}=await db.createSection(name.trim());
+    const{data,error}=await db.createSection(name.trim(),classLabel);
     setSaving(false);
     if(error){setSectionMsg("त्रुटि: "+error.message);return;}
     onSectionAdded(data);setName("");setSectionMsg(`"${data.name}" थपियो!`);
@@ -6328,6 +6328,16 @@ export default function App() {
     supabase.auth.updateUser({data:{subject_label:v}}).catch(()=>{});
   };
   const classContext=`${classLabel} ${subjectLabel}`.trim();
+
+  // NEW — a Section switch now also switches class_label when the section
+  // has one (see add_class_label_to_sections.sql): tapping "कक्षा ६ क"
+  // really does switch the app to कक्षा ६ content, not just which Section
+  // pill is highlighted. Sections created before this migration have no
+  // class_label and just switch the Section, exactly as before.
+  const switchToSection=useCallback((s)=>{
+    setCurrentSection(s);
+    if(s?.class_label&&s.class_label!==classLabel)setClassLabel(s.class_label);
+  },[classLabel]);
 
   // NEW — teacher's display name, used in Settings and the dashboard greeting
   // instead of a generic label / the account's raw email.
@@ -6807,7 +6817,7 @@ export default function App() {
 
       <style>{`@media (max-width:420px){.ss-sync-label{display:none;}}`}</style>
 
-      <div className="no-print ss-section-bar"><SectionSelector sections={sections} current={currentSection} onChange={setCurrentSection} onAdd={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}}/></div>
+      <div className="no-print ss-section-bar"><SectionSelector sections={sections} current={currentSection} onChange={switchToSection} onAdd={(s)=>{setSections((prev)=>[...prev,s]);switchToSection(s);}} classLabel={classLabel}/></div>
 
       <div className="desktop-sidebar no-print" style={{position:"fixed",top:0,left:0,bottom:0,width:232,background:`linear-gradient(170deg, color-mix(in srgb, color-mix(in srgb, ${ACCENT} 6%, ${SURFACE}) 90%, transparent) 0%, color-mix(in srgb, color-mix(in srgb, ${TEAL} 5%, ${SURFACE}) 90%, transparent) 100%)`,backdropFilter:"blur(14px)",WebkitBackdropFilter:"blur(14px)",borderRight:`1px solid ${BORDER}`,flexDirection:"column",paddingTop:118,paddingLeft:12,paddingRight:12,zIndex:5,overflowY:"auto",gap:2}}>
         <div style={{fontSize:12.5,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:INK_SOFT,padding:"0 14px",marginBottom:6}}>मुख्य</div>
@@ -6863,10 +6873,10 @@ export default function App() {
             </div>
             <div style={{padding:"0 4px 10px"}}>
               <Settings session={session} sections={sections} currentSection={currentSection}
-                onSectionAdded={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}}
+                onSectionAdded={(s)=>{setSections((prev)=>[...prev,s]);switchToSection(s);}}
                 onSectionUpdated={(s)=>{setSections((prev)=>prev.map((x)=>x.id===s.id?s:x));if(currentSection?.id===s.id)setCurrentSection(s);}}
                 onSectionDeleted={(id)=>{setSections((prev)=>prev.filter((x)=>x.id!==id));if(currentSection?.id===id)setCurrentSection(sections.find((x)=>x.id!==id)||null);}}
-                onSelectSection={setCurrentSection}
+                onSelectSection={switchToSection}
                 theme={theme} onToggleTheme={toggleTheme} installPrompt={installPrompt} isStandalone={isStandalone} isIOS={isIOS} onInstall={promptInstall}
                 classLabel={classLabel} subjectLabel={subjectLabel} onClassChange={setClassLabel} onSubjectChange={setSubjectLabel} teacherName={teacherName} onTeacherNameChange={setTeacherName}
               />

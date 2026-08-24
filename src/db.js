@@ -61,11 +61,14 @@ export const getSections = async () => cachedFetch("sections", async () => {
   return { data, error };
 });
 
-export const createSection = async (name) => {
+// NEW — a Section can now carry its own class_label (set to whichever
+// class is active when it's created), so switching to it can also switch
+// the app's class — see App.jsx's switchToSection.
+export const createSection = async (name, classLabel = null) => {
   const { data: { user } } = await supabase.auth.getUser();
   const { data, error } = await supabase
     .from("sections")
-    .insert({ name, teacher_id: user.id })
+    .insert({ name, teacher_id: user.id, class_label: classLabel })
     .select()
     .single();
   return { data, error };
