@@ -68,6 +68,18 @@ const EXERCISE_TYPE_COLOR = {
   "मिलान गर्नुहोस्": ROSE,
 };
 
+// NEW — one instruction line per exercise type, shown once at the top of
+// that type's card (in-app) or group (print) instead of repeating per
+// question. Shared by both so the wording stays identical everywhere.
+const EXERCISE_TYPE_HEADER = {
+  "सत्य/असत्य":"तलका वाक्य ठिक भए ठिक (✓) र बेठिक भए बेठिक (✗) चिन्ह लगाउनुहोस् :",
+  "बहुविकल्पीय":"तलका प्रश्नहरूको सही उत्तर छान्नुहोस् :",
+  "रिक्त स्थान":"तलका खाली ठाउँ भर्नुहोस् :",
+  "मिलान गर्नुहोस्":"तलका जोडा मिलाउनुहोस् :",
+  "लामो उत्तर":"तलका प्रश्नहरूको लामो उत्तर दिनुहोस् :",
+  "छोटो उत्तर":"तलका प्रश्नहरूको छोटो उत्तर दिनुहोस् :",
+};
+
 // Elevation scale — used for the "premium, elevated" card/button look.
 const SHADOW = {
   sm: "0 1px 2px rgba(var(--shadow-rgb),0.06), 0 1px 1px rgba(var(--shadow-rgb),0.04)",
@@ -1779,6 +1791,52 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
     setExercises((prev)=>prev.filter((q)=>q.id!==id));
   };
 
+  // NEW — "1 card per type" request: teacher edits answers per exercise-type
+  // group (छोटो उत्तर, सत्य/असत्य, मिलान गर्नुहोस्, बहुविकल्पीय, ...) rather
+  // than per individual question, matching how the cards themselves are now
+  // grouped. editingType tracks which single group-card is in edit mode;
+  // editDrafts holds the in-progress values for every item inside it, keyed
+  // by question id, shaped per type (a plain string for छोटो/लामो/रिक्त
+  // उत्तर, {answer,correction} for सत्य/असत्य, the option index for
+  // बहुविकल्पीय, or the pairs array for मिलान गर्नुहोस्).
+  const [editingType,setEditingType]=useState(null);
+  const [editDrafts,setEditDrafts]=useState({});
+  const startEditGroup=(type,items)=>{
+    const drafts={};
+    items.forEach((it)=>{
+      if(type==="सत्य/असत्य")drafts[it.id]={answer:it.answer||"सत्य",correction:(Array.isArray(it.options)&&it.options[0])||""};
+      else if(type==="बहुविकल्पीय")drafts[it.id]=it.correct_option??null;
+      else if(type==="मिलान गर्नुहोस्")drafts[it.id]=(it.match_pairs||[]).map((p)=>({...p}));
+      else drafts[it.id]=it.answer||"";
+    });
+    setEditDrafts(drafts);
+    setEditingType(type);
+  };
+  const cancelEditGroup=()=>{setEditingType(null);setEditDrafts({});};
+  const saveEditGroup=async(type,items)=>{
+    try{
+      for(const it of items){
+        const draft=editDrafts[it.id];
+        let patch;
+        if(type==="सत्य/असत्य")patch={answer:draft.answer,options:draft.answer==="असत्य"&&draft.correction?[draft.correction]:[]};
+        else if(type==="बहुविकल्पीय")patch={correct_option:draft};
+        else if(type==="मिलान गर्नुहोस्")patch={match_pairs:draft};
+        else patch={answer:draft};
+        const{error}=await db.updateQuestion(it.id,patch);
+        if(error)throw error;
+      }
+      setExercises((prev)=>prev.map((q)=>{
+        if(!(q.id in editDrafts)||q.type!==type)return q;
+        const draft=editDrafts[q.id];
+        if(type==="सत्य/असत्य")return{...q,answer:draft.answer,options:draft.answer==="असत्य"&&draft.correction?[draft.correction]:[]};
+        if(type==="बहुविकल्पीय")return{...q,correct_option:draft};
+        if(type==="मिलान गर्नुहोस्")return{...q,match_pairs:draft};
+        return{...q,answer:draft};
+      }));
+      cancelEditGroup();
+    }catch(e){setExercisesError("उत्तर सुरक्षित गर्न सकिएन: "+(e.message||""));}
+  };
+
   const [activitiesState,setActivitiesState]=useState(()=>lesson.activities||[]);
   // NEW — the lesson plan's own "activities" list only ever comes with 2
   // by default (see the generateMoreActivities comment in gemini.js for
@@ -2090,63 +2148,120 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
               <AIButton label={exercisesGenerating?"बनाउँदै...":"AI बाट पाठ्यपुस्तकबाट अभ्यास ल्याउनुहोस्"} onClick={generateExercises} loading={exercisesGenerating}/>
             </div>
           ):(
-            <div style={{display:"flex",flexDirection:"column",gap:14}}>{exercises.map((item,i)=>{
-              const color=EXERCISE_TYPE_COLOR[item.type]||PALETTE[i%PALETTE.length];
-              const isTrueFalse=item.type==="सत्य/असत्य";
-              const isMCQ=item.type==="बहुविकल्पीय"&&Array.isArray(item.options)&&item.options.length>0;
-              const isMatch=item.type==="मिलान गर्नुहोस्"&&Array.isArray(item.match_pairs)&&item.match_pairs.length>0;
-              return(
-                <Card key={item.id} accentColor={color} style={{padding:"16px 18px"}}>
-                  <div style={{display:"flex",alignItems:"flex-start",gap:14}}>
-                    <div style={{width:32,height:32,borderRadius:"50%",background:`linear-gradient(160deg, ${color} 0%, color-mix(in srgb, ${color} 70%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:17,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:8}}>
-                        <span style={{fontSize:12,fontWeight:700,color,background:`color-mix(in srgb, ${color} 15%, white)`,padding:"2px 9px",borderRadius:999}}>{item.type}</span>
-                        <span style={{fontSize:11.5,fontWeight:700,color:item.source==="ai"?MARIGOLD_DARK:ACCENT,background:item.source==="ai"?`color-mix(in srgb, ${MARIGOLD_DARK} 15%, white)`:`color-mix(in srgb, ${ACCENT} 15%, white)`,padding:"2px 8px",borderRadius:999}}>{item.source==="ai"?"AI ज्ञानबाट":"पाठ्यपुस्तकबाट"}</span>
-                        <button className="ss-icon-btn" onClick={()=>removeExercise(item.id)} title="हटाउनुहोस्" style={{marginLeft:"auto",cursor:"pointer",padding:4,color:DANGER,display:"flex"}}><Trash2 size={14}/></button>
+            <div style={{display:"flex",flexDirection:"column",gap:14}}>{(()=>{
+              // NEW — group by type so the type heading and the edit button
+              // appear once per card, with each question immediately
+              // followed by its own answer inside that same card (matches
+              // the print layout below).
+              const seenTypes=[];
+              exercises.forEach((it)=>{const t=it.type||"छोटो उत्तर";if(!seenTypes.includes(t))seenTypes.push(t);});
+              const groups=seenTypes.map((t)=>({type:t,items:exercises.filter((it)=>(it.type||"छोटो उत्तर")===t)})).filter((g)=>g.items.length>0);
+              return groups.map((g)=>{
+                const color=EXERCISE_TYPE_COLOR[g.type]||PALETTE[0];
+                const isEditingCard=editingType===g.type;
+                return(
+                  <Card key={g.type} accentColor={color} style={{padding:"16px 18px"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:12}}>
+                      <span style={{fontSize:12,fontWeight:700,color,background:`color-mix(in srgb, ${color} 15%, white)`,padding:"2px 9px",borderRadius:999}}>{g.type}</span>
+                      <div style={{fontSize:17,fontWeight:700,color:INK}}>{EXERCISE_TYPE_HEADER[g.type]||`${g.type} :`}</div>
+                      <div style={{marginLeft:"auto",display:"flex",gap:8,flexShrink:0}}>
+                        {isEditingCard?(<>
+                          <button className="ss-btn" onClick={cancelEditGroup} style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,fontSize:14,cursor:"pointer"}}>रद्द</button>
+                          <button className="ss-btn" onClick={()=>saveEditGroup(g.type,g.items)} style={{padding:"6px 12px",borderRadius:8,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer"}}>सुरक्षित गर्नुहोस्</button>
+                        </>):(
+                          <button className="ss-icon-btn" onClick={()=>startEditGroup(g.type,g.items)} title="उत्तर सम्पादन गर्नुहोस्" style={{cursor:"pointer",padding:6,color:ACCENT,display:"flex"}}><PenSquare size={15}/></button>
+                        )}
                       </div>
-                      <div style={{fontSize:19,color:INK,fontWeight:600,lineHeight:1.5,marginBottom:10}}>{item.text}</div>
-                      {isMCQ&&(
-                        <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
-                          {item.options.map((opt,oi)=>(
-                            <div key={oi} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 11px",borderRadius:8,background:oi===item.correct_option?`color-mix(in srgb, ${ACCENT} 15%, white)`:SURFACE_2,fontSize:16,color:oi===item.correct_option?ACCENT:INK,fontWeight:oi===item.correct_option?700:500}}>
-                              {oi===item.correct_option&&<CheckCircle2 size={15} style={{flexShrink:0}}/>}
-                              <span>{opt}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {isMatch&&(
-                        <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
-                          {item.match_pairs.map((p,pi)=>(
-                            <div key={pi} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 11px",borderRadius:8,background:SURFACE_2,fontSize:16,color:INK}}>
-                              <span style={{fontWeight:700}}>{p.left}</span>
-                              <ArrowRight size={14} style={{flexShrink:0,color:INK_SOFT}}/>
-                              <span>{p.right}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {isTrueFalse?(
-                        <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                          <div style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 12px",borderRadius:999,fontWeight:700,fontSize:15,background:item.answer==="सत्य"?`color-mix(in srgb, ${ACCENT} 15%, white)`:DANGER_BG,color:item.answer==="सत्य"?ACCENT:DANGER,width:"fit-content"}}>
-                            {item.answer==="सत्य"?<CheckCircle2 size={15}/>:<AlertCircle size={15}/>}
-                            {item.answer||"—"}
-                          </div>
-                          {item.answer==="असत्य"&&Array.isArray(item.options)&&item.options[0]&&(
-                            <div style={{fontSize:15,color:INK_SOFT}}>सही: {item.options[0]}</div>
-                          )}
-                        </div>
-                      ):!isMatch&&item.answer&&(
-                        <div style={{background:SURFACE_2,borderRadius:10,padding:"10px 13px",fontSize:16.5,color:INK,lineHeight:1.55}}>
-                          <span style={{fontWeight:700,color:ACCENT}}>उत्तर: </span>{item.answer}
-                        </div>
-                      )}
                     </div>
-                  </div>
-                </Card>
-              );
-            })}</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:16}}>{g.items.map((item,i)=>{
+                      const isTrueFalse=item.type==="सत्य/असत्य";
+                      const isMCQ=item.type==="बहुविकल्पीय"&&Array.isArray(item.options)&&item.options.length>0;
+                      const isMatch=item.type==="मिलान गर्नुहोस्"&&Array.isArray(item.match_pairs)&&item.match_pairs.length>0;
+                      const draft=editDrafts[item.id];
+                      return(
+                        <div key={item.id} style={{paddingBottom:i<g.items.length-1?14:0,borderBottom:i<g.items.length-1?`1px solid ${BORDER}`:"none"}}>
+                          <div style={{display:"flex",alignItems:"flex-start",gap:12}}>
+                            <div style={{width:28,height:28,borderRadius:"50%",background:`linear-gradient(160deg, ${color} 0%, color-mix(in srgb, ${color} 70%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
+                                <div style={{fontSize:19,color:INK,fontWeight:600,lineHeight:1.5,marginBottom:8}}>{item.text}</div>
+                                {!isEditingCard&&<span style={{fontSize:11.5,fontWeight:700,flexShrink:0,color:item.source==="ai"?MARIGOLD_DARK:ACCENT,background:item.source==="ai"?`color-mix(in srgb, ${MARIGOLD_DARK} 15%, white)`:`color-mix(in srgb, ${ACCENT} 15%, white)`,padding:"2px 8px",borderRadius:999}}>{item.source==="ai"?"AI ज्ञानबाट":"पाठ्यपुस्तकबाट"}</span>}
+                                {!isEditingCard&&<button className="ss-icon-btn" onClick={()=>removeExercise(item.id)} title="हटाउनुहोस्" style={{cursor:"pointer",padding:4,color:DANGER,display:"flex",flexShrink:0}}><Trash2 size={14}/></button>}
+                              </div>
+                              {isMCQ&&(
+                                <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:2}}>
+                                  {item.options.map((opt,oi)=>{
+                                    const selected=isEditingCard?draft===oi:oi===item.correct_option;
+                                    return(
+                                      <div key={oi} onClick={isEditingCard?()=>setEditDrafts((prev)=>({...prev,[item.id]:oi})):undefined} style={{display:"flex",alignItems:"center",gap:9,padding:"9px 13px",borderRadius:8,background:selected?`color-mix(in srgb, ${ACCENT} 15%, white)`:SURFACE_2,fontSize:19,color:selected?ACCENT:INK,fontWeight:selected?700:500,cursor:isEditingCard?"pointer":"default"}}>
+                                        {selected&&<CheckCircle2 size={18} style={{flexShrink:0}}/>}
+                                        <span>{opt}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                              {isMatch&&(
+                                <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:2}}>
+                                  {(isEditingCard?draft:item.match_pairs).map((p,pi)=>(
+                                    <div key={pi} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 13px",borderRadius:8,background:SURFACE_2,fontSize:19,color:INK}}>
+                                      <span style={{fontWeight:700,flexShrink:0}}>{p.left}</span>
+                                      <ArrowRight size={16} style={{flexShrink:0,color:INK_SOFT}}/>
+                                      {isEditingCard?(
+                                        <input value={p.right} onChange={(e)=>setEditDrafts((prev)=>({...prev,[item.id]:prev[item.id].map((pp,ppi)=>ppi===pi?{...pp,right:e.target.value}:pp)}))} className="ss-field" style={{flex:1,minWidth:0,border:`1.5px solid ${BORDER}`,borderRadius:8,padding:"6px 10px",fontSize:18,background:SURFACE,color:INK}}/>
+                                      ):(<span>{p.right}</span>)}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {isTrueFalse?(
+                                isEditingCard?(
+                                  <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                                    <div style={{display:"flex",gap:8}}>
+                                      {["सत्य","असत्य"].map((v)=>(
+                                        <button key={v} onClick={()=>setEditDrafts((prev)=>({...prev,[item.id]:{...prev[item.id],answer:v}}))} style={{padding:"7px 18px",borderRadius:999,border:`2px solid ${draft.answer===v?(v==="सत्य"?ACCENT:DANGER):"transparent"}`,cursor:"pointer",fontWeight:800,fontSize:18,background:draft.answer===v?(v==="सत्य"?`color-mix(in srgb, ${ACCENT} 15%, white)`:DANGER_BG):SURFACE_2,color:draft.answer===v?(v==="सत्य"?ACCENT:DANGER):INK_SOFT}}>{v}</button>
+                                      ))}
+                                    </div>
+                                    {draft.answer==="असत्य"&&(
+                                      <input value={draft.correction} onChange={(e)=>setEditDrafts((prev)=>({...prev,[item.id]:{...prev[item.id],correction:e.target.value}}))} placeholder="सही उत्तर लेख्नुहोस्" className="ss-field" style={{border:`1.5px solid ${BORDER}`,borderRadius:8,padding:"8px 11px",fontSize:17.5,background:SURFACE,color:INK}}/>
+                                    )}
+                                  </div>
+                                ):(
+                                  <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                                    {/* FIX — "थिक/बेठिक ... more visible": was a small
+                                        pill (15px text, 15px icon, no border) that read
+                                        weak from across a classroom. Now a bigger,
+                                        bolder, bordered badge with a bigger icon and
+                                        much bigger text, plus a stronger tinted
+                                        background so सत्य (green-ish accent) vs असत्य
+                                        (red) is unmistakable at a glance. */}
+                                    <div style={{display:"inline-flex",alignItems:"center",gap:8,padding:"9px 20px",borderRadius:999,fontWeight:800,fontSize:22,border:`2.5px solid ${item.answer==="सत्य"?ACCENT:DANGER}`,background:item.answer==="सत्य"?`color-mix(in srgb, ${ACCENT} 18%, white)`:DANGER_BG,color:item.answer==="सत्य"?ACCENT:DANGER,width:"fit-content"}}>
+                                      {item.answer==="सत्य"?<CheckCircle2 size={22}/>:<AlertCircle size={22}/>}
+                                      {item.answer||"—"}
+                                    </div>
+                                    {item.answer==="असत्य"&&Array.isArray(item.options)&&item.options[0]&&(
+                                      <div style={{fontSize:18,color:INK_SOFT}}>सही: {item.options[0]}</div>
+                                    )}
+                                  </div>
+                                )
+                              ):!isMatch&&!isMCQ&&(
+                                isEditingCard?(
+                                  <textarea value={draft} onChange={(e)=>setEditDrafts((prev)=>({...prev,[item.id]:e.target.value}))} rows={2} className="ss-field" style={{width:"100%",border:`1.5px solid ${BORDER}`,borderRadius:10,padding:"9px 12px",fontSize:19,background:SURFACE,color:INK,resize:"vertical"}}/>
+                                ):item.answer&&(
+                                  <div style={{background:SURFACE_2,borderRadius:10,padding:"11px 14px",fontSize:19,color:INK,lineHeight:1.6}}>
+                                    <span style={{fontWeight:700,color:ACCENT}}>उत्तर: </span>{item.answer}
+                                  </div>
+                                )
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}</div>
+                  </Card>
+                );
+              });
+            })()}</div>
           )}
         </div>}
         {tab==="activities"&&<div>
@@ -2481,14 +2596,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
           const seenTypes=[];
           exercises.forEach((it)=>{const t=it.type||"छोटो उत्तर";if(!seenTypes.includes(t))seenTypes.push(t);});
           const groups=seenTypes.map((t)=>({type:t,items:exercises.filter((it)=>(it.type||"छोटो उत्तर")===t)})).filter((g)=>g.items.length>0);
-          const KNOWN_HEADERS={
-            "सत्य/असत्य":"तलका वाक्य ठिक भए ठिक (✓) र बेठिक भए बेठिक (✗) चिन्ह लगाउनुहोस् :",
-            "बहुविकल्पीय":"तलका प्रश्नहरूको सही उत्तर छान्नुहोस् :",
-            "रिक्त स्थान":"तलका खाली ठाउँ भर्नुहोस् :",
-            "मिलान गर्नुहोस्":"तलका जोडा मिलाउनुहोस् :",
-            "लामो उत्तर":"तलका प्रश्नहरूको लामो उत्तर दिनुहोस् :",
-            "छोटो उत्तर":"तलका प्रश्नहरूको छोटो उत्तर दिनुहोस् :",
-          };
+          const KNOWN_HEADERS=EXERCISE_TYPE_HEADER;
           return(
             <div style={{marginBottom:16,breakInside:"avoid"}}>
               <div style={{fontWeight:700,fontSize:13.5,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1.5px solid #111",paddingBottom:3,marginBottom:7}}>अभ्यासका प्रश्नोत्तर</div>

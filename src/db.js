@@ -591,6 +591,18 @@ export const deleteQuestion = async (id) => {
   return { error };
 };
 
+// NEW — partial update for editing just the answer-side fields of an
+// existing question from the card UI (टिचरले उत्तर सच्याउन चाहेमा). A plain
+// .update() rather than routing through upsertQuestion: upsertQuestion's
+// insert-on-conflict path already caused one silent-failure bug elsewhere
+// (see db.updateLesson's history) when a partial payload was missing a
+// NOT NULL column it would need on the INSERT branch — .update() only ever
+// touches the existing row's given columns, so it can't hit that path.
+export const updateQuestion = async (id, patch) => {
+  const { data, error } = await supabase.from("questions").update(patch).eq("id", id).select().single();
+  return { data, error };
+};
+
 // ─── QUESTION SETS ───────────────────────────────────────────────────────────
 export const getQuestionSets = async () => {
   const { data, error } = await supabase
