@@ -1024,11 +1024,22 @@ export const getActiveFormatTemplate = async (classLabel) => {
   return { data, error };
 };
 
+// FIX — same "Invalid key" bug as uploadVocabImageFile above, just not
+// caught here yet: safeClass kept the Devanagari range (\u0900-\u097F)
+// thinking that made it "safe", but Supabase Storage rejects ANY non-ASCII
+// byte in an object key — a class label like "कक्षा ५" still produced a key
+// Storage refuses to write to (e.g. .../format-template/कक्षा_५/lesson-plan-
+// ...), which is exactly the invalid-key error this was throwing. The class
+// label doesn't need to be in the storage path at all — format_templates'
+// own class_label column already does that job for lookups — so drop it
+// from the path entirely and add a short random suffix (matching
+// uploadVocabImageFile's approach) instead of relying on a folder name to
+// disambiguate.
 export const uploadFormatTemplateFile = async (file, teacherId, classLabel, kind) => {
   // kind: "lesson-plan" or "rubric"
   const ext = file.name.split(".").pop();
-  const safeClass = classLabel.replace(/[^a-zA-Z0-9\u0900-\u097F]+/g, "_");
-  const path = `${teacherId}/format-template/${safeClass}/${kind}-${Date.now()}.${ext}`;
+  const rand = Math.random().toString(36).slice(2, 10);
+  const path = `${teacherId}/format-template/${kind}-${Date.now()}-${rand}.${ext}`;
   const { error } = await supabase.storage
     .from("materials")
     .upload(path, file, { contentType: file.type || "application/octet-stream", upsert: false });
