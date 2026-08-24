@@ -80,6 +80,29 @@ const EXERCISE_TYPE_HEADER = {
   "छोटो उत्तर":"तलका प्रश्नहरूको छोटो उत्तर दिनुहोस् :",
 };
 
+// NEW — "if the answer is in points, put each point on its own line": a
+// छोटो/लामो उत्तर answer sometimes comes back as several enumerated points
+// (numbered, Devanagari-numbered, or bulleted) squashed into one run-on
+// string. Split those into separate lines for display; if the answer has
+// no such markers (a plain single-sentence answer), it's returned as one
+// item and renders exactly as before.
+function splitAnswerPoints(text) {
+  if (!text) return [];
+  const trimmed = text.trim();
+  if (/\n/.test(trimmed)) return trimmed.split(/\n+/).map((s) => s.trim()).filter(Boolean);
+  const markerRe = /(?:^|\s)(\d+[.)]|[०-९]+[.)]|[•‣▪])\s+/g;
+  const matches = [...trimmed.matchAll(markerRe)];
+  if (matches.length < 2) return [trimmed];
+  const points = [];
+  for (let i = 0; i < matches.length; i++) {
+    const start = matches[i].index + matches[i][0].length;
+    const end = i + 1 < matches.length ? matches[i + 1].index : trimmed.length;
+    const point = trimmed.slice(start, end).trim();
+    if (point) points.push(point);
+  }
+  return points.length ? points : [trimmed];
+}
+
 // Elevation scale — used for the "premium, elevated" card/button look.
 const SHADOW = {
   sm: "0 1px 2px rgba(var(--shadow-rgb),0.06), 0 1px 1px rgba(var(--shadow-rgb),0.04)",
@@ -2219,7 +2242,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                                   <div style={{display:"flex",flexDirection:"column",gap:8}}>
                                     <div style={{display:"flex",gap:8}}>
                                       {["सत्य","असत्य"].map((v)=>(
-                                        <button key={v} onClick={()=>setEditDrafts((prev)=>({...prev,[item.id]:{...prev[item.id],answer:v}}))} style={{padding:"7px 18px",borderRadius:999,border:`2px solid ${draft.answer===v?(v==="सत्य"?ACCENT:DANGER):"transparent"}`,cursor:"pointer",fontWeight:800,fontSize:18,background:draft.answer===v?(v==="सत्य"?`color-mix(in srgb, ${ACCENT} 15%, white)`:DANGER_BG):SURFACE_2,color:draft.answer===v?(v==="सत्य"?ACCENT:DANGER):INK_SOFT}}>{v}</button>
+                                        <button key={v} onClick={()=>setEditDrafts((prev)=>({...prev,[item.id]:{...prev[item.id],answer:v}}))} style={{padding:"7px 18px",borderRadius:999,border:`2px solid ${draft.answer===v?(v==="सत्य"?TEAL:DANGER):"transparent"}`,cursor:"pointer",fontWeight:800,fontSize:17,background:draft.answer===v?(v==="सत्य"?TEAL_LIGHT:DANGER_BG):SURFACE_2,color:draft.answer===v?(v==="सत्य"?TEAL:DANGER):INK_SOFT}}>{v}</button>
                                       ))}
                                     </div>
                                     {draft.answer==="असत्य"&&(
@@ -2228,15 +2251,15 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                                   </div>
                                 ):(
                                   <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                                    {/* FIX — "थिक/बेठिक ... more visible": was a small
-                                        pill (15px text, 15px icon, no border) that read
-                                        weak from across a classroom. Now a bigger,
-                                        bolder, bordered badge with a bigger icon and
-                                        much bigger text, plus a stronger tinted
-                                        background so सत्य (green-ish accent) vs असत्य
-                                        (red) is unmistakable at a glance. */}
-                                    <div style={{display:"inline-flex",alignItems:"center",gap:8,padding:"9px 20px",borderRadius:999,fontWeight:800,fontSize:22,border:`2.5px solid ${item.answer==="सत्य"?ACCENT:DANGER}`,background:item.answer==="सत्य"?`color-mix(in srgb, ${ACCENT} 18%, white)`:DANGER_BG,color:item.answer==="सत्य"?ACCENT:DANGER,width:"fit-content"}}>
-                                      {item.answer==="सत्य"?<CheckCircle2 size={22}/>:<AlertCircle size={22}/>}
+                                    {/* FIX — dialled back from the previous pass (22px
+                                        felt oversized) and switched off ACCENT (an
+                                        orange brand color, not a natural "correct"
+                                        color) to TEAL for सत्य — TEAL/DANGER is the
+                                        conventional green-ish/red pairing, reads
+                                        instantly as right/wrong instead of just
+                                        "branded vs alert". */}
+                                    <div style={{display:"inline-flex",alignItems:"center",gap:7,padding:"7px 16px",borderRadius:999,fontWeight:800,fontSize:17.5,border:`2px solid ${item.answer==="सत्य"?TEAL:DANGER}`,background:item.answer==="सत्य"?TEAL_LIGHT:DANGER_BG,color:item.answer==="सत्य"?TEAL:DANGER,width:"fit-content"}}>
+                                      {item.answer==="सत्य"?<CheckCircle2 size={18}/>:<AlertCircle size={18}/>}
                                       {item.answer||"—"}
                                     </div>
                                     {item.answer==="असत्य"&&Array.isArray(item.options)&&item.options[0]&&(
@@ -2249,7 +2272,16 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                                   <textarea value={draft} onChange={(e)=>setEditDrafts((prev)=>({...prev,[item.id]:e.target.value}))} rows={2} className="ss-field" style={{width:"100%",border:`1.5px solid ${BORDER}`,borderRadius:10,padding:"9px 12px",fontSize:19,background:SURFACE,color:INK,resize:"vertical"}}/>
                                 ):item.answer&&(
                                   <div style={{background:SURFACE_2,borderRadius:10,padding:"11px 14px",fontSize:19,color:INK,lineHeight:1.6}}>
-                                    <span style={{fontWeight:700,color:ACCENT}}>उत्तर: </span>{item.answer}
+                                    <span style={{fontWeight:700,color:ACCENT}}>उत्तर: </span>
+                                    {(()=>{
+                                      const points=splitAnswerPoints(item.answer);
+                                      if(points.length<2)return item.answer;
+                                      return(
+                                        <div style={{display:"flex",flexDirection:"column",gap:4,marginTop:points.length>1?4:0}}>
+                                          {points.map((pt,pi)=>(<div key={pi}>{pt}</div>))}
+                                        </div>
+                                      );
+                                    })()}
                                   </div>
                                 )
                               )}
