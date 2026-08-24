@@ -93,6 +93,23 @@ export const deleteSection = async (id) => {
 // changes year to year — so chapters/textbook need to key off the class, not
 // be one shared pool forever. classLabel is optional so nothing breaks for
 // any code path that hasn't been updated yet, but always pass it going forward.
+// NEW — "option to change the class" (a real switcher, not just a free-text
+// rename): lets Settings show every class the teacher has ever used as a
+// tappable list instead of retyping a label from memory each year, which
+// risks a typo silently starting a disconnected class_label (e.g. "कक्षा ६"
+// vs "कक्षा  ६" with an extra space would look identical but scope to a
+// totally empty, separate class). Pulled from chapters since every class
+// gets at least one chapter before anything else is created for it.
+export const getDistinctClassLabels = async () => {
+  const user = (await supabase.auth.getUser()).data?.user;
+  if (!user) return { data: [], error: null };
+  const { data, error } = await supabase.from("chapters").select("class_label").eq("teacher_id", user.id);
+  if (error) return { data: [], error };
+  const labels = [...new Set((data || []).map((r) => r.class_label).filter(Boolean))];
+  labels.sort((a, b) => a.localeCompare(b, "ne"));
+  return { data: labels, error: null };
+};
+
 export const getChapters = async (classLabel = null) => cachedFetch(`chapters:${classLabel || "all"}`, async () => {
   let query = supabase.from("chapters").select("*").order("order_index");
   if (classLabel) query = query.eq("class_label", classLabel);

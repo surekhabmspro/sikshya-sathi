@@ -59,6 +59,25 @@ const PALETTE = [ACCENT, MARIGOLD_DARK, TEAL, VIOLET, ROSE, BLUE];
 // NEW — पाठ अभ्यास समाधान: a fixed color per exercise type so the same
 // type always looks the same across items/lessons, instead of cycling
 // through PALETTE by position like most other lists in this app.
+// NEW — "MCQ options come repeated": some already-saved बहुविकल्पीय items
+// have their lettered options baked into `text` itself (the textbook runs
+// the question stem and its अ./आ./इ./ई. or क)/ख)/ग)/घ) choices together as
+// one block, and an earlier prompt copied that whole block verbatim into
+// `text` while ALSO correctly extracting `options` — so the same choices
+// showed once inside the question and again in the selectable list below).
+// The generation prompt (gemini.js) no longer does this for new questions,
+// but this strips it from already-stored ones too so they display fixed
+// immediately without needing to regenerate. Only trims from the first
+// letter-marker onward, in the same style as the options array itself, and
+// leaves the text untouched if no such marker is found.
+function stripEmbeddedOptions(text) {
+  if (!text) return text;
+  const markerRe = /(?:^|[\s?।:])\s*(?:[अआइईउऊएऐओऔक-ह]\)|[अआइईउऊएऐओऔक-ह]\.\s)/;
+  const m = markerRe.exec(text);
+  if (!m) return text;
+  return text.slice(0, m.index + (m[0].match(/^[\s?।:]/) ? 1 : 0)).trim();
+}
+
 const EXERCISE_TYPE_COLOR = {
   "छोटो उत्तर": ACCENT,
   "लामो उत्तर": BLUE,
@@ -2207,7 +2226,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                             <div style={{width:28,height:28,borderRadius:"50%",background:`linear-gradient(160deg, ${color} 0%, color-mix(in srgb, ${color} 70%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div>
                             <div style={{flex:1,minWidth:0}}>
                               <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
-                                <div style={{fontSize:16,color:INK,fontWeight:500,lineHeight:1.5,marginBottom:8}}>{item.text}</div>
+                                <div style={{fontSize:16,color:INK,fontWeight:500,lineHeight:1.5,marginBottom:8}}>{isMCQ?stripEmbeddedOptions(item.text):item.text}</div>
                                 {!isEditingCard&&<span style={{fontSize:11.5,fontWeight:700,flexShrink:0,color:item.source==="ai"?MARIGOLD_DARK:ACCENT,background:item.source==="ai"?`color-mix(in srgb, ${MARIGOLD_DARK} 15%, white)`:`color-mix(in srgb, ${ACCENT} 15%, white)`,padding:"2px 8px",borderRadius:999}}>{item.source==="ai"?"AI ज्ञानबाट":"पाठ्यपुस्तकबाट"}</span>}
                                 {!isEditingCard&&<button className="ss-icon-btn" onClick={()=>removeExercise(item.id)} title="हटाउनुहोस्" style={{cursor:"pointer",padding:4,color:DANGER,display:"flex",flexShrink:0}}><Trash2 size={14}/></button>}
                               </div>
@@ -5723,6 +5742,18 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
   const [classDraft,setClassDraft]=useState(classLabel);
   const [subjectDraft,setSubjectDraft]=useState(subjectLabel);
   const [classMsg,setClassMsg]=useState("");
+  // NEW — quick class switcher: every class this teacher has ever used,
+  // shown as one-tap chips so switching doesn't mean retyping a label from
+  // memory (and risking a typo that silently starts a disconnected class).
+  const [knownClasses,setKnownClasses]=useState([]);
+  useEffect(()=>{ db.getDistinctClassLabels().then(({data})=>setKnownClasses(data||[])); },[]);
+  const switchToClass=(label)=>{
+    if(label===classLabel)return;
+    if(!window.confirm(`"${label}" मा जाने? होम स्क्रिन, पाठ योजना, प्रश्न, कार्यपत्र लगायत एपभरका सबै ठाउँमा अब यही कक्षाको डाटा देखिनेछ।`))return;
+    onClassChange(label);
+    setClassDraft(label);
+    setKnownClasses((prev)=>prev.includes(label)?prev:[...prev,label].sort((a,b)=>a.localeCompare(b,"ne")));
+  };
   const [name,setName]=useState("");
   const [saving,setSaving]=useState(false);
   const [msg,setMsg]=useState("");
@@ -5865,7 +5896,9 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
   };
 
   const saveClassSubject=()=>{
-    onClassChange(classDraft.trim()||"कक्षा ५");
+    const nextClass=classDraft.trim()||"कक्षा ५";
+    onClassChange(nextClass);
+    setKnownClasses((prev)=>prev.includes(nextClass)?prev:[...prev,nextClass].sort((a,b)=>a.localeCompare(b,"ne")));
     onSubjectChange(subjectDraft.trim()||"सामाजिक अध्ययन");
     setClassMsg("सुरक्षित भयो!");
     setTimeout(()=>setClassMsg(""),2000);
@@ -5961,6 +5994,17 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
       <Card style={{marginBottom:14}}>
         <SectionLabel icon={BookOpen}>कक्षा र विषय</SectionLabel>
         <div style={{fontSize:15,color:INK_SOFT,marginBottom:12,lineHeight:1.6}}>यहाँ बदल्दा एपभर (होम स्क्रिन, AI उत्पन्न सामग्री, पाठ योजना, प्रश्न, कार्यपत्र...) सोही कक्षा र विषय अनुसार लागू हुन्छ।</div>
+        {knownClasses.length>1&&(
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:14,color:INK_SOFT,fontWeight:600,marginBottom:7}}>छिटो कक्षा बदल्नुहोस्</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {knownClasses.map((label)=>(
+                <button key={label} onClick={()=>switchToClass(label)} className="ss-chip" style={{padding:"9px 16px",borderRadius:999,border:`2px solid ${label===classLabel?ACCENT:BORDER}`,background:label===classLabel?ACCENT_LIGHT:SURFACE,color:label===classLabel?ACCENT:INK_SOFT,fontWeight:700,fontSize:15.5,cursor:label===classLabel?"default":"pointer"}}>{label}</button>
+              ))}
+            </div>
+          </div>
+        )}
+        {knownClasses.length>1&&<div style={{fontSize:14,color:INK_SOFT,fontWeight:600,marginBottom:7}}>वा नयाँ कक्षा/विषय थप्नुहोस्</div>}
         <div style={{display:"flex",gap:8,marginBottom:8}}>
           <div style={{flex:1}}>
             <div style={{fontSize:14,color:INK_SOFT,fontWeight:600,marginBottom:5}}>कक्षा</div>
