@@ -5736,7 +5736,7 @@ function CalendarView({ classLabel, active }) {
   );
 }
 
-function Settings({ session, sections, currentSection, onSectionAdded, onSectionUpdated, onSectionDeleted, theme, onToggleTheme, installPrompt, isStandalone, isIOS, onInstall, classLabel, subjectLabel, onClassChange, onSubjectChange, teacherName, onTeacherNameChange }) {
+function Settings({ session, sections, currentSection, onSectionAdded, onSectionUpdated, onSectionDeleted, onSelectSection, theme, onToggleTheme, installPrompt, isStandalone, isIOS, onInstall, classLabel, subjectLabel, onClassChange, onSubjectChange, teacherName, onTeacherNameChange }) {
   const [nameDraft,setNameDraft]=useState(teacherName);
   const [nameMsg,setNameMsg]=useState("");
   const [classDraft,setClassDraft]=useState(classLabel);
@@ -6127,7 +6127,16 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
                 <>
                   <div style={{width:8,height:8,borderRadius:"50%",background:PALETTE[i%PALETTE.length],flexShrink:0}}/>
                   <div style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:16.5,fontWeight:600,color:INK}}>{s.name}</div>
-                  {currentSection?.id===s.id&&<span style={{fontSize:13,background:ACCENT_LIGHT,color:ACCENT,padding:"2px 8px",borderRadius:999,fontWeight:700,flexShrink:0}}>सक्रिय</span>}
+                  {currentSection?.id===s.id?(
+                    <span style={{fontSize:13,background:ACCENT_LIGHT,color:ACCENT,padding:"2px 8px",borderRadius:999,fontWeight:700,flexShrink:0}}>सक्रिय</span>
+                  ):(
+                    // FIX — "can create/delete but not switch": this card had
+                    // no way to make a different section active at all — the
+                    // only switcher lived in the small chip bar above the
+                    // main content, easy to miss. Now every non-active row
+                    // gets its own button doing the same thing.
+                    <button className="ss-btn" onClick={()=>onSelectSection(s)} style={{fontSize:13,background:SURFACE,border:`1.5px solid ${BORDER}`,color:INK_SOFT,padding:"4px 10px",borderRadius:999,fontWeight:700,flexShrink:0,cursor:"pointer"}}>यो छान्नुहोस्</button>
+                  )}
                   <button className="ss-icon-btn" onClick={()=>{setEditingSectionId(s.id);setSectionEditValue(s.name);}} disabled={sectionBusy===s.id} style={{color:INK_SOFT,cursor:"pointer",padding:4,flexShrink:0,display:"flex"}} title="नाम बदल्नुहोस्"><PenSquare size={15}/></button>
                   <button className="ss-icon-btn" onClick={()=>deleteSectionHandler(s)} disabled={sectionBusy===s.id} style={{color:DANGER,cursor:"pointer",padding:4,flexShrink:0,display:"flex"}} title="मेटाउनुहोस्"><Trash2 size={15}/></button>
                 </>
@@ -6232,6 +6241,7 @@ export default function App() {
   const openLesson=useCallback((l,opts)=>{setActiveLesson(l);setActiveLessonAutoPrint(!!opts?.autoPrint);setActiveLessonTab(opts?.tab||null);},[]);
   const [sections,setSections]=useState([]);
   const [currentSection,setCurrentSection]=useState(null);
+  useEffect(()=>{ if(!currentSection)return; try{localStorage.setItem("ss-current-section",currentSection.id);}catch{} },[currentSection]);
   const [lessons,setLessons]=useState([]);
   const [homework,setHomework]=useState([]);
   const [lessonsLoading,setLessonsLoading]=useState(true);
@@ -6383,7 +6393,19 @@ export default function App() {
 
   useEffect(()=>{
     if(!session)return;
-    db.getSections().then(({data})=>{if(data?.length){setSections(data);setCurrentSection(data[0]);}});
+    db.getSections().then(({data})=>{
+      if(data?.length){
+        setSections(data);
+        // FIX — "on refresh it goes back to the first-created section":
+        // this always picked data[0] with no memory of what was active
+        // before reload. Now it restores whichever section id was last
+        // selected (persisted below), falling back to data[0] only the
+        // very first time or if that section was since deleted.
+        let savedId=null;
+        try{savedId=localStorage.getItem("ss-current-section");}catch{}
+        setCurrentSection(data.find((s)=>s.id===savedId)||data[0]);
+      }
+    });
   },[session]);
 
   // NEW — one shared list of real chapters, loaded once and passed down to
@@ -6844,6 +6866,7 @@ export default function App() {
                 onSectionAdded={(s)=>{setSections((prev)=>[...prev,s]);setCurrentSection(s);}}
                 onSectionUpdated={(s)=>{setSections((prev)=>prev.map((x)=>x.id===s.id?s:x));if(currentSection?.id===s.id)setCurrentSection(s);}}
                 onSectionDeleted={(id)=>{setSections((prev)=>prev.filter((x)=>x.id!==id));if(currentSection?.id===id)setCurrentSection(sections.find((x)=>x.id!==id)||null);}}
+                onSelectSection={setCurrentSection}
                 theme={theme} onToggleTheme={toggleTheme} installPrompt={installPrompt} isStandalone={isStandalone} isIOS={isIOS} onInstall={promptInstall}
                 classLabel={classLabel} subjectLabel={subjectLabel} onClassChange={setClassLabel} onSubjectChange={setSubjectLabel} teacherName={teacherName} onTeacherNameChange={setTeacherName}
               />
