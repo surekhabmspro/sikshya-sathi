@@ -3573,7 +3573,7 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
     setPhase("drafting"); setBusy(true); setError("");
     try {
       const [{ data: guide }, { data: template }] = await Promise.all([
-        db.getActiveTeacherGuide(), db.getActiveFormatTemplate(classLabel),
+        db.getActiveTeacherGuide(classLabel), db.getActiveFormatTemplate(classLabel),
       ]);
       setFormatTemplateId(template?.id || null); setTeacherGuideId(guide?.id || null);
       const guidePart = await buildGuidePart(guide);
@@ -5778,8 +5778,8 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
   const [templateMsg,setTemplateMsg]=useState("");
 
   useEffect(()=>{
-    db.getActiveTeacherGuide().then(({data})=>setTeacherGuide(data||null));
-  },[]);
+    db.getActiveTeacherGuide(classLabel).then(({data})=>setTeacherGuide(data||null));
+  },[classLabel]);
   useEffect(()=>{
     db.getActiveFormatTemplate(classLabel).then(({data})=>{
       setFormatTemplate(data||null);
@@ -5796,10 +5796,10 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
       const{path,error:upErr}=await db.uploadTeacherGuideFile(file,user.id);
       if(upErr)throw upErr;
       const fileType=file.type==="application/pdf"?"pdf":file.type.startsWith("image/")?"image":"docx";
-      const{data,error}=await db.insertTeacherGuide({label:file.name,storage_path:path,file_type:fileType});
+      const{data,error}=await db.insertTeacherGuide({label:file.name,storage_path:path,file_type:fileType,class_label:classLabel});
       if(error)throw error;
       setTeacherGuide(data);
-      setGuideMsg(`"${file.name}" सुरक्षित भयो — अब यही मार्गदर्शनबाट पाठ योजना बनाइनेछ।`);
+      setGuideMsg(`"${file.name}" "${classLabel}" का लागि सुरक्षित भयो — अब यही मार्गदर्शनबाट यो कक्षाको पाठ योजना बनाइनेछ।`);
     }catch(err){setGuideMsg("त्रुटि: "+(err.message||"अपलोड असफल भयो।"));}
     setGuideBusy(false);e.target.value="";
   };
@@ -6044,7 +6044,7 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
 
       <Card style={{marginBottom:14}}>
         <SectionLabel icon={FileText} color={TEAL}>विद्यार्थी मूल्याङ्कन मार्गदर्शन</SectionLabel>
-        <div style={{fontSize:16,color:INK_SOFT,marginBottom:12,lineHeight:1.6}}>धेरै कक्षा समेटिएको विद्यार्थी मूल्याङ्कन मार्गदर्शन अपलोड गर्नुहोस् — AI ले यसैबाट "{classLabel}" को भाग मात्र छानेर पाठ योजना र रुब्रिक्स मस्यौदा बनाउनेछ। मार्गदर्शन फेरिँदा जुनसुकै बेला फेरि अपलोड गर्न सकिन्छ, पुरानो स्वतः बदलिन्छ।</div>
+        <div style={{fontSize:16,color:INK_SOFT,marginBottom:12,lineHeight:1.6}}>"{classLabel}" को लागि छुट्टै विद्यार्थी मूल्याङ्कन मार्गदर्शन अपलोड गर्नुहोस् — AI ले पाठ योजना र रुब्रिक्स मस्यौदा बनाउँदा यसैलाई प्रयोग गर्नेछ। अर्को कक्षामा गएपछि यहाँ त्यो कक्षाको आफ्नै (छुट्टै) मार्गदर्शन देखिनेछ। मार्गदर्शन फेरिँदा जुनसुकै बेला फेरि अपलोड गर्न सकिन्छ, पुरानो स्वतः बदलिन्छ।</div>
         {teacherGuide?(
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
             <div style={{display:"flex",alignItems:"center",gap:8,background:ACCENT_LIGHT,borderRadius:10,padding:"10px 14px"}}>

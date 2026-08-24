@@ -981,18 +981,32 @@ export const upsertVocabImage = async (word, patch, oldStoragePath) => {
 // changes (new edition, mid-year revision). Only one is "active" at a time;
 // older ones stay in the table for history rather than being deleted, in
 // case a lesson drafted under a previous edition needs to be checked later.
-export const getTeacherGuides = async () => cachedFetch("teacher_guides", async () =>
-  await supabase.from("teacher_guides").select("*").order("created_at", { ascending: false })
-);
+// NEW — "मार्गदर्शन should only apply to the class it was uploaded for":
+// this used to be one single shared "active" guide across every class (see
+// add_class_label_to_teacher_guides.sql for why). Now scoped by classLabel,
+// same pattern as getActiveFormatTemplate — classLabel optional so nothing
+// breaks for any call site not yet passing one.
+export const getTeacherGuides = async (classLabel = null) => cachedFetch(`teacher_guides:${classLabel || "all"}`, async () => {
+  let query = supabase.from("teacher_guides").select("*").order("created_at", { ascending: false });
+  if (classLabel) query = query.eq("class_label", classLabel);
+  return await query;
+});
 
-export const getActiveTeacherGuide = async () => {
-  const { data, error } = await supabase
+export const getActiveTeacherGuide = async (classLabel = null) => {
+  let query = supabase
     .from("teacher_guides")
     .select("*")
     .eq("is_active", true)
     .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(1);
+  // FIX — confirmed with the user: मार्गदर्शन is now uploaded separately per
+  // class (matching textbook/format templates), not one shared multi-class
+  // file with AI extraction. Switched from the "this class OR no class set"
+  // fallback to a strict match, same as getActiveFormatTemplate — a class
+  // with no guide of its own should show "no guide uploaded", never
+  // silently fall back to a different class's (or the old shared) guide.
+  if (classLabel) query = query.eq("class_label", classLabel);
+  const { data, error } = await query.maybeSingle();
   return { data, error };
 };
 
@@ -1005,12 +1019,15 @@ export const uploadTeacherGuideFile = async (file, teacherId) => {
   return { path, error };
 };
 
-// Marks every other guide inactive, then inserts the new one as active —
-// so uploading a fresh guide always replaces which one drafting reads from,
-// without deleting the old file.
+// Marks every OTHER guide FOR THIS SAME CLASS inactive, then inserts the new
+// one as active — so uploading a fresh guide for कक्षा ६ replaces कक्षा ६'s
+// active guide only, leaving कक्षा ५'s active guide untouched (previously
+// this deactivated every guide for the teacher regardless of class).
 export const insertTeacherGuide = async (guide) => {
   const { data: { user } } = await supabase.auth.getUser();
-  await supabase.from("teacher_guides").update({ is_active: false }).eq("teacher_id", user.id);
+  let deactivateQuery = supabase.from("teacher_guides").update({ is_active: false }).eq("teacher_id", user.id);
+  if (guide.class_label) deactivateQuery = deactivateQuery.eq("class_label", guide.class_label);
+  await deactivateQuery;
   const { data, error } = await supabase
     .from("teacher_guides")
     .insert({ ...guide, teacher_id: user.id, is_active: true })
@@ -1019,9 +1036,11 @@ export const insertTeacherGuide = async (guide) => {
   return { data, error };
 };
 
-export const setActiveTeacherGuide = async (id) => {
+export const setActiveTeacherGuide = async (id, classLabel = null) => {
   const { data: { user } } = await supabase.auth.getUser();
-  await supabase.from("teacher_guides").update({ is_active: false }).eq("teacher_id", user.id);
+  let deactivateQuery = supabase.from("teacher_guides").update({ is_active: false }).eq("teacher_id", user.id);
+  if (classLabel) deactivateQuery = deactivateQuery.eq("class_label", classLabel);
+  await deactivateQuery;
   const { data, error } = await supabase
     .from("teacher_guides")
     .update({ is_active: true })

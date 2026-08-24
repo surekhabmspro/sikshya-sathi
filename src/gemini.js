@@ -767,7 +767,7 @@ export const generateQuestions = async (chapterTitle, ctx = null, classContext =
 4. हरेक प्रश्नलाई तलका ६ चाहिँ "type" मध्ये सबैभन्दा मिल्दोमा वर्गीकरण गर्नुहोस् (पाठ्यपुस्तकमा जुन प्रकारका प्रश्न वास्तवमा छन् ती मात्र देखिनेछन् — सबै ६ प्रकार हुनैपर्छ भन्ने छैन, र नक्कली/थप प्रश्न बनाएर संख्या पूरा गर्न पनि पर्दैन):
    - "छोटो उत्तर" (पाठ्यपुस्तकमा "अति छोटो उत्तर" वा उस्तै उपशीर्षक भएका, एक/दुई वाक्यमै सकिने प्रश्नहरू — परिभाषा, नाम, सूची जस्ता)
    - "लामो उत्तर" (पाठ्यपुस्तकमा "लामो उत्तर दिनुहोस्" वा उस्तै उपशीर्षक भएका, बुँदागत/अनुच्छेदमा विस्तृत उत्तर चाहिने प्रश्नहरू)
-   - "बहुविकल्पीय" (options सहित)
+   - "बहुविकल्पीय" (options सहित — यसमा "text" फिल्डमा प्रश्नको स्टेम/जिज्ञासा-वाक्य मात्र राख्नुहोस्, प्रश्नचिन्ह/कोलनसम्म; त्यसपछि आउने अ./आ./इ./ई. वा क)/ख)/ग)/घ) जस्ता लेटर्ड विकल्पहरू "text" भित्र कहिल्यै नराख्नुहोस् — ती सबै छुट्टै "options" array मा मात्र जानुपर्छ, नत्र विकल्पहरू प्रश्नमा एकपटक अनि तलको छनोट-सूचीमा फेरि गरी दोहोरिन्छन्)
    - "सत्य/असत्य"
    - "रिक्त स्थान" (खाली ठाउँ भर्ने)
    - "मिलान गर्नुहोस्" (जोडा मिलाउने)
@@ -1351,14 +1351,25 @@ export const generateRubric = async (prompt, ctx = null) => {
 // classes, as plain text — same "extract once, reuse" idea as
 // extractChapterText. guidePart is a Gemini `part` (inline_data or
 // file_data) built from the uploaded guide file (pdf/docx/image).
+// FIX — this used to assume ONE guide file held every class's guidance
+// together, and its job was to fish out just classLabel's section (see the
+// old prompt in git history) — matching how the app worked until the user
+// confirmed they'll now upload a separate, single-class guide file per
+// class instead (teacher_guides.class_label already scopes which file this
+// is). A single-class file usually won't even mention "कक्षा ६" by name
+// anywhere in it, so the old "find and extract just this class's part, else
+// return NOT_FOUND" prompt would now misfire and discard a perfectly good,
+// already-correct-class guide. This just reads the whole file as-is instead
+// — no class-isolation step needed since the DB scoping already guarantees
+// the right file was picked before this function ever runs.
 export async function extractGuideClassSection(guidePart, classLabel) {
   if (!guidePart) return null;
-  const prompt = `यो शिक्षक निर्देशिका (Teacher's Guide) मा धेरै कक्षाहरूको मार्गदर्शन एउटै फाइलमा छ। यसबाट केवल "${classLabel}" सम्बन्धी भाग मात्र पत्ता लगाई, त्यसको पूरा विषयवस्तु — नछोटाई, कुनै तथ्य/वाक्य नछुटाई — सादा पाठको रूपमा फिर्ता दिनुहोस्। अरू कक्षाको भाग नराख्नुहोस्। कुनै व्याख्या वा फर्म्याटिङ नथप्नुहोस्। यदि "${classLabel}" को भाग भेटिएन भने ठ्याक्कै यही शब्द मात्र लेख्नुहोस्: NOT_FOUND${RAW_TEXT_LAYER_WARNING}`;
+  const prompt = `यो "${classLabel}" को लागि छुट्टै तयार पारिएको शिक्षक निर्देशिका (Teacher's Guide) हो। यसको पूरा विषयवस्तु — नछोटाई, कुनै तथ्य/वाक्य नछुटाई — सादा पाठको रूपमा फिर्ता दिनुहोस्। कुनै व्याख्या वा फर्म्याटिङ नथप्नुहोस्।${RAW_TEXT_LAYER_WARNING}`;
   let text;
   try { text = await callGemini([guidePart, { text: prompt }], { maxOutputTokens: 8192 }); }
   catch { return null; }
   const trimmed = (text || "").trim();
-  if (!trimmed || trimmed === "NOT_FOUND" || trimmed.length < 40) return null;
+  if (!trimmed || trimmed.length < 40) return null;
   if (looksCorrupted(trimmed)) return null; // never let a corrupted extraction feed every downstream Guide-based prompt (grouping, official lessons, etc.)
   return trimmed;
 }
