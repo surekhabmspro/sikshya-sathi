@@ -2207,7 +2207,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                             <div style={{width:28,height:28,borderRadius:"50%",background:`linear-gradient(160deg, ${color} 0%, color-mix(in srgb, ${color} 70%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div>
                             <div style={{flex:1,minWidth:0}}>
                               <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
-                                <div style={{fontSize:19,color:INK,fontWeight:600,lineHeight:1.5,marginBottom:8}}>{item.text}</div>
+                                <div style={{fontSize:16,color:INK,fontWeight:500,lineHeight:1.5,marginBottom:8}}>{item.text}</div>
                                 {!isEditingCard&&<span style={{fontSize:11.5,fontWeight:700,flexShrink:0,color:item.source==="ai"?MARIGOLD_DARK:ACCENT,background:item.source==="ai"?`color-mix(in srgb, ${MARIGOLD_DARK} 15%, white)`:`color-mix(in srgb, ${ACCENT} 15%, white)`,padding:"2px 8px",borderRadius:999}}>{item.source==="ai"?"AI ज्ञानबाट":"पाठ्यपुस्तकबाट"}</span>}
                                 {!isEditingCard&&<button className="ss-icon-btn" onClick={()=>removeExercise(item.id)} title="हटाउनुहोस्" style={{cursor:"pointer",padding:4,color:DANGER,display:"flex",flexShrink:0}}><Trash2 size={14}/></button>}
                               </div>
@@ -2216,7 +2216,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                                   {item.options.map((opt,oi)=>{
                                     const selected=isEditingCard?draft===oi:oi===item.correct_option;
                                     return(
-                                      <div key={oi} onClick={isEditingCard?()=>setEditDrafts((prev)=>({...prev,[item.id]:oi})):undefined} style={{display:"flex",alignItems:"center",gap:9,padding:"9px 13px",borderRadius:8,background:selected?`color-mix(in srgb, ${ACCENT} 15%, white)`:SURFACE_2,fontSize:19,color:selected?ACCENT:INK,fontWeight:selected?700:500,cursor:isEditingCard?"pointer":"default"}}>
+                                      <div key={oi} onClick={isEditingCard?()=>setEditDrafts((prev)=>({...prev,[item.id]:oi})):undefined} style={{display:"flex",alignItems:"center",gap:9,padding:"9px 13px",borderRadius:8,background:selected?`color-mix(in srgb, ${ACCENT} 15%, white)`:SURFACE_2,fontSize:21,color:selected?ACCENT:INK,fontWeight:700,cursor:isEditingCard?"pointer":"default"}}>
                                         {selected&&<CheckCircle2 size={18} style={{flexShrink:0}}/>}
                                         <span>{opt}</span>
                                       </div>
@@ -2227,12 +2227,12 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                               {isMatch&&(
                                 <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:2}}>
                                   {(isEditingCard?draft:item.match_pairs).map((p,pi)=>(
-                                    <div key={pi} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 13px",borderRadius:8,background:SURFACE_2,fontSize:19,color:INK}}>
-                                      <span style={{fontWeight:700,flexShrink:0}}>{p.left}</span>
+                                    <div key={pi} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 13px",borderRadius:8,background:SURFACE_2,fontSize:21,color:INK}}>
+                                      <span style={{fontWeight:500,flexShrink:0}}>{p.left}</span>
                                       <ArrowRight size={16} style={{flexShrink:0,color:INK_SOFT}}/>
                                       {isEditingCard?(
-                                        <input value={p.right} onChange={(e)=>setEditDrafts((prev)=>({...prev,[item.id]:prev[item.id].map((pp,ppi)=>ppi===pi?{...pp,right:e.target.value}:pp)}))} className="ss-field" style={{flex:1,minWidth:0,border:`1.5px solid ${BORDER}`,borderRadius:8,padding:"6px 10px",fontSize:18,background:SURFACE,color:INK}}/>
-                                      ):(<span>{p.right}</span>)}
+                                        <input value={p.right} onChange={(e)=>setEditDrafts((prev)=>({...prev,[item.id]:prev[item.id].map((pp,ppi)=>ppi===pi?{...pp,right:e.target.value}:pp)}))} className="ss-field" style={{flex:1,minWidth:0,border:`1.5px solid ${BORDER}`,borderRadius:8,padding:"6px 10px",fontSize:18,fontWeight:700,background:SURFACE,color:INK}}/>
+                                      ):(<span style={{fontWeight:700}}>{p.right}</span>)}
                                     </div>
                                   ))}
                                 </div>
@@ -2263,7 +2263,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                                       {item.answer||"—"}
                                     </div>
                                     {item.answer==="असत्य"&&Array.isArray(item.options)&&item.options[0]&&(
-                                      <div style={{fontSize:18,color:INK_SOFT}}>सही: {item.options[0]}</div>
+                                      <div style={{fontSize:18,fontWeight:700,color:INK_SOFT}}>सही: {item.options[0]}</div>
                                     )}
                                   </div>
                                 )
@@ -2271,7 +2271,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                                 isEditingCard?(
                                   <textarea value={draft} onChange={(e)=>setEditDrafts((prev)=>({...prev,[item.id]:e.target.value}))} rows={2} className="ss-field" style={{width:"100%",border:`1.5px solid ${BORDER}`,borderRadius:10,padding:"9px 12px",fontSize:19,background:SURFACE,color:INK,resize:"vertical"}}/>
                                 ):item.answer&&(
-                                  <div style={{background:SURFACE_2,borderRadius:10,padding:"11px 14px",fontSize:19,color:INK,lineHeight:1.6}}>
+                                  <div style={{background:SURFACE_2,borderRadius:10,padding:"11px 14px",fontSize:21,fontWeight:700,color:INK,lineHeight:1.6}}>
                                     <span style={{fontWeight:700,color:ACCENT}}>उत्तर: </span>
                                     {(()=>{
                                       const points=splitAnswerPoints(item.answer);
