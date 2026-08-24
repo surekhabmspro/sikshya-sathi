@@ -24,7 +24,7 @@ class ErrorBoundary extends React.Component {
   render() {
     if (!this.state.error) return this.props.children;
     return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: "'Inter','Noto Sans Devanagari',sans-serif", background: "#F7F4EC", color: "#2A2118" }}>
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: "'SSText','Kalimati','Times New Roman',serif", background: "#F7F4EC", color: "#2A2118" }}>
         <div style={{ maxWidth: 420, textAlign: "center" }}>
           <div style={{ fontSize: 40, marginBottom: 8 }}>⚠️</div>
           <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>केही समस्या भयो</div>

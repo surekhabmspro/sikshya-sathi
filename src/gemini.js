@@ -567,6 +567,21 @@ const MATERIALS_PRIORITY_NOTE = `\n\n[स्रोत प्राथमिक�
 // the one cached (possibly corrupted) extraction.
 const RAW_TEXT_LAYER_WARNING = `\n\nमहत्त्वपूर्ण — केही पुराना नेपाली PDF (विशेषतः सरकारी पाठ्यपुस्तक/निर्देशिका) Preeti/Kantipur जस्ता पुरानो नन्-युनिकोड फन्टमा टाइप गरिएका हुन्छन्: PDF भित्रको साँचिएको/select हुने raw text तह वास्तवमा सादा अंग्रेजी अक्षर/चिन्हहरू मात्र हो, त्यो फन्ट इन्स्टल भएमा मात्र देवनागरीजस्तो देखिन्छ। त्यसैले PDF को त्यो raw/embedded text तह कहिल्यै सिधै नक्कल/copy नगर्नुहोस् — बरु पृष्ठको तस्बिर/लेआउट आँखाले हेरेझैं गरी बुझी, सोही अर्थ र तथ्य ठ्याक्कै कायम राखी, आफैं सफा र सही युनिकोड देवनागरीमा पुनः टाइप गरेर दिनुहोस्। यदि कतै अंग्रेजी अक्षर, अरबी जस्ता चिन्ह, वा अनौठो/नबुझिने क्यारेक्टर देखा पर्‍यो भने त्यो निश्चित रूपमा गलत हो — त्यसलाई जस्ताको त्यस्तै नराखी, सही देवनागरी शब्दमा सुधारेर मात्र लेख्नुहोस्।`;
 
+// FIX — "फन्ट फ्लेक्सिबल" request: shिक्षकले अपलोड गर्ने Word/PowerPoint/Excel
+// फाइलहरू पनि प्रायः पुरानो नन्-युनिकोड नेपाली फन्ट (Preeti, Kantipur, Ganesh,
+// Sagarmatha, PCS Nepali जस्ता थुप्रै फन्ट — जुन-जुन भए पनि) मा टाइप गरिएका
+// हुन सक्छन्। PDF-को हकमा माथिको RAW_TEXT_LAYER_WARNING ले Gemini लाई पृष्ठको
+// तस्बिर हेरेर पुनः टाइप गर्न लगाएर यो समस्या समाधान गर्छ, तर docx/pptx/xlsx/csv
+// भने ब्राउजरमै (mammoth/jszip/xlsx-ले) कच्चा text-layer झिकिन्छ — त्यहाँ कुनै
+// "पृष्ठको तस्बिर" हुँदैन, फाइल जुनसुकै फन्टमा टाइप भए पनि जे text-layer भेटियो
+// त्यही materialParts मा जान्छ (extract.js हेर्नुहोस्)। कुन खास फन्ट हो भनेर
+// थाहा नभई एउटा mapping table ले सबै फन्ट पत्ता लगाउन सकिँदैन (र गलत mapping ले
+// झन् बिग्रेको/गलत सामग्री दिन सक्छ) — त्यसैले फन्ट-विशेष mapping नबनाई, PDF मा
+// जस्तै Gemini लाई नै (जसले धेरै फन्टका यस्ता ढाँचा तालिम डेटामा देखिसकेको छ)
+// यस्तो देखिएमा अर्थ पहिचान गरी सफा युनिकोड देवनागरीमा पुनः व्याख्या गर्न भन्छौं
+// — फन्ट जुनसुकै भए पनि लागू हुने साझा समाधान।
+const MATERIAL_LEGACY_FONT_WARNING = `\n\n[फन्ट सावधानी]: माथि शिक्षकले अपलोड गर्नुभएको Word/PowerPoint/Excel फाइल(हरू)बाट निकालिएको पाठ कुनै पुरानो नन्-युनिकोड नेपाली फन्ट (जस्तै Preeti, Kantipur, Ganesh, Sagarmatha, PCS Nepali, वा यस्तै अरू कुनै — फन्ट जुनसुकै भए पनि) मा मूल फाइल टाइप गरिएको हुनसक्ने हुँदा अनौठो अंग्रेजी अक्षर/चिन्हको मिश्रणजस्तो देखिन सक्छ; त्यो देवनागरीको सट्टा भएको मात्र हो, वास्तविक सामग्री होइन। यस्तो देखिएमा त्यसलाई जस्ताको त्यस्तै प्रयोग नगर्नुहोस् — बरु त्यसले कुन नेपाली शब्द/वाक्य जनाउन खोजेको हो भनी सन्दर्भबाट बुझी सही युनिकोड देवनागरीमा पुनः व्याख्या गरेर मात्र प्रयोग गर्नुहोस्। पूर्ण अर्थ छुट्याउनै नसकिने गरी बिग्रिएको अंश भेटिए त्यो सानो अंश मात्र बेवास्ता गरी बाँकी स्पष्ट सामग्री/पाठ्यपुस्तकबाट काम चलाउनुहोस्।`;
+
 // Heuristic check for the corruption pattern above: legacy-font mojibake
 // mixes plain Latin letters (occasionally digits/symbols) directly into
 // what should be pure Devanagari prose. A little incidental Latin is
@@ -621,6 +636,11 @@ function contextParts(ctx) {
   if (typeof ctx === "string") { const p = toTextbookPart(ctx); return p ? [p] : []; }
   const { pdfBase64 = null, materialParts = [], textbookText = null } = ctx;
   const parts = [...materialParts];
+  // Only docx/pptx/xlsx/csv materials go in as plain `text` parts (extract.js
+  // pulled their raw text-layer client-side); pdf/image materials go in as
+  // `inline_data` and Gemini already reads those visually, font-independent.
+  // The warning only needs to apply to the text-layer kind.
+  if (materialParts.some((p) => typeof p.text === "string")) parts.push({ text: MATERIAL_LEGACY_FONT_WARNING });
   if (textbookText) parts.push({ text: `[पाठ्यपुस्तकको सान्दर्भिक अंश — यही अध्यायको लागि पहिले नै निकालिएको]\n${textbookText}` });
   else { const p = toTextbookPart(pdfBase64); if (p) parts.push(p); }
   return parts;
@@ -987,7 +1007,16 @@ function applySimulationSafetyNets(html) {
   // !important — so any more specific font-family Gemini set on a
   // particular element still wins for that element) means the OS picks
   // whichever one it actually has instead of falling through to nothing.
-  const scrollHardening = `<style>html,body{margin:0!important;padding:0!important;overflow:hidden!important;width:100vw!important;height:100vh!important;box-sizing:border-box!important}body{font-family:inherit,'Noto Sans Devanagari','Segoe UI','Noto Color Emoji','Segoe UI Emoji','Apple Color Emoji','Noto Emoji',sans-serif}</style>`;
+  // FIX — "फन्ट फ्लेक्सिबल" request narrowed the other way too: text anywhere
+  // in the app (or a print/PDF) must be ONLY Kalimati (Devanagari) or Times
+  // New Roman (Latin), no other typeface. This simulation iframe used to
+  // fall back to 'Noto Sans Devanagari'/'Segoe UI' for its actual text —
+  // replaced with the same 'Kalimati'/'Times New Roman' pair the rest of the
+  // app uses. The color-emoji names stay: those cover emoji glyphs (a
+  // separate Unicode range no text font — Kalimati or Times New Roman —
+  // draws at all), not body text, so keeping them doesn't reintroduce an
+  // extra text font.
+  const scrollHardening = `<style>html,body{margin:0!important;padding:0!important;overflow:hidden!important;width:100vw!important;height:100vh!important;box-sizing:border-box!important}body{font-family:'Kalimati','Times New Roman','Noto Color Emoji','Segoe UI Emoji','Apple Color Emoji','Noto Emoji',serif}</style>`;
   html = /<\/head>/i.test(html) ? html.replace(/<\/head>/i, scrollHardening + "</head>") : scrollHardening + html;
   // NEW — reusable motion/depth utility classes (ss-bounce/ss-pulse-idle/
   // ss-glass — see rule 13क in the generation prompt) PLUS the mascot's
