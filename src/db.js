@@ -112,7 +112,13 @@ export const getDistinctClassLabels = async () => {
 
 export const getChapters = async (classLabel = null) => cachedFetch(`chapters:${classLabel || "all"}`, async () => {
   let query = supabase.from("chapters").select("*").order("order_index");
-  if (classLabel) query = query.eq("class_label", classLabel);
+  // FIX — consistency with homework/questions/activities/calendar (which
+  // already show class_label=null rows under every class instead of
+  // hiding them): this used a strict .eq, so any chapter created before
+  // class scoping existed (class_label still null) would vanish under
+  // every class rather than staying visible somewhere. Same fix applied
+  // to getLessons/getMaterials below.
+  if (classLabel) query = query.or(`class_label.eq.${classLabel},class_label.is.null`);
   return await query;
 });
 
@@ -241,13 +247,20 @@ export const clearTextbookChapterTextCache = async (classLabel = null) => {
 // Class 5 lesson plan shouldn't show up while a teacher is looking at
 // Class 6. classLabel is optional so nothing breaks if it's ever called
 // without one.
-export const getLessons = async (sectionId = null, classLabel = null) => cachedFetch(`lessons:${sectionId || "all"}:${classLabel || "all"}`, async () => {
+// NEW — "everything created for a class should be shared across all its
+// sections": section_id used to gate which lessons a section could see,
+// so कक्षा ५ क and कक्षा ५ ख (two Sections of the same class) each saw only
+// their own lessons even though they're taught the same curriculum. class_label
+// is the only scope that should matter for content — section_id stays on the
+// row (useful metadata for which section a lesson was originally created
+// under) but no longer filters what's visible. The sectionId parameter is
+// kept (unused) so every existing call site keeps working unchanged.
+export const getLessons = async (sectionId = null, classLabel = null) => cachedFetch(`lessons:${classLabel || "all"}`, async () => {
   let query = supabase
     .from("lessons")
     .select("*, chapters(title)")
     .order("scheduled_date", { ascending: true });
-  if (sectionId) query = query.eq("section_id", sectionId);
-  if (classLabel) query = query.eq("class_label", classLabel);
+  if (classLabel) query = query.or(`class_label.eq.${classLabel},class_label.is.null`);
   return await query;
 });
 
@@ -288,7 +301,7 @@ export const deleteLesson = async (id) => {
 // shouldn't clutter the list once you've moved on to teaching Class 6.
 export const getMaterials = async (classLabel = null) => cachedFetch(`materials:${classLabel || "all"}`, async () => {
   let query = supabase.from("materials").select("*, chapters(title), lessons(title)").order("created_at", { ascending: false });
-  if (classLabel) query = query.eq("class_label", classLabel);
+  if (classLabel) query = query.or(`class_label.eq.${classLabel},class_label.is.null`);
   return await query;
 });
 
@@ -714,12 +727,13 @@ export const getAssessmentsByLesson = async (lessonId) => {
 // to a class). Requires the migration in add_class_scoping_homework_resources.sql
 // to be run first — see that file for why. Same "null = every class"
 // convention as calendar_events/questions/activities.
-export const getHomework = async (sectionId = null, classLabel = null) => cachedFetch(`homework:${sectionId || "all"}:${classLabel || "all"}`, async () => {
+// NEW — same "shared across sections of a class" fix as getLessons above:
+// section_id no longer filters, only class_label does.
+export const getHomework = async (sectionId = null, classLabel = null) => cachedFetch(`homework:${classLabel || "all"}`, async () => {
   let query = supabase
     .from("homework")
     .select("*, lessons(title)")
     .order("assigned_date", { ascending: false });
-  if (sectionId) query = query.eq("section_id", sectionId);
   if (classLabel) query = query.or(`class_label.eq.${classLabel},class_label.is.null`);
   return await query;
 });
