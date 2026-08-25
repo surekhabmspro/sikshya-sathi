@@ -2942,18 +2942,33 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
     <div style={{fontSize:15.5,color:INK_SOFT,marginBottom:12,lineHeight:1.5}}>यस पाठका लागि AI ले प्रोजेक्टरमा देखाई कक्षालाई खेलाउन मिल्ने अन्तरक्रियात्मक अभ्यास बनाउँछ — तपाईंले ल्यापटपमा माउसले चलाउनुहुन्छ। हरेक पटक "नयाँ बनाउनुहोस्" थिच्दा फरक-फरक शैली प्रयास गरिन्छ, र पुरानोहरू पनि सुरक्षित रहन्छन्।</div>
     {!online&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",borderRadius:10,background:tint(WARN,15),color:WARN,fontSize:13.5,fontWeight:600,marginBottom:12}}><WifiOff size={16}/>अफलाइन — AI ले नयाँ सिमुलेसन बनाउन सक्दैन, तर पहिल्यै बनाइसकेका हेर्न मिल्छ।</div>}
     {usedCache&&<div style={{fontSize:13,color:INK_SOFT,marginBottom:12}}>⚠️ सर्भरसँग जडान भएन — यो यन्त्रमा सुरक्षित गरिएको पछिल्लो प्रति देखाइँदैछ।</div>}
-    <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center"}}>
+    <div style={{display:"flex",gap:10,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
       {/* FIX — dropped "नयाँ सामग्री"/"पुनरावलोकन" mode toggle: they were
           producing near-identical output (same chapter context, no real
           record of what was already taught — the only difference was a
           framing sentence), which just read as UI confusion for no real
           benefit. फास्ट मोड below is the one real, meaningfully-different
-          toggle left here. */}
-      <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:600,flex:1}}>छिटो मोड — जाँच-चरण नछोडी, चाँडो बनाउनुहोस्:</div>
-      <button className="ss-btn" onClick={()=>setFastMode(!fastMode)} title="छिटो मोड — जाँच-चरण नछोडी, चाँडो बनाउनुहोस् (गुणस्तर अलि कम हुन सक्छ)" style={{width:44,flexShrink:0,padding:"8px",borderRadius:10,border:fastMode?"2px solid #F59E0B":"1px solid rgba(0,0,0,0.12)",background:fastMode?tint("#F59E0B",15):"transparent",color:fastMode?"#F59E0B":INK_SOFT,fontWeight:700,fontSize:16,cursor:"pointer"}}>⚡</button>
+          toggle left here.
+          FIX — this was a bare 44px square button showing only a ⚡
+          glyph, with a transparent background and a faint 1px border when
+          off — reported as "hard to tell what it does" and "no contrast
+          with the background". Swapped for the same Chip component every
+          other toggle/filter in the app already uses, so it gets a real
+          label (not just an icon), plus Chip's existing high-contrast
+          active/inactive styling (filled + white text when on, a bordered
+          surface card with clearly visible text/icon when off) instead of
+          a one-off style that only really showed its state via border
+          color. FIX — label text updated: छिटो मोड no longer skips the
+          review/check step outright (see gemini.js generateSimulation) —
+          it now runs a shorter, targeted check instead — so the copy no
+          longer claims it "skips" verification. */}
+      <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:600,flex:1,minWidth:170}}>छिटो मोड — छोटो जाँचसहित चाँडो बनाउनुहोस्:</div>
+      <Chip icon={Zap} active={fastMode} color={WARN} onClick={()=>setFastMode(!fastMode)} style={{fontWeight:800}}>
+        {fastMode?"छिटो मोड: सक्रिय":"छिटो मोड: निष्क्रिय"}
+      </Chip>
     </div>
     {error&&<ErrorMsg msg={error}/>}
-    <button className="ss-btn" onClick={()=>generateForThisLesson()} disabled={generating||!online} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,width:"100%",padding:"13px",borderRadius:12,border:"none",background:`linear-gradient(180deg, ${VIOLET} 0%, color-mix(in srgb, ${VIOLET} 75%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:16.5,cursor:generating?"default":"pointer",boxShadow:SHADOW.accent,marginBottom:16}}>
+    <button className="ss-btn" onClick={()=>generateForThisLesson()} disabled={generating||!online} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,width:"100%",padding:"13px",borderRadius:12,border:"none",background:`linear-gradient(180deg, ${VIOLET} 0%, color-mix(in srgb, ${VIOLET} 75%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:16.5,cursor:generating?"default":"pointer",opacity:(generating||!online)?0.65:1,boxShadow:SHADOW.accent,marginBottom:16}}>
       {generating?<><Loader size={17} style={{animation:"spin 1s linear infinite"}}/>{fastMode?"सिमुलेसन बनाउँदै... (छिटो मोड)":"सिमुलेसन बनाउँदै र जाँच्दै... (१-२ मिनेट लाग्न सक्छ)"}</>:<><Wand2 size={17}/>{sims.length?"नयाँ सिमुलेसन बनाउनुहोस्":"AI बाट सिमुलेसन बनाउनुहोस्"}</>}
     </button>
     {loading?<Spinner/>:sims.length===0?<EmptyState icon={Gamepad2} text="अझै कुनै सिमुलेसन बनाइएको छैन। माथिको बटनबाट पहिलो बनाउनुहोस्।"/>:(

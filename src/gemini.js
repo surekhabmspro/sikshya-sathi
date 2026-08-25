@@ -367,7 +367,20 @@ async function fetchGeminiOnce(body, model, timeoutMs = CALL_TIMEOUT_MS) {
   }
 }
 
-async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, timeoutMs = CALL_TIMEOUT_MS } = {}) {
+// FIX — `retries` (number of retries AFTER the first attempt — so the
+// original "attempt <= 2" loop is retries=2, its old hardcoded default)
+// is now a caller-set option instead of a fixed constant. Reason: a
+// stacking-timeout bug traced from teacher reports of generation
+// "spinning for minutes then failing". A single simulation-generation
+// call already uses a 150s per-attempt timeout (see generateSimulation)
+// because that response is genuinely large/slow — but with the old fixed
+// 3-attempt retry, one bad call could burn up to 3×150s = 7.5 minutes
+// before even reporting an error, and that's BEFORE the outer
+// truncation-retry and the self-review pass each had their own chance to
+// do the same thing again. Calls that already use a long per-attempt
+// timeout now pass a smaller `retries` so the retry budget scales down
+// as the per-attempt cost scales up, instead of multiplying both.
+async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, timeoutMs = CALL_TIMEOUT_MS, retries = 2 } = {}) {
   const generationConfig = { temperature: 0.7, maxOutputTokens };
   if (jsonMode) generationConfig.response_mime_type = "application/json";
   const body = { contents: [{ parts }], generationConfig };
@@ -375,17 +388,17 @@ async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, tim
   let res;
   let lastError;
   let usedFallback = false;
-  for (let attempt = 0; attempt <= 2; attempt++) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       res = await fetchGeminiOnce(body, PRIMARY_MODEL, timeoutMs);
     } catch (e) {
       lastError = e;
       // Network/timeout failures: also worth a retry, same backoff as a
       // rate limit — a dropped connection is often just as transient.
-      if (attempt < 2) { await sleep(1000 * (attempt + 1)); continue; }
+      if (attempt < retries) { await sleep(1000 * (attempt + 1)); continue; }
       throw e;
     }
-    if (RETRYABLE_STATUS.has(res.status) && attempt < 2) {
+    if (RETRYABLE_STATUS.has(res.status) && attempt < retries) {
       // Gemini's rate-limit/overload responses are usually short-lived —
       // wait a bit longer each retry (1s, then 2s) rather than hammering
       // it again immediately.
@@ -433,7 +446,16 @@ async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, tim
 
   const candidate = data.candidates?.[0];
   if (candidate?.finishReason && candidate.finishReason !== "STOP") {
-    throw new Error("Gemini ले पूरा जवाफ दिएन (कारण: " + candidate.finishReason + ") — फेरि प्रयास गर्नुहोस्।");
+    // FIX — tagged `.truncated = true`: this is a content problem (hit the
+    // output-token ceiling, safety cutoff mid-write, etc.), not a
+    // network/rate-limit failure — a fresh attempt can plausibly produce a
+    // clean document. Callers use this tag to decide whether a full retry
+    // is actually worth its cost (see generateSimulation below); an
+    // exhausted network/timeout error is NOT tagged, since repeating the
+    // exact same failed call again rarely helps and only doubles the wait.
+    const err = new Error("Gemini ले पूरा जवाफ दिएन (कारण: " + candidate.finishReason + ") — फेरि प्रयास गर्नुहोस्।");
+    err.truncated = true;
+    throw err;
   }
 
   return candidate?.content?.parts?.[0]?.text || "";
@@ -961,11 +983,17 @@ function extractHtmlDoc(raw) {
   const docStart = html.search(/<!DOCTYPE html>|<html[\s>]/i);
   if (docStart > 0) html = html.slice(docStart);
   if (!html || docStart === -1) {
-    const preview = html ? html.slice(0, 300) : "(खाली प्रतिक्रिया)";
-    throw new Error("Gemini ले सिमुलेसन बनाउन सकेन। जवाफको सुरुवात: " + preview);
+    // FIX — tagged `.truncated = true` (see callGemini's finishReason
+    // check above for why this tag exists): an empty/unusable response is
+    // a content problem a fresh attempt can fix, not a network failure.
+    const err = new Error("Gemini ले सिमुलेसन बनाउन सकेन। जवाफको सुरुवात: " + (html ? html.slice(0, 300) : "(खाली प्रतिक्रिया)"));
+    err.truncated = true;
+    throw err;
   }
   if (!/<\/html>\s*$/i.test(html)) {
-    throw new Error("Gemini को जवाफ अधुरो/कटिएको देखियो (</html> भेटिएन)।");
+    const err = new Error("Gemini को जवाफ अधुरो/कटिएको देखियो (</html> भेटिएन)।");
+    err.truncated = true;
+    throw err;
   }
   return html;
 }
@@ -1133,8 +1161,28 @@ function applySimulationSafetyNets(html) {
 // relying purely on first-pass compliance. If this call fails for any
 // reason (timeout, rate limit, malformed output), the caller keeps the
 // original html — a working-but-imperfect simulation beats no simulation.
-async function reviewAndFixSimulation(html, type, chapterTitle, lessonTitle) {
-  const prompt = `तपाईंले तलको एउटा इन्टरएक्टिभ सिमुलेसन/खेलको पूरा HTML पहिल्यै बनाइसक्नुभएको छ (अध्याय: "${chapterTitle}", पाठ: "${lessonTitle || chapterTitle}", ढाँचा: ${type.label})। अब एक जना कडा समीक्षकको रूपमा तलका जाँच-सूचीका हरेक बुँदा विरुद्ध जाँच्नुहोस्:
+// FIX — `fast` option: छिटो/fast mode used to skip this whole review pass
+// (see generateSimulation's skipReview param), which is exactly why fast
+// mode was the one reported to sometimes produce blank/empty cards and
+// meaningless, content-unrelated puzzles — this 13-point checklist is
+// the ONLY thing that ever catches those specific failures; the
+// deterministic string-based safety nets in applySimulationSafetyNets
+// can strip a stray <img> or a pre-checked box, but they can't judge
+// whether a card is blank or a puzzle item is nonsense — that needs
+// another look from the model. So fast mode no longer skips review
+// entirely; instead it runs this SAME call with a short, targeted
+// checklist (only the two failure modes actually reported) and a much
+// smaller time/retry budget, so it stays meaningfully faster than the
+// full 13-point pass while still catching the failures that matter most.
+async function reviewAndFixSimulation(html, type, chapterTitle, lessonTitle, { fast = false } = {}) {
+  const prompt = fast ? `तपाईंले तलको एउटा इन्टरएक्टिभ सिमुलेसन/खेलको पूरा HTML पहिल्यै बनाइसक्नुभएको छ (अध्याय: "${chapterTitle}", पाठ: "${lessonTitle || chapterTitle}", ढाँचा: ${type.label})। यो छिटो जाँच हो — केवल तलका दुई समस्या मात्र खोजी सुधार्नुहोस्, अरू केही नबदल्नुहोस्:
+1. कुनै पनि कार्ड/वस्तु खाली देखिन्छ कि (इमोजी/आइकन र नेपाली लेबल कुनै पनि नभएको, वा टेक्स्ट/सामग्री पूरै हराएको) — भेटिएमा त्यसमा उपयुक्त इमोजी र स्पष्ट लेबल थप्नुहोस्।
+2. कुनै वस्तु/जोडी/प्रश्न अर्थहीन, अस्पष्ट, वा पाठ्यसामग्रीसँग सम्बन्धित नभएको छ कि (जस्तै दुई कोठामा उत्तिकै मिल्ने वस्तु, वा वास्तविक तथ्यमा आधारित नभएको काल्पनिक वस्तु) — भेटिएमा त्यसलाई पाठ्यसामग्रीको वास्तविक तथ्यमा आधारित स्पष्ट, निर्विवाद वस्तुले प्रतिस्थापन गर्नुहोस्।
+
+माथिका दुई समस्यामध्ये कुनै नभेटिएमा, दिइएको HTML लाई जस्ताको त्यस्तै फिर्ता दिनुहोस्। जवाफमा कुनै व्याख्या, markdown फेन्स, वा अगाडि/पछाडिको वाक्य नथप्नुहोस् — ठ्याक्कै <!DOCTYPE html> बाट सुरु भएर </html> मा सकिने एउटै पूर्ण दस्तावेज मात्र दिनुहोस्।
+
+जाँच गर्नुपर्ने HTML:
+${html}` : `तपाईंले तलको एउटा इन्टरएक्टिभ सिमुलेसन/खेलको पूरा HTML पहिल्यै बनाइसक्नुभएको छ (अध्याय: "${chapterTitle}", पाठ: "${lessonTitle || chapterTitle}", ढाँचा: ${type.label})। अब एक जना कडा समीक्षकको रूपमा तलका जाँच-सूचीका हरेक बुँदा विरुद्ध जाँच्नुहोस्:
 
 1. निर्देशन/शीर्षक-पाठ ठ्याक्कै एकै ठाउँमा (माथि) मात्र छ, तल वा अरू कतै दोहोरिएको छैन।
 2. माथिको निर्देशन-पट्टी र तलको नियन्त्रण-पट्टी (भए) दुवै सामान्य flex-column को normal-flow भाग हुन् — कतै position:fixed/absolute/sticky छैन, र कुनै पट्टीले अर्को सामग्री ढाकेको छैन।
@@ -1154,7 +1202,13 @@ async function reviewAndFixSimulation(html, type, chapterTitle, lessonTitle) {
 
 समीक्षा गर्नुपर्ने HTML:
 ${html}`;
-  const raw = await callGemini([{ text: prompt }], { maxOutputTokens: 16000, timeoutMs: 150000 });
+  // FIX — reduced timeout (was 150000) and retries (was the callGemini
+  // default of 2, i.e. up to 3 attempts): this call's failure is already
+  // non-fatal (the caller keeps the original html either way), so it
+  // should never be allowed to burn as much of the teacher's wait as the
+  // main generation call. The fast-mode prompt above is also much
+  // shorter/narrower, so it needs less time regardless.
+  const raw = await callGemini([{ text: prompt }], { maxOutputTokens: 16000, timeoutMs: fast ? 60000 : 90000, retries: 1 });
   const reviewed = extractHtmlDoc(raw);
   return applySimulationSafetyNets(reviewed);
 }
@@ -1279,22 +1333,36 @@ export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, 
   // Gemini was working fine, just still generating. Raised to 150s
   // (2.5 min) specifically for this one call, so a genuinely slow — but
   // successful — generation gets a fair chance instead of being cut off.
-  // NEW — one automatic retry specifically for a truncated/cut-off
-  // response (hit the token limit mid-document, or a non-STOP
-  // finishReason from callGemini). This used to surface straight to the
-  // teacher as an error requiring a manual re-click; a single silent
-  // retry here catches the common transient case without interrupting
-  // the classroom flow.
+  // `retries: 1` (1 retry, so 2 attempts total instead of callGemini's
+  // default 3) — see the FIX comment on callGemini's `retries` option:
+  // at a 150s-per-attempt cost, 3 attempts (450s / 7.5min) before even
+  // surfacing an error was the single biggest piece of the reported
+  // "spins for minutes then fails" bug.
+  // FIX — the automatic retry-the-whole-thing-again loop below used to
+  // fire on ANY failure, including a network/rate-limit error that had
+  // ALREADY exhausted callGemini's own internal retries. Retrying an
+  // already-exhausted transient failure by starting a second full
+  // 150s-budget generation from scratch almost never helps (the same
+  // thing that just failed 2 times in a row is unlikely to succeed a
+  // 3rd time moments later) and was the largest single contributor to
+  // multi-minute waits before a failure was ever shown. Now it only
+  // retries when the failure is specifically tagged `.truncated` (a
+  // cut-off/incomplete document — see callGemini and extractHtmlDoc) —
+  // a genuine content problem that a fresh attempt can plausibly fix.
+  // Any other error (rate limit, timeout, network) surfaces immediately
+  // instead of silently doubling the wait for a retry that was very
+  // unlikely to succeed.
   let html;
   let lastErr;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const raw = await runPrompt(prompt, ctx, { maxOutputTokens: 16000, timeoutMs: 150000 });
+      const raw = await runPrompt(prompt, ctx, { maxOutputTokens: 16000, timeoutMs: 150000, retries: 1 });
       html = extractHtmlDoc(raw);
       lastErr = null;
       break;
     } catch (e) {
       lastErr = e;
+      if (!e.truncated) break;
     }
   }
   if (lastErr) throw lastErr;
@@ -1302,15 +1370,18 @@ export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, 
 
   // NEW — self-review pass (see reviewAndFixSimulation above). Failure
   // here is non-fatal: keep the already-valid, already-cleaned html.
-  // FASTMODE — this is the single biggest time cost in the whole
-  // generation (a second full Gemini call over the already-generated
-  // HTML), so skipReview lets a teacher in a hurry opt out of it and
-  // keep just the first pass + the safety nets already applied above.
-  if (!skipReview) {
-    try {
-      html = await reviewAndFixSimulation(html, type, chapterTitle, lessonTitle);
-    } catch { /* keep the original, already-safety-netted html */ }
-  }
+  // FIX — छिटो/fast mode (skipReview=true) used to skip this pass
+  // entirely to save time, but that's exactly what let blank cards and
+  // meaningless/off-topic puzzle items through uncaught — the 13-point
+  // checklist review is the only step that judges content quality rather
+  // than markup structure. Fast mode now still runs this pass, just the
+  // short, targeted `fast` variant (2 specific checks, ~60s budget, no
+  // retry) instead of the full 13-point audit (~90s budget) — still
+  // meaningfully faster than full mode, but no longer skipping content
+  // checking altogether.
+  try {
+    html = await reviewAndFixSimulation(html, type, chapterTitle, lessonTitle, { fast: skipReview });
+  } catch { /* keep the original, already-safety-netted html */ }
 
   return { html, type };
 };
