@@ -2821,7 +2821,6 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
   const [error,setError]=useState("");
   const [viewing,setViewing]=useState(null);
   const [deletingId,setDeletingId]=useState(null);
-  const [mode,setMode]=useState("new"); // "new" | "review"
   // NEW — opt-in fast mode: skips generateSimulation's AI self-review
   // pass (see gemini.js), the single biggest time cost in a generation.
   // Off by default since the review pass does catch real issues — this
@@ -2852,14 +2851,15 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
   },[lesson.id]);
   useEffect(()=>{load();},[load]);
 
-  // NEW — opts.forceTypeId + opts.updateId together drive "पुनरावलोकन"
-  // in-place regeneration: forceTypeId skips the round-robin picker and
-  // reuses the exact type/mechanic the teacher is already looking at, and
-  // updateId tells the save step to overwrite that same row (via
-  // db.updateSimulationContent) instead of inserting a new one via
-  // db.saveSimulation. Called with no opts (the normal "🆕 नयाँ सिमुलेसन
-  // बनाउनुहोस्" button), behavior is unchanged — pick the next type in
-  // rotation and always insert a new row.
+  // FIX — dropped the separate "पुनरावलोकन" generation MODE (it produced
+  // near-identical output to "नयाँ सामग्री" since both drew from the same
+  // chapter context with no real record of what was already taught —
+  // the only difference was a framing sentence in the prompt). What WAS
+  // genuinely useful from that toggle — regenerating the exact same
+  // simulation in place (same type, overwrite, via forceTypeId+updateId)
+  // vs always creating a brand new one — is kept below as the fixed
+  // behavior of the viewer's refresh icon, since that's what a refresh
+  // icon on an already-open item should do regardless of any mode.
   const generate=async(targetLesson=lesson,opts={})=>{
     if(!online){setError("अफलाइन छ — इन्टरनेट फर्केपछि पुनः प्रयास गर्नुहोस्।");return null;}
     const ctx=await getMaterialContext(chapterTitle,classLabel);
@@ -2883,13 +2883,13 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
       const usedTypes=[...globalAsc, ...lessonAsc];
       nextType=gemini.pickNextSimulationType(usedTypes);
     }
-    let{html,type}=await gemini.generateSimulation(chapterTitle,targetLesson.title,ctx,classContext,nextType,mode,fastMode);
+    let{html,type}=await gemini.generateSimulation(chapterTitle,targetLesson.title,ctx,classContext,nextType,fastMode);
     // NEW — render self-test (see selfTestSimulation above). One silent
     // retry on failure, same "don't interrupt the classroom flow" pattern
     // already used for a truncated/cut-off response.
     const ok=await selfTestSimulation(html);
     if(!ok){
-      const retry=await gemini.generateSimulation(chapterTitle,targetLesson.title,ctx,classContext,nextType,mode,fastMode);
+      const retry=await gemini.generateSimulation(chapterTitle,targetLesson.title,ctx,classContext,nextType,fastMode);
       html=retry.html; type=retry.type;
     }
     // NEW — 2-3 discussion questions for after the game ends, generated
@@ -2942,15 +2942,14 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
     <div style={{fontSize:15.5,color:INK_SOFT,marginBottom:12,lineHeight:1.5}}>यस पाठका लागि AI ले प्रोजेक्टरमा देखाई कक्षालाई खेलाउन मिल्ने अन्तरक्रियात्मक अभ्यास बनाउँछ — तपाईंले ल्यापटपमा माउसले चलाउनुहुन्छ। हरेक पटक "नयाँ बनाउनुहोस्" थिच्दा फरक-फरक शैली प्रयास गरिन्छ, र पुरानोहरू पनि सुरक्षित रहन्छन्।</div>
     {!online&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",borderRadius:10,background:tint(WARN,15),color:WARN,fontSize:13.5,fontWeight:600,marginBottom:12}}><WifiOff size={16}/>अफलाइन — AI ले नयाँ सिमुलेसन बनाउन सक्दैन, तर पहिल्यै बनाइसकेका हेर्न मिल्छ।</div>}
     {usedCache&&<div style={{fontSize:13,color:INK_SOFT,marginBottom:12}}>⚠️ सर्भरसँग जडान भएन — यो यन्त्रमा सुरक्षित गरिएको पछिल्लो प्रति देखाइँदैछ।</div>}
-    <div style={{display:"flex",gap:8,marginBottom:12}}>
-      <button className="ss-btn" onClick={()=>setMode("new")} style={{flex:1,padding:"8px",borderRadius:10,border:mode==="new"?`2px solid ${VIOLET}`:"1px solid rgba(0,0,0,0.12)",background:mode==="new"?tint(VIOLET,12):"transparent",color:mode==="new"?VIOLET:INK_SOFT,fontWeight:700,fontSize:13.5,cursor:"pointer"}}>🆕 नयाँ सामग्री</button>
-      <button className="ss-btn" onClick={()=>setMode("review")} style={{flex:1,padding:"8px",borderRadius:10,border:mode==="review"?`2px solid ${VIOLET}`:"1px solid rgba(0,0,0,0.12)",background:mode==="review"?tint(VIOLET,12):"transparent",color:mode==="review"?VIOLET:INK_SOFT,fontWeight:700,fontSize:13.5,cursor:"pointer"}}>🔁 पुनरावलोकन</button>
-      {/* NEW — fastMode as a compact icon toggle instead of a separate
-          full-width checkbox row: it's a modifier on top of whichever
-          mode is picked (not a third mode), so it sits beside the mode
-          pair rather than stacked under it. title="" gives a hover tip
-          on desktop; the pressed/amber state is the only cue needed at a
-          glance from across the room. */}
+    <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center"}}>
+      {/* FIX — dropped "नयाँ सामग्री"/"पुनरावलोकन" mode toggle: they were
+          producing near-identical output (same chapter context, no real
+          record of what was already taught — the only difference was a
+          framing sentence), which just read as UI confusion for no real
+          benefit. फास्ट मोड below is the one real, meaningfully-different
+          toggle left here. */}
+      <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:600,flex:1}}>छिटो मोड — जाँच-चरण नछोडी, चाँडो बनाउनुहोस्:</div>
       <button className="ss-btn" onClick={()=>setFastMode(!fastMode)} title="छिटो मोड — जाँच-चरण नछोडी, चाँडो बनाउनुहोस् (गुणस्तर अलि कम हुन सक्छ)" style={{width:44,flexShrink:0,padding:"8px",borderRadius:10,border:fastMode?"2px solid #F59E0B":"1px solid rgba(0,0,0,0.12)",background:fastMode?tint("#F59E0B",15):"transparent",color:fastMode?"#F59E0B":INK_SOFT,fontWeight:700,fontSize:16,cursor:"pointer"}}>⚡</button>
     </div>
     {error&&<ErrorMsg msg={error}/>}
@@ -2978,8 +2977,7 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
       <SimulationViewerOverlay
         viewing={viewing}
         generating={generating}
-        mode={mode}
-        onRegenerate={()=>generateForThisLesson(mode==="review"?{forceTypeId:viewing.type,updateId:viewing.id}:{})}
+        onRegenerate={()=>generateForThisLesson({forceTypeId:viewing.type,updateId:viewing.id})}
         onClose={()=>setViewing(null)}
         onTipsUpdated={(tips)=>{setViewing((v)=>({...v,discussion_tips:tips}));setSims((prev)=>prev.map((s)=>s.id===viewing.id?{...s,discussion_tips:tips}:s));}}
         chapterTitle={chapterTitle}
@@ -2993,7 +2991,7 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
 // NEW — split out of SimulationPanel's render so the high-contrast/zoom
 // controls and the discussion-tips footer have somewhere self-contained
 // to live, instead of piling more state into SimulationPanel.
-function SimulationViewerOverlay({ viewing, generating, mode, onRegenerate, onClose, onTipsUpdated, chapterTitle, lesson, classContext }){
+function SimulationViewerOverlay({ viewing, generating, onRegenerate, onClose, onTipsUpdated, chapterTitle, lesson, classContext }){
   const [highContrast,setHighContrast]=useState(false);
   const [printingTips,setPrintingTips]=useState(false);
   const [regeneratingTips,setRegeneratingTips]=useState(false);
@@ -3042,7 +3040,7 @@ function SimulationViewerOverlay({ viewing, generating, mode, onRegenerate, onCl
         <div style={{flex:1,minWidth:0,fontWeight:700,fontSize:15.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{viewing.title}</div>
         <span className="ss-sim-subtitle" style={{fontSize:13,color:"rgba(255,255,255,0.6)",fontWeight:600,whiteSpace:"nowrap"}}>🖥️ ल्यापटप/प्रोजेक्टरका लागि डिजाइन गरिएको</span>
         <IconButton icon={highContrast?EyeOff:Eye} onClick={()=>setHighContrast((v)=>!v)} title="उच्च कन्ट्रास्ट मोड" variant="hero" size={17} style={{borderRadius:8,padding:8}}/>
-        <IconButton icon={generating?Loader:RefreshCw} spin={generating} onClick={onRegenerate} disabled={generating} title={mode==="review"?"यही सिमुलेसनको सामग्री बदल्नुहोस् (उही किसिम राखेर)":"अर्को नयाँ सिमुलेसन बनाउनुहोस्"} variant="hero" size={17} style={{borderRadius:8,padding:8}}/>
+        <IconButton icon={generating?Loader:RefreshCw} spin={generating} onClick={onRegenerate} disabled={generating} title="यही सिमुलेसनको सामग्री ताजा बनाउनुहोस् (उही किसिम राखेर)" variant="hero" size={17} style={{borderRadius:8,padding:8}}/>
         <IconButton icon={X} onClick={onClose} variant="hero" size={19} style={{borderRadius:8,padding:8}}/>
         <style>{`@media (max-width:560px){.ss-sim-subtitle{display:none;}}`}</style>
       </div>
