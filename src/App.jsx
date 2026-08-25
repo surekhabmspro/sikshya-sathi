@@ -3533,7 +3533,17 @@ const emptyOfficialLesson = (title = "") => ({
   rubric: [emptyRubricRow()],
 });
 
-function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContext, onClose }) {
+// focusMode: "plan" (आधिकारिक पाठ योजना) | "rubric" (रुब्रिक्स) — per the
+// teacher's confirmed choice, these are now two separate buttons/flows
+// (separate title, separate review screen showing only the relevant
+// fields, separate export) rather than one combined screen. Both still
+// read/write the SAME underlying plan_groups row for this chapter/group
+// and both still come from the ONE AI draft call (drafting plan+rubric
+// together, then letting the teacher review each half separately) — redrafting
+// them as two independent AI calls would double the AI cost/time and risk
+// a plan and rubric that no longer agree with each other, which isn't
+// what "separate flow" was asked for.
+function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContext, focusMode = "plan", onClose }) {
   const [phase, setPhase] = useState("loading"); // loading | choose | drafting | review
   const [existingGroup, setExistingGroup] = useState(null);
   const [groupChapterTitles, setGroupChapterTitles] = useState([chapter.title]);
@@ -3675,48 +3685,71 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
   // click is silently swallowed inside an installed PWA / in-app browser.
   const [exportBusy, setExportBusy] = useState(false);
   const [exportMsg, setExportMsg] = useState("");
+  // FIX (focusMode-aware) — this used to always build BOTH the lesson-plan
+  // and rubric docx for every official lesson and zip them together,
+  // regardless of which button/screen the teacher was in. Per the
+  // confirmed "fully separate रुब्रिक्स flow" choice, this export now only
+  // touches the file type that matches this modal's focusMode.
+  // Also surfaces which of the expected labels (Engage/Explore/... or a
+  // rubric level column) the template didn't actually contain, using the
+  // matchedKeys/unmatchedKeys info docxFill.js now returns — so a
+  // teacher whose template uses unrecognised wording finds out
+  // immediately instead of discovering later that a section quietly kept
+  // its old sample text.
+  const LABEL_NAMES = { major_learning_outcomes:"प्रमुख सिकाइ उपलब्धि", materials_required:"आवश्यक सामग्री", engage:"Engage", explore:"Explore", explain:"Explain", elaborate:"Elaborate", evaluate:"Evaluate" };
   const exportDocx = async () => {
     setExportBusy(true); setExportMsg("");
     try {
       const { data: template } = formatTemplateId
         ? await supabase.from("format_templates").select("*").eq("id", formatTemplateId).maybeSingle()
         : await db.getActiveFormatTemplate(classLabel);
+
+      if (focusMode === "rubric") {
+        if (!template?.rubric_storage_path) {
+          setExportMsg("पहिले सेटिङ्समा यस वर्षको रुब्रिक्स ढाँचा अपलोड गर्नुहोस्।"); setExportBusy(false); return;
+        }
+        if (template.rubric_file_type !== "docx") {
+          setExportMsg("रुब्रिक्स ढाँचा फोटोको रूपमा राखिएकाले त्यसलाई स्वतः भर्न मिल्दैन — रुब्रिक्सको Word फाइल सेटिङ्समा अपलोड गरे स्वतः भरिनेछ।"); setExportBusy(false); return;
+        }
+        const rubricBlob = await db.downloadMaterialFile(template.rubric_storage_path);
+        const files = []; let anyUnmatched = 0;
+        for (const l of draft.lessons) {
+          if (!l.lesson_title.trim()) continue;
+          const { blob, unmatchedLevelCells } = await fillRubricDocx(rubricBlob, l.rubric);
+          if (unmatchedLevelCells) anyUnmatched += unmatchedLevelCells;
+          files.push({ filename: `${l.lesson_title}-रुब्रिक्स.docx`, blob });
+        }
+        if (!files.length) { setExportMsg("कम्तीमा एउटा आधिकारिक पाठको नाम राख्नुहोस्।"); setExportBusy(false); return; }
+        if (files.length === 1) await downloadBlob(files[0].blob, files[0].filename);
+        else await downloadBlob(await zipFiles(files), `${chapter.title}-रुब्रिक्सहरू.zip`);
+        setExportMsg(anyUnmatched
+          ? `रुब्रिक्स फाइल तयार भयो, तर ढाँचाका केही स्तम्भ (उत्कृष्ट/राम्रो/सामान्य/सुधार आवश्यक जस्ता) चिन्न सकिएन — ती कक्षमा "—" राखिएको छ, हेरेर आफैं भर्नुपर्ने हुन सक्छ।`
+          : "Word फाइल तयार भयो। Word वा Google Docs मा खोली 'PDF मा बचत गर्नुहोस्' गर्नुहोस्।");
+        setExportBusy(false); return;
+      }
+
+      // focusMode === "plan"
       if (!template?.lesson_plan_storage_path) {
         setExportMsg("पहिले सेटिङ्समा यस वर्षको पाठ योजना ढाँचा अपलोड गर्नुहोस्।"); setExportBusy(false); return;
       }
       const lpBlob = await db.downloadMaterialFile(template.lesson_plan_storage_path);
-      const rubricBlob = (template.rubric_storage_path && template.rubric_file_type === "docx")
-        ? await db.downloadMaterialFile(template.rubric_storage_path) : null;
-
-      const files = [];
+      const files = []; const everUnmatched = new Set();
       for (const l of draft.lessons) {
         if (!l.lesson_title.trim()) continue;
-        const { blob: filledLP } = await fillLessonPlanDocx(lpBlob, {
+        const { blob, unmatchedKeys } = await fillLessonPlanDocx(lpBlob, {
           major_learning_outcomes: l.major_learning_outcomes,
           materials_required: l.materials_required,
           engage: l.engage, explore: l.explore, explain: l.explain, elaborate: l.elaborate, evaluate: l.evaluate,
         });
-        files.push({ filename: `${l.lesson_title}-पाठ-योजना.docx`, blob: filledLP });
-        if (rubricBlob) {
-          const { blob: filledRubric } = await fillRubricDocx(rubricBlob, l.rubric);
-          files.push({ filename: `${l.lesson_title}-रुब्रिक्स.docx`, blob: filledRubric });
-        }
+        (unmatchedKeys || []).forEach((k) => everUnmatched.add(k));
+        files.push({ filename: `${l.lesson_title}-पाठ-योजना.docx`, blob });
       }
-
       if (!files.length) { setExportMsg("कम्तीमा एउटा आधिकारिक पाठको नाम राख्नुहोस्।"); setExportBusy(false); return; }
-
-      if (files.length === 1) {
-        await downloadBlob(files[0].blob, files[0].filename);
-      } else {
-        const zipped = await zipFiles(files);
-        await downloadBlob(zipped, `${chapter.title}-पाठ-योजनाहरू.zip`);
-      }
-
-      if (!rubricBlob && template.rubric_storage_path) {
-        setExportMsg("पाठ योजनाहरू तयार भए। रुब्रिक्स ढाँचा फोटोको रूपमा राखिएकाले त्यसलाई उस्तै ढाँचामा स्वतः भर्न मिल्दैन — रुब्रिक्सको Word फाइल अपलोड गरे स्वतः भरिनेछ।");
-      } else {
-        setExportMsg("Word फाइल तयार भयो। Word वा Google Docs मा खोली 'PDF मा बचत गर्नुहोस्' गर्नुहोस्।");
-      }
+      if (files.length === 1) await downloadBlob(files[0].blob, files[0].filename);
+      else await downloadBlob(await zipFiles(files), `${chapter.title}-पाठ-योजनाहरू.zip`);
+      setExportMsg(everUnmatched.size
+        ? `पाठ योजना फाइल तयार भयो, तर ढाँचामा यी लेबल भेटिएनन् — त्यहाँ पुरानै नमूना पाठ यथावत् रहन सक्छ: ${Array.from(everUnmatched).map((k)=>LABEL_NAMES[k]||k).join(", ")}। ढाँचा फाइलको त्यो लेबल जाँच्नुहोस्।`
+        : "Word फाइल तयार भयो। Word वा Google Docs मा खोली 'PDF मा बचत गर्नुहोस्' गर्नुहोस्।");
     } catch (e) { setExportMsg("त्रुटि: " + (e.message || "एक्सपोर्ट गर्न सकिएन।")); }
     setExportBusy(false);
   };
@@ -3725,7 +3758,7 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
     <div className="no-print" onClick={onClose} style={{position:"fixed",inset:0,zIndex:88,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:16}}>
       <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:"24px 26px",maxWidth:"min(94vw, 780px)",width:"100%",maxHeight:"90vh",overflowY:"auto",boxSizing:"border-box",boxShadow:SHADOW.lg}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-          <div style={{fontSize:19,fontWeight:800,color:INK}}>आधिकारिक पाठ योजना — {chapter.title}</div>
+          <div style={{fontSize:19,fontWeight:800,color:INK}}>{focusMode==="rubric"?"रुब्रिक्स":"आधिकारिक पाठ योजना"} — {chapter.title}</div>
           <IconButton icon={X} onClick={()=>onClose(false)} size={20}/>
         </div>
 
@@ -3734,7 +3767,7 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
         {phase==="choose"&&(
           <div style={{display:"flex",flexDirection:"column",gap:12,marginTop:14}}>
             {error&&<div style={{fontSize:15,color:DANGER,background:DANGER_BG,borderRadius:10,padding:"10px 12px"}}>{error}</div>}
-            <div style={{fontSize:15.5,color:INK_SOFT,lineHeight:1.6}}>यो अध्यायको लागि अझै कुनै आधिकारिक पाठ योजना/रुब्रिक्स छैन। यहाँको "आधिकारिक पाठ" संख्या कक्षामा पढाइने पाठ्यपुस्तकका पाठ संख्यासँग बराबर नहुन सक्छ — विद्यार्थी मूल्याङ्कन मार्गदर्शनले साझा सिकाइ उपलब्धि भएका पाठहरू गाभेको हुन सक्छ।</div>
+            <div style={{fontSize:15.5,color:INK_SOFT,lineHeight:1.6}}>यो अध्यायको लागि अझै कुनै आधिकारिक पाठ योजना/रुब्रिक्स छैन। यहाँको "आधिकारिक पाठ" संख्या कक्षामा पढाइने पाठ्यपुस्तकका पाठ संख्यासँग बराबर नहुन सक्छ — विद्यार्थी मूल्याङ्कन मार्गदर्शनले साझा सिकाइ उपलब्धि भएका पाठहरू गाभेको हुन सक्छ। AI ले पाठ योजना र रुब्रिक्स दुवै एकैचोटि मस्यौदा बनाउँछ (दुवै एकअर्कासँग मिल्नुपर्ने भएकाले); त्यसपछि यहाँ तपाईं {focusMode==="rubric"?"रुब्रिक्स":"पाठ योजना"} मात्र हेर्न/सम्पादन गर्न सक्नुहुन्छ — अर्को भाग छुट्टै बटनबाट हेर्न मिल्छ।</div>
             <AIButton label="✨ AI ले मस्यौदा बनाओस् (मार्गदर्शनअनुसार पाठ छुट्याएर)" onClick={startAIDraft} loading={busy} style={{width:"100%",justifyContent:"center",fontSize:16.5,padding:"13px"}}/>
             <button className="ss-btn" onClick={startManual} style={{width:"100%",padding:"12px",borderRadius:10,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontWeight:700,fontSize:16,cursor:"pointer"}}>आफैं लेख्नुहोस्</button>
           </div>
@@ -3774,6 +3807,7 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
                   )}
                   {isOpen&&(
                     <div style={{display:"flex",flexDirection:"column",gap:16,padding:"16px 14px"}}>
+                      {focusMode!=="rubric"&&(<>
                       <div>
                         <SectionLabel icon={ClipboardList} color={VIOLET}>प्रमुख सिकाइ उपलब्धि</SectionLabel>
                         {lesson.major_learning_outcomes.map((v,i)=>(
@@ -3802,7 +3836,9 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
                           <textarea value={lesson[key]} onChange={(e)=>setLessonField(li,key,e.target.value)} rows={3} className="ss-field" style={{width:"100%",borderRadius:10,padding:"10px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
                         </div>
                       ))}
+                      </>)}
 
+                      {focusMode==="rubric"&&(
                       <div>
                         <SectionLabel icon={CheckSquare} color={MARIGOLD_DARK}>मूल्याङ्कन रुब्रिक्स</SectionLabel>
                         {lesson.rubric.map((row,ri)=>(
@@ -3821,6 +3857,7 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
                         ))}
                         <button className="ss-btn" onClick={()=>addLessonRubricRow(li)} style={{fontSize:14,color:ACCENT,background:"none",border:"none",fontWeight:700,cursor:"pointer",padding:"4px 0"}}>+ मूल्याङ्कन क्षेत्र थप्नुहोस्</button>
                       </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -3833,7 +3870,7 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
               <button className="ss-btn" onClick={()=>persist("draft")} disabled={busy} style={{flex:1,padding:"12px",borderRadius:10,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontWeight:700,fontSize:15.5,cursor:"pointer"}}>{busy?"...":"मस्यौदाको रूपमा सुरक्षित"}</button>
               <button className="ss-btn" onClick={()=>persist("approved")} disabled={busy} style={{flex:1,padding:"12px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,fontSize:15.5,cursor:"pointer",boxShadow:SHADOW.accent}}>{busy?"...":"स्वीकृत गर्नुहोस्"}</button>
             </div>
-            <button className="ss-btn" onClick={exportDocx} disabled={exportBusy||!draft.lessons.length} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"12px",borderRadius:10,border:`1.5px solid ${TEAL}`,background:"none",color:TEAL,fontWeight:700,fontSize:15.5,cursor:"pointer"}}><Download size={16}/>{exportBusy?"तयार गर्दै...":"यस वर्षको ढाँचामा Word डाउनलोड गर्नुहोस् (हरेक आधिकारिक पाठ छुट्टै)"}</button>
+            <button className="ss-btn" onClick={exportDocx} disabled={exportBusy||!draft.lessons.length} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"12px",borderRadius:10,border:`1.5px solid ${TEAL}`,background:"none",color:TEAL,fontWeight:700,fontSize:15.5,cursor:"pointer"}}><Download size={16}/>{exportBusy?"तयार गर्दै...":(focusMode==="rubric"?"यस वर्षको ढाँचामा रुब्रिक्स Word डाउनलोड गर्नुहोस् (हरेक आधिकारिक पाठ छुट्टै)":"यस वर्षको ढाँचामा पाठ योजना Word डाउनलोड गर्नुहोस् (हरेक आधिकारिक पाठ छुट्टै)")}</button>
             {exportMsg&&<div style={{fontSize:14.5,color:INK_SOFT,lineHeight:1.6}}>{exportMsg}</div>}
           </div>
         )}
@@ -4272,8 +4309,10 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
                         <button className="ss-icon-btn" onClick={(e)=>deleteLesson(l.id,e)} title="मेटाउनुहोस्" style={{cursor:"pointer",color:INK_SOFT,padding:4}}><Trash2 size={15}/></button>
                       </div>
                     ))}
-                    {!unassigned&&<button className="ss-btn" onClick={()=>setPlanGroupChapter(chapter)} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:VIOLET_LIGHT,border:"none",color:VIOLET,borderRadius:10,padding:"10px",fontWeight:700,fontSize:15,cursor:"pointer"}}><ClipboardList size={14}/>आधिकारिक पाठ योजना / रुब्रिक्स</button>}
+                    {/* FIX — "+ नयाँ पाठ थप्नुहोस्" (which is where "AI ले यो पाठ बनाओस्" per-classroom-lesson lives) now comes first, per confirmed layout order; the official-plan/rubric buttons come below it. The old single combined "आधिकारिक पाठ योजना / रुब्रिक्स" button is split into two separate buttons/flows (पाठ योजना vs रुब्रिक्स), each opening PlanGroupModal with a different focusMode. */}
                     {!unassigned&&<button className="ss-btn" onClick={()=>startNew(chapter.title)} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:"none",border:`1.5px dashed ${BORDER}`,color:ACCENT,borderRadius:10,padding:"10px",fontWeight:700,fontSize:15,cursor:"pointer"}}><Plus size={14}/>नयाँ पाठ थप्नुहोस्</button>}
+                    {!unassigned&&<button className="ss-btn" onClick={()=>setPlanGroupChapter({chapter,focusMode:"plan"})} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:VIOLET_LIGHT,border:"none",color:VIOLET,borderRadius:10,padding:"10px",fontWeight:700,fontSize:15,cursor:"pointer"}}><ClipboardList size={14}/>आधिकारिक पाठ योजना</button>}
+                    {!unassigned&&<button className="ss-btn" onClick={()=>setPlanGroupChapter({chapter,focusMode:"rubric"})} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:"color-mix(in srgb, "+MARIGOLD_DARK+" 16%, transparent)",border:"none",color:MARIGOLD_DARK,borderRadius:10,padding:"10px",fontWeight:700,fontSize:15,cursor:"pointer"}}><CheckSquare size={14}/>रुब्रिक्स</button>}
                   </div>
                 )}
               </Card>
@@ -4281,7 +4320,7 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
           })}
         </div>
       )}
-      {planGroupChapter&&<PlanGroupModal chapter={planGroupChapter} allChapters={chapters} lessons={lessons} classLabel={classLabel} classContext={classContext} onClose={()=>setPlanGroupChapter(null)}/>}
+      {planGroupChapter&&<PlanGroupModal chapter={planGroupChapter.chapter} focusMode={planGroupChapter.focusMode} allChapters={chapters} lessons={lessons} classLabel={classLabel} classContext={classContext} onClose={()=>setPlanGroupChapter(null)}/>}
       {yojanaLesson&&<YojanaSheet lesson={yojanaLesson} onClose={()=>setYojanaLesson(null)}/>}
     </div>
   );

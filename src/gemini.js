@@ -466,7 +466,11 @@ export const generateWithMaterials = (prompt, materialParts = [], textbookBase64
 // Same shapes as above, but with jsonMode on — this is what actually fixes
 // the "AI ले डाटा बनाउन सकेन" failures, since Gemini can no longer wrap the
 // JSON in prose or leave it malformed.
-export const generateTextJSON = (prompt) => callGemini([{ text: prompt }], { jsonMode: true });
+// FIX — accepts an options object (maxOutputTokens, timeoutMs, ...) so
+// callers that need a bigger output budget or longer timeout (e.g. the
+// curriculum-grouping prompts below, which can involve a lot of chapters)
+// don't have to bypass this helper and call callGemini directly.
+export const generateTextJSON = (prompt, options = {}) => callGemini([{ text: prompt }], { jsonMode: true, ...options });
 
 export const generateWithPDFJSON = (prompt, pdfBase64OrPart) => {
   const part = toTextbookPart(pdfBase64OrPart);
@@ -1365,8 +1369,12 @@ export const generateRubric = async (prompt, ctx = null) => {
 export async function extractGuideClassSection(guidePart, classLabel) {
   if (!guidePart) return null;
   const prompt = `यो "${classLabel}" को लागि छुट्टै तयार पारिएको शिक्षक निर्देशिका (Teacher's Guide) हो। यसको पूरा विषयवस्तु — नछोटाई, कुनै तथ्य/वाक्य नछुटाई — सादा पाठको रूपमा फिर्ता दिनुहोस्। कुनै व्याख्या वा फर्म्याटिङ नथप्नुहोस्।${RAW_TEXT_LAYER_WARNING}`;
+  // FIX — was maxOutputTokens: 8192, which silently caps how much of a
+  // long Teacher's Guide can come back out of this extraction step, before
+  // the grouping/official-lesson/draft prompts below even see it. Raised
+  // to match the other big single-document extractions in this file.
   let text;
-  try { text = await callGemini([guidePart, { text: prompt }], { maxOutputTokens: 8192 }); }
+  try { text = await callGemini([guidePart, { text: prompt }], { maxOutputTokens: 16000, timeoutMs: 90000 }); }
   catch { return null; }
   const trimmed = (text || "").trim();
   if (!trimmed || trimmed.length < 40) return null;
@@ -1388,11 +1396,17 @@ export async function detectChapterGrouping(guideClassText, chapterTitles = []) 
 अध्यायहरू: ${JSON.stringify(chapterTitles)}
 
 निर्देशिकाको अंश:
-${guideClassText.slice(0, 12000)}
+${guideClassText}
 
 ठ्याक्कै यो JSON संरचनामा मात्र जवाफ दिनुहोस् — दिइएको हरेक अध्याय ठ्याक्कै एउटा समूहमा मात्र पर्नुपर्छ (एक्लै भए पनि एउटा समूह मानिन्छ):
 [{"chapter_titles":["अध्याय १"],"reason":null},{"chapter_titles":["अध्याय २","अध्याय ३"],"reason":"दुवैको सिकाइ उपलब्धि समान भएकाले निर्देशिकाले गाभेको"}]`;
-  const text = await generateTextJSON(prompt);
+  // FIX — this used to slice guideClassText to its first 12,000 characters
+  // before it ever reached this prompt. If a class's guide section runs
+  // longer than that (or the relevant chapter's part falls later in the
+  // document), the model never saw it and defaulted to "no grouping info"
+  // — collapsing everything into one lumped assumption downstream. Now
+  // sends the full (already single-class, already-extracted) guide text.
+  const text = await generateTextJSON(prompt, { maxOutputTokens: 8192, timeoutMs: 90000 });
   const result = parseJSON(text);
   if (!Array.isArray(result) || !result.length) {
     // Fall back to "every chapter standalone" rather than fail the whole draft.
@@ -1425,11 +1439,13 @@ export async function detectOfficialLessons(guideClassText, groupChapterTitles =
 ${classroomLine}
 
 निर्देशिकाको अंश:
-${guideClassText.slice(0, 12000)}
+${guideClassText}
 
 ठ्याक्कै यो JSON array मात्र जवाफ दिनुहोस्:
 [{"official_title":"आधिकारिक पाठको नाम","source_lesson_titles":["सम्बन्धित पाठ्यपुस्तक पाठ १","पाठ २"],"reason":"किन गाभियो/अलग राखियो भन्ने छोटो कारण, वा null"}]`;
-  const text = await generateTextJSON(prompt);
+  // FIX — same 12,000-character truncation bug as detectChapterGrouping
+  // above; removed so the full guide section is considered.
+  const text = await generateTextJSON(prompt, { maxOutputTokens: 8192, timeoutMs: 90000 });
   const result = parseJSON(text);
   if (!Array.isArray(result) || !result.length) return fallback();
   return result;
@@ -1446,7 +1462,11 @@ export const draftPlanGroupLessons = async (groupChapterTitles, officialTitles, 
   const mergedNote = isMerged
     ? `यी ${groupChapterTitles.length} वटा अध्यायहरूको सिकाइ उपलब्धि समान भएकाले शिक्षक निर्देशिकाले एउटै समूहमा राखेको छ, तर तलका हरेक आधिकारिक पाठको लागि छुट्टाछुट्टै योजना/रुब्रिक्स नै चाहिन्छ — कुनै दुईलाई एउटै बनाउनु हुँदैन।`
     : "";
-  const guideBlock = guideClassText ? `\n\nशिक्षक निर्देशिकाको मार्गदर्शन (यसैलाई मुख्य आधार बनाउनुहोस्):\n${guideClassText.slice(0, 10000)}` : "";
+  // FIX — was guideClassText.slice(0, 10000); combined with the two
+  // upstream truncations above, this was the main reason a chapter's real
+  // guide content (further down the document) never reached the actual
+  // drafting prompt, so the AI had nothing distinguishing to work from.
+  const guideBlock = guideClassText ? `\n\nशिक्षक निर्देशिकाको मार्गदर्शन (यसैलाई मुख्य आधार बनाउनुहोस्):\n${guideClassText}` : "";
   const lessonsLine = officialTitles.map((t, i) => `${i + 1}. "${t}"`).join("\n");
   const prompt = `तपाईं नेपालको ${classContext}का लागि विद्यालयमा बुझाउनका लागि पाठ योजना र मूल्याङ्कन रुब्रिक्स तयार गर्दै हुनुहुन्छ, 5E मोडेल (Engage, Explore, Explain, Elaborate, Evaluate) मा।
 अध्याय: ${chaptersLine}
@@ -1468,7 +1488,11 @@ ${guideBlock}
   "rubric": [{"criteria":"मूल्याङ्कनको क्षेत्र","levels":[{"level":"उत्कृष्ट","desc":"विवरण"},{"level":"राम्रो","desc":"विवरण"},{"level":"सामान्य","desc":"विवरण"},{"level":"सुधार आवश्यक","desc":"विवरण"}]}]
 }]
 महत्त्वपूर्ण: हरेकको सामग्री सोहीसँग मात्र सान्दर्भिक र फरक-फरक हुनुपर्छ — दुई वटाको जवाफ उस्तै/दोहोरिनु हुँदैन। rubric मा कम्तीमा ३ वटा फरक-फरक मूल्याङ्कन क्षेत्र (जस्तै विषयवस्तु बुझाइ, सहभागिता, प्रस्तुति) समावेश गर्नुहोस्।`;
-  const text = await runPrompt(prompt, ctx, { jsonMode: true, maxOutputTokens: 8192 });
+  // FIX — 8192 output tokens was tight once several official lessons each
+  // need their own full plan+rubric in one JSON array; raised the budget
+  // and timeout together (same pattern as the other big drafting calls in
+  // this file) so a multi-lesson group doesn't get cut off mid-JSON.
+  const text = await runPrompt(prompt, ctx, { jsonMode: true, maxOutputTokens: 16000, timeoutMs: 120000 });
   const result = parseJSON(text);
   if (!Array.isArray(result) || !result.length) {
     const preview = (text && text.trim()) ? text.trim().slice(0, 300) : "(खाली प्रतिक्रिया)";
