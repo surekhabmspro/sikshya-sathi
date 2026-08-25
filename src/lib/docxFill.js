@@ -103,21 +103,39 @@ function formatListLines(items) {
 }
 
 // ─── LESSON PLAN ──────────────────────────────────────────────────────────
+// FIX — these five kept English-only keywords ("engage", "explore", ...).
+// A teacher's real reference file almost always labels these 5E rows in
+// Nepali (or a Nepali transliteration of the English term), so every one
+// of these rows was silently never matched — setCellLines was never
+// called on them, and the original sample file's own text stayed exactly
+// as it was, which is why the export looked "100% identical to the
+// reference file" no matter what the AI drafted. Added the common Nepali
+// wordings + transliterations alongside the English ones. If a teacher's
+// own template uses still-different wording, PlanGroupModal now reports
+// which of these rows it could not find (see fillLessonPlanDocx below) so
+// that can be fixed by widening this list further.
 const LESSON_PLAN_LABELS = {
   major_learning_outcomes: ["major learning outcome", "प्रमुख सिकाइ उपलब्धि", "सिकाइ उपलब्धि"],
-  materials_required: ["materials required", "आवश्यक सामग्री", "शैक्षिक सामग्री"],
-  engage: ["engage"],
-  explore: ["explore"],
-  explain: ["explain"],
-  elaborate: ["elaborate"],
-  evaluate: ["evaluate"],
+  materials_required: ["materials required", "आवश्यक सामग्री", "शैक्षिक सामग्री", "स्रोत सामग्री"],
+  engage: ["engage", "इन्गेज", "आकर्षण", "सहभागिता", "अभिप्रेरणा"],
+  explore: ["explore", "एक्सप्लोर", "अन्वेषण", "खोजी"],
+  explain: ["explain", "एक्सप्लेन", "व्याख्या", "प्रस्तुतीकरण", "स्पष्टीकरण"],
+  elaborate: ["elaborate", "एलाबोरेट", "विस्तार", "अभ्यास तथा अभिवृद्धि", "अभिवृद्धि"],
+  evaluate: ["evaluate", "इभालुएट", "मूल्याङ्कन"],
 };
 
 // data: { major_learning_outcomes:[], materials_required:[], engage, explore, explain, elaborate, evaluate, chapter_title? }
+// FIX — now tracks WHICH of the expected rows were actually found/filled
+// (matchedKeys) vs not (unmatchedKeys), instead of only a single
+// matchedAny boolean. A template that's missing just the Engage/Explore
+// rows (say, because it uses unrecognised wording) used to silently keep
+// its own old sample text in those cells with no signal anything was
+// wrong, as long as at least ONE row elsewhere matched. Callers can now
+// warn the teacher exactly which fields didn't get filled in.
 export async function fillLessonPlanDocx(templateBlob, data) {
   const { zip, doc } = await loadDocxXml(templateBlob);
   const rows = Array.from(doc.getElementsByTagName("w:tr"));
-  let matchedAny = false;
+  const matchedKeys = new Set();
 
   for (const tr of rows) {
     const cells = getRowCells(tr);
@@ -129,7 +147,7 @@ export async function fillLessonPlanDocx(templateBlob, data) {
         const value = data[key];
         const lines = Array.isArray(value) ? formatListLines(value) : [(value || "").trim() || "—"];
         setCellLines(cells[i + 1], lines);
-        matchedAny = true;
+        matchedKeys.add(key);
         i += 2;
       } else {
         i += 1;
@@ -137,10 +155,11 @@ export async function fillLessonPlanDocx(templateBlob, data) {
     }
   }
 
-  if (!matchedAny) {
+  if (!matchedKeys.size) {
     throw new Error("यो ढाँचा फाइलमा Major Learning Outcome / Engage / Explore जस्ता चिन्हारी शब्दहरू भेटिएनन् — ढाँचा फाइल जाँच्नुहोस्।");
   }
-  return { blob: await saveDocxXml(zip, doc), matched: matchedAny };
+  const unmatchedKeys = Object.keys(LESSON_PLAN_LABELS).filter((k) => !matchedKeys.has(k));
+  return { blob: await saveDocxXml(zip, doc), matched: matchedKeys.size > 0, matchedKeys: Array.from(matchedKeys), unmatchedKeys };
 }
 
 // ─── RUBRIC ───────────────────────────────────────────────────────────────
@@ -202,6 +221,7 @@ export async function fillRubricDocx(templateBlob, rubricRows) {
     extra.parentNode.removeChild(extra);
   }
 
+  let unmatchedLevelCells = 0;
   rubricRows.forEach((rowData, ri) => {
     const cells = getRowCells(dataRows[ri]);
     cells.forEach((tc, ci) => {
@@ -212,11 +232,16 @@ export async function fillRubricDocx(templateBlob, rubricRows) {
         return;
       }
       const found = (rowData.levels || []).find((l) => normalize(l.level).includes(normalize(level)) || normalize(level).includes(normalize(l.level)));
+      if (!found) unmatchedLevelCells++;
       setCellLines(tc, [(found?.desc || "—")]);
     });
   });
 
-  return { blob: await saveDocxXml(zip, doc) };
+  // unmatchedLevelCells > 0 means some rubric level column in the
+  // template didn't line up with any of the AI's level names for that
+  // row (e.g. teacher's rubric uses different level names than
+  // उत्कृष्ट/राम्रो/सामान्य/सुधार आवश्यक) — surfaced so the caller can warn.
+  return { blob: await saveDocxXml(zip, doc), unmatchedLevelCells };
 }
 
 // FIX — on mobile (installed PWA / in-app webviews on Android & iOS), the
