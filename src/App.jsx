@@ -5998,6 +5998,7 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
   const [sectionClassMsg,setSectionClassMsg]=useState(null);
   const changeSectionClass=async(s,label)=>{
     if(label===(s.class_label||""))return;
+    const prevLabel=s.class_label;
     setSectionClassBusy(s.id);
     const{data,error}=await db.setSectionClass(s.id,label);
     setSectionClassBusy(null);
@@ -6006,6 +6007,22 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
     if(label)setKnownClasses((prev)=>prev.includes(label)?prev:[...prev,label].sort((a,b)=>a.localeCompare(b,"ne")));
     setSectionClassMsg(s.id);
     setTimeout(()=>setSectionClassMsg((cur)=>cur===s.id?null:cur),1800);
+    // FIX — a section's class TAG changing does not rename it: the report
+    // showed "कक्षा ५ क" still displayed everywhere (pill bar, Settings
+    // "सक्रिय" row) even though the chips above prove its tag really is
+    // कक्षा ६ now. The tag was already correct — the leftover old NAME
+    // text was what looked like "two classes active at once". Walk
+    // straight into rename mode with a best-effort suggestion (swap the
+    // old class text for the new one if it's in there) so fixing the tag
+    // and the name happen as one motion, not two separate steps someone
+    // has to remember to do.
+    if(label&&prevLabel&&s.name.includes(prevLabel)){
+      setEditingSectionId(s.id);
+      setSectionEditValue(s.name.split(prevLabel).join(label));
+    }else if(label&&!s.name.includes(label)){
+      setEditingSectionId(s.id);
+      setSectionEditValue(s.name);
+    }
   };
 
   const uploadTextbook=async(e)=>{
