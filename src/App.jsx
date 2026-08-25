@@ -5995,6 +5995,7 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
   // that binding be corrected directly, per section, without deleting and
   // recreating it (which would orphan its lessons/homework).
   const [sectionClassBusy,setSectionClassBusy]=useState(null);
+  const [sectionClassMsg,setSectionClassMsg]=useState(null);
   const changeSectionClass=async(s,label)=>{
     if(label===(s.class_label||""))return;
     setSectionClassBusy(s.id);
@@ -6003,6 +6004,8 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
     if(error)return;
     onSectionUpdated(data);
     if(label)setKnownClasses((prev)=>prev.includes(label)?prev:[...prev,label].sort((a,b)=>a.localeCompare(b,"ne")));
+    setSectionClassMsg(s.id);
+    setTimeout(()=>setSectionClassMsg((cur)=>cur===s.id?null:cur),1800);
   };
 
   const uploadTextbook=async(e)=>{
@@ -6221,18 +6224,27 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
                   </>
                 )}
               </div>
-              {/* NEW — REDESIGN: the actual class binding, shown and
-                  editable right here. Without this a section could only
-                  ever be silently mis-tagged forever with no way to see or
-                  fix it — exactly what caused a "कक्षा ६ क" pill to keep
-                  showing कक्षा ५'s data. */}
-              <div style={{display:"flex",alignItems:"center",gap:7,paddingLeft:16}}>
-                <span style={{fontSize:13,color:INK_SOFT,flexShrink:0}}>कक्षा:</span>
-                <select value={s.class_label||""} disabled={sectionClassBusy===s.id} onChange={(e)=>changeSectionClass(s,e.target.value)} style={{fontSize:13.5,fontWeight:700,color:mismatched?WARN:INK,background:mismatched?WARN_BG:SURFACE,border:`1.5px solid ${mismatched?WARN:BORDER}`,borderRadius:8,padding:"3px 8px"}}>
-                  <option value="">(कुनै कक्षा तोकिएको छैन — हरेक कक्षामा देखिन्छ)</option>
-                  {knownClasses.map((label)=><option key={label} value={label}>{label}</option>)}
-                </select>
+              {/* FIX — REDESIGN: this was a native <select>, which this
+                  WebView renders huge and overflowing (see report) instead
+                  of a small dropdown — and even fixed, a native select
+                  gives no visible "this was saved" feedback, so it also
+                  looked like nothing was happening. Replaced with the same
+                  tap-a-chip pattern as the कक्षा toggle above: no separate
+                  save button needed because tapping a chip IS the save,
+                  and a brief ✓ confirms it landed. */}
+              <div style={{display:"flex",flexDirection:"column",gap:5,paddingLeft:16}}>
+                <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                  <span style={{fontSize:13,color:INK_SOFT,flexShrink:0}}>कक्षा:</span>
+                  {knownClasses.map((label)=>{
+                    const active=(s.class_label||"")===label;
+                    return(
+                      <button key={label} onClick={()=>changeSectionClass(s,label)} disabled={sectionClassBusy===s.id} className="ss-chip" style={{padding:"3px 10px",borderRadius:999,border:`1.5px solid ${active?ACCENT:BORDER}`,background:active?ACCENT_LIGHT:SURFACE,color:active?ACCENT:INK_SOFT,fontWeight:700,fontSize:12.5,cursor:active?"default":"pointer"}}>{label}</button>
+                    );
+                  })}
+                  <button onClick={()=>changeSectionClass(s,"")} disabled={sectionClassBusy===s.id} className="ss-chip" style={{padding:"3px 10px",borderRadius:999,border:`1.5px dashed ${BORDER}`,background:"transparent",color:INK_SOFT,fontWeight:600,fontSize:12.5,cursor:"pointer"}}>कुनै छैन</button>
+                </div>
                 {mismatched&&<span style={{fontSize:12.5,color:WARN,fontWeight:600}}>⚠ हाल सक्रिय "{classLabel}" भन्दा फरक</span>}
+                {sectionClassMsg===s.id&&<span style={{fontSize:12.5,color:ACCENT,fontWeight:600}}>✓ सुरक्षित भयो</span>}
               </div>
             </div>
           );})}
