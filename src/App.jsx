@@ -5758,15 +5758,33 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
   // the app. Every class this teacher has ever used (from chapters OR
   // sections) shows up as a tappable chip, plus "+ नयाँ कक्षा" to start one
   // that doesn't exist yet.
-  const [knownClasses,setKnownClasses]=useState([]);
+  //
+  // FIX — "switched to कक्षा ५, कक्षा ६ vanished from the list": this used
+  // to start empty on every mount and rely entirely on a fresh network
+  // round-trip (db.getDistinctClassLabels) to repopulate it, with no
+  // .catch — so on a slow or dropped connection (patrol base wifi is not
+  // reliable) the fetch could fail or simply not land before the person
+  // looked at the screen, and a class that is very much still saved on
+  // the server would just be missing from the chip row. Now the list is
+  // cached in localStorage: it loads instantly from the last-known set on
+  // mount (so nothing "vanishes" just because a request is slow/offline),
+  // and the network fetch only ever ADDS to it — a failed or slow fetch
+  // now degrades to "might be missing a class added on another device
+  // since we last synced", never to "lost a class we already knew about".
+  const [knownClasses,setKnownClasses]=useState(()=>{
+    let cached=[];
+    try{ cached=JSON.parse(localStorage.getItem("ss-known-classes")||"[]"); }catch{}
+    return [...new Set([...cached,classLabel])].sort((a,b)=>a.localeCompare(b,"ne"));
+  });
+  useEffect(()=>{ try{localStorage.setItem("ss-known-classes",JSON.stringify(knownClasses));}catch{} },[knownClasses]);
   useEffect(()=>{
     db.getDistinctClassLabels().then(({data})=>{
       const labels=data||[];
       setKnownClasses((prev)=>{
-        const merged=[...new Set([...labels,...prev,classLabel])];
+        const merged=[...new Set([...prev,...labels])];
         return merged.sort((a,b)=>a.localeCompare(b,"ne"));
       });
-    });
+    }).catch(()=>{}); // offline/slow — keep the cached list, don't clear it
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
   // in case classLabel is ever something not yet in the fetched list
@@ -6541,6 +6559,25 @@ export default function App() {
       }
     });
   },[session]);
+
+  // FIX — currentSection and classLabel are two independent pieces of
+  // state (which section is highlighted vs which class the whole app is
+  // showing) that could silently drift apart — e.g. each restored from
+  // its own separate localStorage key on reload, or a section's class
+  // getting reassigned out from under it in Settings. That produced
+  // exactly the confusing state reported: Settings showing a section
+  // marked "सक्रिय" right next to its own "⚠ हाल सक्रिय ... भन्दा फरक"
+  // warning — a section claiming to be active for a class it doesn't
+  // even belong to. Whenever classLabel or the section list changes,
+  // make sure the active section genuinely belongs to the active class —
+  // falling back to one that does (or a class-less legacy one, or none)
+  // instead of leaving a stale cross-class "active" section on screen.
+  useEffect(()=>{
+    setCurrentSection((cur)=>{
+      if(cur&&(!cur.class_label||cur.class_label===classLabel))return cur;
+      return sections.find((s)=>s.class_label===classLabel)||sections.find((s)=>!s.class_label)||null;
+    });
+  },[classLabel,sections]);
 
   // NEW — one shared list of real chapters, loaded once and passed down to
   // every screen that needs a chapter picker (Materials, Planner, Question
