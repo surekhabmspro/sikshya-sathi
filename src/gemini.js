@@ -1159,18 +1159,10 @@ ${html}`;
   return applySimulationSafetyNets(reviewed);
 }
 
-export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", simulationType = null, mode = "new", skipReview = false) => {
+export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", simulationType = null, skipReview = false) => {
   const type = simulationType || pickNextSimulationType();
-  // NEW — "review" mode. Every generation used to pull fresh content from
-  // the chapter with no way to ask for a recap/quiz-style pass instead —
-  // a teacher revisiting a chapter a week later has no way to signal
-  // "test what we already covered" vs. "teach something new". This line
-  // is empty for the default "new" mode (unchanged prompt/behavior).
-  const modeLine = mode === "review"
-    ? `\nयो पुनरावलोकन (review) मोड हो — यो पाठ कक्षालाई पहिल्यै पढाइसकिएको मानेर, नयाँ कुरा सिकाउनुको सट्टा पहिल्यै पढेका तथ्य/अवधारणा सम्झना गर्न/जाँच्न मिल्ने गरी वस्तुहरू छान्नुहोस् — सबैभन्दा महत्त्वपूर्ण र सामान्यतया झुक्किने तथ्यहरूलाई प्राथमिकता दिनुहोस्।\n`
-    : "";
   const prompt = `तपाईं नेपालको ${classContext}का लागि एउटा इन्टरएक्टिभ (अन्तरक्रियात्मक) सिमुलेसन/खेल बनाउँदै हुनुहुन्छ।
-${modeLine}
+
 
 महत्त्वपूर्ण सन्दर्भ — यसले पूरा डिजाइनलाई असर गर्छ: यो विद्यार्थीको आफ्नै मोबाइलमा होइन। शिक्षकले ल्यापटपमा माउस/ट्र्याकप्याडबाट चलाउनुहुन्छ, र प्रोजेक्टरबाट कक्षाकोठाको पर्खालमा ठूलो गरी देखाइन्छ — सम्पूर्ण कक्षाले टाढाबाट हेर्छन्, र शिक्षकले नै क्लिक/ड्र्याग गर्नुहुन्छ (वा विद्यार्थी पालैपालो अगाडि आएर चलाउँछन्)। त्यसैले:
 - यो एउटा फराकिलो (landscape) ल्यापटप/प्रोजेक्टर स्क्रिनका लागि हो, साँघुरो फोन स्क्रिनका लागि होइन। कम्तिमा 1280×720 देखि 1920×1080 सम्मको landscape रिजोल्युसनमा राम्रोसँग मिल्नुपर्छ।
