@@ -1649,10 +1649,19 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
   // NEW — Phase 2: lets a teacher collapse "आजको उद्देश्य" once they've
   // glanced at it, so it stops eating vertical space on every visit.
   const [objOpen,setObjOpen]=useState(true);
+  // FIX — separate open/close state for the कठिन शब्द अर्थ section on
+  // mobile, now that it's split out from the आजको उद्देश्य collapsible
+  // instead of being nested inside it and sharing objOpen.
+  const [vocabOpen,setVocabOpen]=useState(true);
   // NEW — on desktop, objectives move into a popup instead of always
   // sitting in the rail, so the rail stays a slim tab list and the actual
   // content gets the space (see the "empty space on PC" fix below).
   const [objPopup,setObjPopup]=useState(false);
+  // FIX — "आजको उद्देश्य" and कठिन शब्द अर्थ used to share one popup
+  // (objPopup), so the teacher had to scan past the objectives list to
+  // get to the word list. Split into its own popup/trigger so each can be
+  // opened independently and given its own full-size, large-font display.
+  const [vocabListPopup,setVocabListPopup]=useState(false);
   // NEW — pictorial vocabulary: when a hard word's meaning popup opens,
   // try to fetch a relevant illustrative image for it (best-effort, see
   // fetchWordImage). Resets whenever a different word (or none) is open.
@@ -2125,31 +2134,47 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
       <div className="no-print lesson-shell">
         <div className="lesson-rail">
           {(objectives.length>0||vocabulary.length>0)&&(<>
-            <div className="lesson-obj-mobile" style={{padding:"10px 16px 12px",borderBottom:`1px solid ${BORDER}`}}>
-              {/* NEW — collapsible: a teacher who already knows today's
-                  objective by heart (most days, after the first glance)
-                  can close this and get straight to the tab content
-                  instead of scrolling past it every time. */}
-              <button className="ss-btn" onClick={()=>setObjOpen((v)=>!v)} style={{display:"flex",alignItems:"center",gap:5,width:"100%",background:"none",border:"none",cursor:"pointer",padding:0,marginBottom:objOpen?5:0,color:INK_SOFT,fontSize:14.5,fontWeight:600}}>
-                <ArrowDown size={14} style={{transform:objOpen?"rotate(0deg)":"rotate(-90deg)",transition:"transform .15s ease",flexShrink:0}}/>
-                आजको उद्देश्य
-              </button>
-              {objOpen&&(<>
-                <ul style={{margin:0,paddingLeft:16,fontSize:16,color:INK,lineHeight:1.55}}>{objectives.map((o,i)=><li key={i}>{o}</li>)}</ul>
-                <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>
-                  {vocabulary.map((v)=>{
-                    const idx=v.indexOf(":");
-                    const word=idx>-1?v.slice(0,idx).trim():v.trim();
-                    const meaning=idx>-1?v.slice(idx+1).trim():"";
-                    return(
-                      <button className="ss-btn" key={v} onClick={()=>meaning&&setVocabPopup({word,meaning})} style={{background:WARN_BG,color:MARIGOLD_DARK,fontSize:15,fontWeight:600,padding:"3px 8px",borderRadius:6,border:"none",display:"flex",alignItems:"center",gap:3,cursor:meaning?"pointer":"default"}}>
-                        {word}{meaning&&<HelpCircle size={11}/>}
-                      </button>
-                    );
-                  })}
-                </div>
-              </>)}
-            </div>
+            {objectives.length>0&&(
+              <div className="lesson-obj-mobile" style={{padding:"10px 16px 12px",borderBottom:`1px solid ${BORDER}`}}>
+                {/* NEW — collapsible: a teacher who already knows today's
+                    objective by heart (most days, after the first glance)
+                    can close this and get straight to the tab content
+                    instead of scrolling past it every time. */}
+                <button className="ss-btn" onClick={()=>setObjOpen((v)=>!v)} style={{display:"flex",alignItems:"center",gap:5,width:"100%",background:"none",border:"none",cursor:"pointer",padding:0,marginBottom:objOpen?5:0,color:INK_SOFT,fontSize:14.5,fontWeight:600}}>
+                  <ArrowDown size={14} style={{transform:objOpen?"rotate(0deg)":"rotate(-90deg)",transition:"transform .15s ease",flexShrink:0}}/>
+                  आजको उद्देश्य
+                </button>
+                {objOpen&&<ul style={{margin:0,paddingLeft:16,fontSize:16,color:INK,lineHeight:1.55}}>{objectives.map((o,i)=><li key={i}>{o}</li>)}</ul>}
+              </div>
+            )}
+            {/* FIX — कठिन शब्द अर्थ used to live nested inside the आजको
+                उद्देश्य collapsible (only visible when objOpen was true,
+                sharing its toggle). Now its own separate collapsible
+                section from the start, with its own toggle, so closing
+                one never hides the other and there's no "popup inside a
+                popup" feel. */}
+            {vocabulary.length>0&&(
+              <div className="lesson-obj-mobile" style={{padding:"10px 16px 12px",borderBottom:`1px solid ${BORDER}`}}>
+                <button className="ss-btn" onClick={()=>setVocabOpen((v)=>!v)} style={{display:"flex",alignItems:"center",gap:5,width:"100%",background:"none",border:"none",cursor:"pointer",padding:0,marginBottom:vocabOpen?5:0,color:INK_SOFT,fontSize:14.5,fontWeight:600}}>
+                  <ArrowDown size={14} style={{transform:vocabOpen?"rotate(0deg)":"rotate(-90deg)",transition:"transform .15s ease",flexShrink:0}}/>
+                  कठिन शब्द अर्थ
+                </button>
+                {vocabOpen&&(
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    {vocabulary.map((v)=>{
+                      const idx=v.indexOf(":");
+                      const word=idx>-1?v.slice(0,idx).trim():v.trim();
+                      const meaning=idx>-1?v.slice(idx+1).trim():"";
+                      return(
+                        <button className="ss-btn" key={v} onClick={()=>meaning&&setVocabPopup({word,meaning})} style={{background:WARN_BG,color:MARIGOLD_DARK,fontSize:15,fontWeight:600,padding:"3px 8px",borderRadius:6,border:"none",display:"flex",alignItems:"center",gap:3,cursor:meaning?"pointer":"default"}}>
+                          {word}{meaning&&<HelpCircle size={11}/>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
             {/* NEW — desktop: instead of objectives permanently taking up
                 rail space, a slim trigger opens them in a popup. Sits
                 above the tab list now (see it first, then teach) rather
@@ -2157,6 +2182,11 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
             <button className="lesson-obj-trigger ss-btn" onClick={()=>setObjPopup(true)} style={{alignItems:"center",gap:8,margin:"10px 10px 4px",padding:"11px 13px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE_2,cursor:"pointer",color:INK,fontWeight:700,fontSize:15}}>
               <ClipboardList size={15} color={ACCENT}/>आजको उद्देश्य हेर्नुहोस्
             </button>
+            {vocabulary.length>0&&(
+              <button className="lesson-obj-trigger ss-btn" onClick={()=>setVocabListPopup(true)} style={{alignItems:"center",gap:8,margin:"0 10px 4px",padding:"11px 13px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE_2,cursor:"pointer",color:INK,fontWeight:700,fontSize:15}}>
+                <HelpCircle size={15} color={MARIGOLD_DARK}/>कठिन शब्द अर्थ हेर्नुहोस्
+              </button>
+            )}
           </>)}
           <div className="lesson-tabs">
             {tabs.map((t)=>{const Icon=t.icon;const active=tab===t.id;return<button key={t.id} onClick={()=>setTab(t.id)} className={`lesson-tab-btn${active?" active":""}`} style={{color:active?ACCENT:INK_SOFT,borderBottomColor:active?ACCENT:"transparent"}}><Icon size={15}/>{t.label}</button>;})}
@@ -2417,26 +2447,36 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
 
       {objPopup&&(
         <div className="no-print" onClick={()=>setObjPopup(false)} style={{position:"fixed",inset:0,zIndex:80,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.5)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:20}}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:"28px 30px",maxWidth:"min(92vw, 640px)",width:"100%",maxHeight:"86vh",overflowY:"auto",boxSizing:"border-box",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-              <div style={{fontSize:"clamp(20px, 2.4vw, 24px)",fontWeight:800,color:INK}}>आजको उद्देश्य</div>
-              <IconButton icon={X} onClick={()=>setObjPopup(false)}/>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:"36px 40px",maxWidth:"min(94vw, 900px)",width:"100%",maxHeight:"88vh",overflowY:"auto",boxSizing:"border-box",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+              <div style={{fontSize:"clamp(26px, 3.2vw, 34px)",fontWeight:800,color:INK}}>आजको उद्देश्य</div>
+              <IconButton icon={X} onClick={()=>setObjPopup(false)} size={26}/>
             </div>
-            <ul style={{margin:0,paddingLeft:20,fontSize:"clamp(16.5px, 1.9vw, 19px)",color:INK,lineHeight:1.7}}>{objectives.map((o,i)=><li key={i}>{o}</li>)}</ul>
-            {vocabulary.length>0&&(
-              <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:12}}>
-                {vocabulary.map((v)=>{
-                  const idx=v.indexOf(":");
-                  const word=idx>-1?v.slice(0,idx).trim():v.trim();
-                  const meaning=idx>-1?v.slice(idx+1).trim():"";
-                  return(
-                    <button className="ss-btn" key={v} onClick={()=>meaning&&setVocabPopup({word,meaning})} style={{background:WARN_BG,color:MARIGOLD_DARK,fontSize:15,fontWeight:600,padding:"4px 9px",borderRadius:7,border:"none",display:"flex",alignItems:"center",gap:3,cursor:meaning?"pointer":"default"}}>
-                      {word}{meaning&&<HelpCircle size={11}/>}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            <ul style={{margin:0,paddingLeft:26,fontSize:"clamp(20px, 2.6vw, 26px)",color:INK,lineHeight:1.8}}>{objectives.map((o,i)=><li key={i} style={{marginBottom:10}}>{o}</li>)}</ul>
+          </div>
+        </div>
+      )}
+
+      {vocabListPopup&&(
+        <div className="no-print" onClick={()=>setVocabListPopup(false)} style={{position:"fixed",inset:0,zIndex:80,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.5)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:20}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:"36px 40px",maxWidth:"min(94vw, 900px)",width:"100%",maxHeight:"88vh",overflowY:"auto",boxSizing:"border-box",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+              <div style={{fontSize:"clamp(26px, 3.2vw, 34px)",fontWeight:800,color:INK}}>कठिन शब्द अर्थ</div>
+              <IconButton icon={X} onClick={()=>setVocabListPopup(false)} size={26}/>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:14}}>
+              {vocabulary.map((v)=>{
+                const idx=v.indexOf(":");
+                const word=idx>-1?v.slice(0,idx).trim():v.trim();
+                const meaning=idx>-1?v.slice(idx+1).trim():"";
+                return(
+                  <div key={v} style={{display:"flex",alignItems:"baseline",gap:14,padding:"14px 18px",background:WARN_BG,borderRadius:12,cursor:meaning?"pointer":"default"}} onClick={()=>meaning&&setVocabPopup({word,meaning})}>
+                    <div style={{fontSize:"clamp(20px, 2.4vw, 24px)",fontWeight:800,color:MARIGOLD_DARK,flexShrink:0}}>{word}</div>
+                    {meaning&&<div style={{fontSize:"clamp(17px, 2vw, 20px)",color:INK,lineHeight:1.6}}>{meaning}</div>}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
