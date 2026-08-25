@@ -5988,6 +5988,14 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
   const [editingSectionId,setEditingSectionId]=useState(null);
   const [sectionEditValue,setSectionEditValue]=useState("");
   const [sectionBusy,setSectionBusy]=useState(null);
+  // SIMPLIFY — see the सेक्सनहरू card below: normal view only shows
+  // sections belonging to the active class; sections tagged for a
+  // different class are held back here and only surfaced if the person
+  // explicitly asks to see them (repair use case), instead of cluttering
+  // every visit.
+  const [showAllClassSections,setShowAllClassSections]=useState(false);
+  const otherClassSections=sections.filter((s)=>s.class_label&&s.class_label!==classLabel);
+  const visibleSections=showAllClassSections?sections:sections.filter((s)=>!s.class_label||s.class_label===classLabel);
   const renameSection=async(s)=>{
     const newName=sectionEditValue.trim();
     if(!newName||newName===s.name){setEditingSectionId(null);return;}
@@ -6227,9 +6235,21 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
 
       <Card style={{marginBottom:14}}>
         <SectionLabel icon={Layers} color={BLUE}>सेक्सनहरू</SectionLabel>
-        <div style={{fontSize:15,color:INK_SOFT,marginBottom:12,lineHeight:1.6}}>सेक्सन भनेको एउटै कक्षाभित्रका महाशाखा हुन् (क, ख...) — कक्षा माथिको "कक्षा" टगलबाट छान्नुहोस्, यहाँ त्यसैभित्रको महाशाखा थप्नुहोस्। हरेक सेक्सनको आफ्नै कक्षा ट्याग हुन्छ (नाममा होइन) — त्यो ट्यागले नै तल तोकिएको कक्षा गलत भए यहीँबाट सच्याउन सकिन्छ।</div>
+        <div style={{fontSize:15,color:INK_SOFT,marginBottom:12,lineHeight:1.6}}>सेक्सन भनेको हाल सक्रिय "{classLabel}" भित्रका महाशाखा हुन् (क, ख...)। अर्को कक्षाका सेक्सन हेर्न माथिको "कक्षा" प्रयोग गर्नुहोस्।</div>
         <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:12}}>
-          {sections.length===0?<div style={{fontSize:16,color:INK_SOFT}}>कुनै सेक्सन छैन।</div>:sections.map((s,i)=>{
+          {/* SIMPLIFY — the कक्षा chip-row + mismatch warning on every
+              section (added to fix a real data-repair need) turned every
+              single row into something a new user had to parse, even
+              though in normal use — create a section, it belongs to
+              whatever class was active, done — there is nothing to
+              repair. Default view now only lists sections already
+              belonging to the active class (same rule the pill bar at the
+              top of the app uses), with none of that machinery visible.
+              Anything from another class is still there, just tucked
+              behind an explicit "देखाउनुहोस्" below, and only then does the
+              per-row कक्षा fixer reappear — so a new user never sees it
+              until it's actually needed. */}
+          {visibleSections.length===0?<div style={{fontSize:16,color:INK_SOFT}}>कुनै सेक्सन छैन।</div>:visibleSections.map((s,i)=>{
             const mismatched=s.class_label&&s.class_label!==classLabel;
             return(
             <div key={s.id} style={{display:"flex",flexDirection:"column",gap:6,padding:"9px 12px",background:SURFACE_2,borderRadius:8,borderLeft:`3px solid ${mismatched?WARN:PALETTE[i%PALETTE.length]}`}}>
@@ -6259,31 +6279,31 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
                   </>
                 )}
               </div>
-              {/* FIX — REDESIGN: this was a native <select>, which this
-                  WebView renders huge and overflowing (see report) instead
-                  of a small dropdown — and even fixed, a native select
-                  gives no visible "this was saved" feedback, so it also
-                  looked like nothing was happening. Replaced with the same
-                  tap-a-chip pattern as the कक्षा toggle above: no separate
-                  save button needed because tapping a chip IS the save,
-                  and a brief ✓ confirms it landed. */}
-              <div style={{display:"flex",flexDirection:"column",gap:5,paddingLeft:16}}>
-                <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                  <span style={{fontSize:13,color:INK_SOFT,flexShrink:0}}>कक्षा:</span>
-                  {knownClasses.map((label)=>{
-                    const active=(s.class_label||"")===label;
-                    return(
-                      <button key={label} onClick={()=>changeSectionClass(s,label)} disabled={sectionClassBusy===s.id} className="ss-chip" style={{padding:"3px 10px",borderRadius:999,border:`1.5px solid ${active?ACCENT:BORDER}`,background:active?ACCENT_LIGHT:SURFACE,color:active?ACCENT:INK_SOFT,fontWeight:700,fontSize:12.5,cursor:active?"default":"pointer"}}>{label}</button>
-                    );
-                  })}
-                  <button onClick={()=>changeSectionClass(s,"")} disabled={sectionClassBusy===s.id} className="ss-chip" style={{padding:"3px 10px",borderRadius:999,border:`1.5px dashed ${BORDER}`,background:"transparent",color:INK_SOFT,fontWeight:600,fontSize:12.5,cursor:"pointer"}}>कुनै छैन</button>
+              {showAllClassSections&&(
+                <div style={{display:"flex",flexDirection:"column",gap:5,paddingLeft:16}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                    <span style={{fontSize:13,color:INK_SOFT,flexShrink:0}}>कक्षा:</span>
+                    {knownClasses.map((label)=>{
+                      const active=(s.class_label||"")===label;
+                      return(
+                        <button key={label} onClick={()=>changeSectionClass(s,label)} disabled={sectionClassBusy===s.id} className="ss-chip" style={{padding:"3px 10px",borderRadius:999,border:`1.5px solid ${active?ACCENT:BORDER}`,background:active?ACCENT_LIGHT:SURFACE,color:active?ACCENT:INK_SOFT,fontWeight:700,fontSize:12.5,cursor:active?"default":"pointer"}}>{label}</button>
+                      );
+                    })}
+                    <button onClick={()=>changeSectionClass(s,"")} disabled={sectionClassBusy===s.id} className="ss-chip" style={{padding:"3px 10px",borderRadius:999,border:`1.5px dashed ${BORDER}`,background:"transparent",color:INK_SOFT,fontWeight:600,fontSize:12.5,cursor:"pointer"}}>कुनै छैन</button>
+                  </div>
+                  {mismatched&&<span style={{fontSize:12.5,color:WARN,fontWeight:600}}>⚠ हाल सक्रिय "{classLabel}" भन्दा फरक</span>}
+                  {sectionClassMsg===s.id&&<span style={{fontSize:12.5,color:ACCENT,fontWeight:600}}>✓ सुरक्षित भयो</span>}
                 </div>
-                {mismatched&&<span style={{fontSize:12.5,color:WARN,fontWeight:600}}>⚠ हाल सक्रिय "{classLabel}" भन्दा फरक</span>}
-                {sectionClassMsg===s.id&&<span style={{fontSize:12.5,color:ACCENT,fontWeight:600}}>✓ सुरक्षित भयो</span>}
-              </div>
+              )}
             </div>
           );})}
         </div>
+        {otherClassSections.length>0&&(
+          <button onClick={()=>setShowAllClassSections((v)=>!v)} style={{background:"none",border:"none",padding:0,marginBottom:12,color:ACCENT,fontWeight:700,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+            {showAllClassSections?<EyeOff size={14}/>:<Eye size={14}/>}
+            {showAllClassSections?"अरू कक्षाका सेक्सन लुकाउनुहोस्":`अरू कक्षाका सेक्सन पनि देखाउनुहोस् (${otherClassSections.length}) — मिलाउन चाहिएमा मात्र`}
+          </button>
+        )}
         <div style={{fontSize:14,color:INK_SOFT,fontWeight:600,marginBottom:7}}>"{classLabel}" मा नयाँ सेक्सन थप्नुहोस्</div>
         <div style={{display:"flex",gap:8}}>
           <input value={name} onChange={(e)=>setName(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&addSection()} placeholder="जस्तै: क" className="ss-field" style={{flex:1,minWidth:0,borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,outline:"none"}}/>
