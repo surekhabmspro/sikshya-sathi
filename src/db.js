@@ -83,6 +83,23 @@ export const renameSection = async (id, name) => {
   return { data, error };
 };
 
+// NEW — lets a section's class_label be corrected/reassigned after it was
+// created. A section's *name* (e.g. "कक्षा ६ क") is just a label the teacher
+// typed — it does NOT by itself set which class the section's data belongs
+// to. That's the class_label column, which is set once at creation time to
+// whichever class happened to be active in the app right then. If a
+// section was created before switching class in Settings (a very easy
+// mistake — the quick "+ नयाँ सेक्सन" button in the top pill bar has no class
+// picker of its own), its name could say "कक्षा ६ क" while its class_label
+// silently stayed "कक्षा ५", making it look like tapping that pill does
+// nothing (because it doesn't — the app never actually switches class).
+// This lets that mismatch be fixed in place from Settings, without deleting
+// and recreating the section (which would orphan its lessons/homework).
+export const setSectionClass = async (id, classLabel) => {
+  const { data, error } = await supabase.from("sections").update({ class_label: classLabel || null }).eq("id", id).select().single();
+  return { data, error };
+};
+
 export const deleteSection = async (id) => {
   await supabase.from("lessons").update({ section_id: null }).eq("section_id", id);
   await supabase.from("homework").update({ section_id: null }).eq("section_id", id);
@@ -103,12 +120,20 @@ export const deleteSection = async (id) => {
 // vs "कक्षा  ६" with an extra space would look identical but scope to a
 // totally empty, separate class). Pulled from chapters since every class
 // gets at least one chapter before anything else is created for it.
+// FIX — this only ever looked at `chapters`, so a class with a Section
+// already created for it (e.g. right after signup, before any chapter
+// exists) wouldn't show up as a "known class" yet — the quick-switch chips
+// in Settings would just be missing it. Now unions class_label from both
+// chapters AND sections, so a class is "known" the moment either exists.
 export const getDistinctClassLabels = async () => {
   const user = (await supabase.auth.getUser()).data?.user;
   if (!user) return { data: [], error: null };
-  const { data, error } = await supabase.from("chapters").select("class_label").eq("teacher_id", user.id);
-  if (error) return { data: [], error };
-  const labels = [...new Set((data || []).map((r) => r.class_label).filter(Boolean))];
+  const [{ data: chapterRows, error: chErr }, { data: sectionRows, error: secErr }] = await Promise.all([
+    supabase.from("chapters").select("class_label").eq("teacher_id", user.id),
+    supabase.from("sections").select("class_label").eq("teacher_id", user.id),
+  ]);
+  if (chErr && secErr) return { data: [], error: chErr || secErr };
+  const labels = [...new Set([...(chapterRows || []), ...(sectionRows || [])].map((r) => r.class_label).filter(Boolean))];
   labels.sort((a, b) => a.localeCompare(b, "ne"));
   return { data: labels, error: null };
 };
