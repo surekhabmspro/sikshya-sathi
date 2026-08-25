@@ -5977,7 +5977,7 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
     const{data,error}=await db.createSection(name.trim(),classLabel);
     setSaving(false);
     if(error){setSectionMsg("त्रुटि: "+error.message);return;}
-    onSectionAdded(data);setName("");setSectionMsg(`"${data.name}" थपियो!`);
+    onSectionAdded(data);setName("");setAddingSection(false);setSectionMsg(`"${data.name}" थपियो!`);
     setTimeout(()=>setSectionMsg(""),2000);
   };
 
@@ -5988,6 +5988,9 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
   const [editingSectionId,setEditingSectionId]=useState(null);
   const [sectionEditValue,setSectionEditValue]=useState("");
   const [sectionBusy,setSectionBusy]=useState(null);
+  // NEW — SIMPLIFY: merged कक्षा+सेक्सन card uses a dashed "+" chip (same
+  // pattern as "+ नयाँ कक्षा") instead of a permanently-visible input row.
+  const [addingSection,setAddingSection]=useState(false);
   // SIMPLIFY — see the सेक्सनहरू card below: normal view only shows
   // sections belonging to the active class; sections tagged for a
   // different class are held back here and only surfaced if the person
@@ -6079,19 +6082,24 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
     <div className="ss-page-read" style={{padding:"20px 20px 130px",maxWidth:680,margin:"0 auto"}}>
       <PageHeader icon={SettingsIcon} title="सेटिङ" color={VIOLET}/>
 
-      {/* REDESIGN — कक्षा toggle moved to the very top of Settings, above
-          even the install-app card: this is the single control that
-          decides which class's data the whole app shows (dashboard,
-          उपलोड गरिएका फाइल, textbook, AI-generated content, lesson plans,
-          questions, worksheets — everything). It used to be a free-text
-          field buried lower down the page, easy to mistype or skip, and a
-          section pill at the top of Home could ALSO silently change (or
-          fail to change) the class depending on how that section happened
-          to be tagged when created — two different, inconsistent ways to
-          "switch class". Now there is exactly one: this toggle. */}
+      {/* REDESIGN — कक्षा + सेक्सनहरू merged into ONE card at the very top
+          of Settings, above even the install-app card. Previously these
+          were two separate cards in two different places on the page —
+          one control at the top for "which कक्षा", another one much
+          further down for "which सेक्सन within it", so switching both
+          meant scrolling back and forth. Together they're the two things
+          that decide what data shows up everywhere in the app (home
+          screen, uploaded files, AI content, lesson plans, questions,
+          worksheets), so they now live side by side in one place, in the
+          order you'd actually set them: कक्षा first, then सेक्सन within it.
+          Tapping a chip directly switches (no separate "यो छान्नुहोस्"
+          button); pencil/trash icons on each सेक्सन chip handle rename and
+          delete inline. */}
       <Card accentColor={ACCENT} style={{marginBottom:14}}>
-        <SectionLabel icon={BookOpen}>कक्षा</SectionLabel>
-        <div style={{fontSize:15,color:INK_SOFT,marginBottom:12,lineHeight:1.6}}>तल कक्षा छान्नुहोस् — एपभर (होम स्क्रिन, अपलोड गरिएका फाइल, AI उत्पन्न सामग्री, पाठ योजना, प्रश्न, कार्यपत्र...) अब सोही कक्षाको मात्र डाटा देखिनेछ।</div>
+        <SectionLabel icon={BookOpen}>कक्षा र सेक्सन</SectionLabel>
+        <div style={{fontSize:15,color:INK_SOFT,marginBottom:14,lineHeight:1.6}}>तल छान्नुहोस् — एपभर (होम स्क्रिन, अपलोड गरिएका फाइल, AI सामग्री, पाठ योजना, प्रश्न, कार्यपत्र...) अब सोही कक्षा र सेक्सनको मात्र डाटा देखिनेछ।</div>
+
+        <div style={{fontSize:13,fontWeight:700,color:INK_SOFT,marginBottom:7,letterSpacing:0.2}}>कक्षा</div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:8}}>
           {knownClasses.map((label)=>(
             <button key={label} onClick={()=>switchToClass(label)} className="ss-chip" style={{padding:"9px 16px",borderRadius:999,border:`2px solid ${label===classLabel?ACCENT:BORDER}`,background:label===classLabel?ACCENT_LIGHT:SURFACE,color:label===classLabel?ACCENT:INK_SOFT,fontWeight:700,fontSize:15.5,cursor:label===classLabel?"default":"pointer"}}>{label}</button>
@@ -6106,7 +6114,59 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
             <button onClick={()=>setAddingClass(true)} className="ss-chip" style={{padding:"9px 16px",borderRadius:999,border:`2px dashed ${BORDER}`,background:"transparent",color:INK_SOFT,fontWeight:700,fontSize:15.5,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}><Plus size={15}/>नयाँ कक्षा</button>
           )}
         </div>
-        {classMsg&&<div style={{marginTop:4,fontSize:15,color:ACCENT,fontWeight:600}}>{classMsg}</div>}
+        {classMsg&&<div style={{marginBottom:10,fontSize:15,color:ACCENT,fontWeight:600}}>{classMsg}</div>}
+
+        <div style={{height:1,background:BORDER,margin:"12px 0 14px"}}/>
+
+        <div style={{fontSize:13,fontWeight:700,color:INK_SOFT,marginBottom:7,letterSpacing:0.2}}>"{classLabel}" का सेक्सन</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:8,alignItems:"center"}}>
+          {visibleSections.length===0&&!showAllClassSections&&(
+            <div style={{fontSize:15,color:INK_SOFT}}>कुनै सेक्सन छैन।</div>
+          )}
+          {visibleSections.map((s)=>{
+            const isActive=currentSection?.id===s.id;
+            const mismatched=s.class_label&&s.class_label!==classLabel;
+            if(editingSectionId===s.id){
+              return(
+                <div key={s.id} style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                  <input autoFocus value={sectionEditValue} onChange={(e)=>setSectionEditValue(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&renameSection(s)} className="ss-field" style={{borderRadius:999,padding:"7px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE,width:110}}/>
+                  {showAllClassSections&&(
+                    <select value={s.class_label||""} onChange={(e)=>changeSectionClass(s,e.target.value)} disabled={sectionClassBusy===s.id} className="ss-field" style={{borderRadius:999,padding:"7px 10px",fontSize:14,border:`1.5px solid ${BORDER}`,background:SURFACE,color:INK}}>
+                      <option value="">कक्षा छैन</option>
+                      {knownClasses.map((label)=><option key={label} value={label}>{label}</option>)}
+                    </select>
+                  )}
+                  <button className="ss-btn" onClick={()=>renameSection(s)} disabled={sectionBusy===s.id} style={{background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:999,padding:"7px 11px",fontWeight:700,fontSize:14.5,cursor:"pointer",boxShadow:SHADOW.accent}}>✓</button>
+                  <button className="ss-icon-btn" onClick={()=>setEditingSectionId(null)} style={{color:INK_SOFT,fontSize:14.5,cursor:"pointer",padding:"7px 10px"}}>✕</button>
+                  {sectionClassMsg===s.id&&<span style={{fontSize:12.5,color:ACCENT,fontWeight:600}}>✓ सुरक्षित भयो</span>}
+                </div>
+              );
+            }
+            return(
+              <div key={s.id} style={{display:"flex",alignItems:"center",gap:1,borderRadius:999,border:`2px solid ${isActive?ACCENT:(mismatched?WARN:BORDER)}`,background:isActive?ACCENT_LIGHT:SURFACE,paddingLeft:14}}>
+                <button onClick={()=>!isActive&&onSelectSection(s)} disabled={sectionBusy===s.id} style={{background:"none",border:"none",padding:"8px 2px",fontWeight:700,fontSize:15.5,color:isActive?ACCENT:INK,cursor:isActive?"default":"pointer"}}>{s.name}{isActive?" ✓":""}</button>
+                <button className="ss-icon-btn" onClick={()=>{setEditingSectionId(s.id);setSectionEditValue(s.name);}} disabled={sectionBusy===s.id} style={{color:isActive?ACCENT:INK_SOFT,cursor:"pointer",padding:"8px 6px",display:"flex"}} title="नाम बदल्नुहोस्"><PenSquare size={14}/></button>
+                <button className="ss-icon-btn" onClick={()=>deleteSectionHandler(s)} disabled={sectionBusy===s.id} style={{color:DANGER,cursor:"pointer",padding:"8px 10px 8px 6px",display:"flex"}} title="मेटाउनुहोस्"><Trash2 size={14}/></button>
+              </div>
+            );
+          })}
+          {addingSection?(
+            <div style={{display:"flex",gap:6,alignItems:"center"}}>
+              <input autoFocus value={name} onChange={(e)=>setName(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&addSection()} placeholder="जस्तै: क" className="ss-field" style={{border:`1.5px solid ${BORDER}`,borderRadius:999,padding:"9px 12px",fontSize:15.5,width:110}}/>
+              <button className="ss-btn" onClick={addSection} disabled={saving} style={{background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:999,padding:"9px 14px",fontWeight:700,fontSize:15.5,cursor:"pointer",boxShadow:SHADOW.accent}}>{saving?"...":"थप"}</button>
+              <IconButton icon={X} onClick={()=>{setAddingSection(false);setName("");}} size={16}/>
+            </div>
+          ):(
+            <button onClick={()=>setAddingSection(true)} className="ss-chip" style={{padding:"9px 16px",borderRadius:999,border:`2px dashed ${BORDER}`,background:"transparent",color:INK_SOFT,fontWeight:700,fontSize:15.5,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}><Plus size={15}/>नयाँ सेक्सन</button>
+          )}
+        </div>
+        {sectionMsg&&<div style={{marginBottom:8,fontSize:15,color:sectionMsg.startsWith("त्रुटि")||sectionMsg.includes("पहिल्यै")?DANGER:ACCENT,fontWeight:600}}>{sectionMsg}</div>}
+        {otherClassSections.length>0&&(
+          <button onClick={()=>setShowAllClassSections((v)=>!v)} style={{background:"none",border:"none",padding:0,marginTop:2,color:ACCENT,fontWeight:700,fontSize:13.5,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+            {showAllClassSections?<EyeOff size={13}/>:<Eye size={13}/>}
+            {showAllClassSections?"अन्य कक्षाका सेक्सन लुकाउनुहोस्":`अन्य कक्षाका सेक्सन पनि देखाउनुहोस् (${otherClassSections.length})`}
+          </button>
+        )}
       </Card>
 
       {!isStandalone&&(
@@ -6233,88 +6293,11 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
         <button className="ss-btn" onClick={()=>{if(confirm("लगआउट गर्ने?"))db.signOut();}} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"10px",borderRadius:10,border:`1px solid ${DANGER_BG}`,background:DANGER_BG,color:DANGER,fontWeight:700,fontSize:16.5,cursor:"pointer"}}><LogOut size={15}/>लगआउट</button>
       </Card>
 
-      <Card style={{marginBottom:14}}>
-        <SectionLabel icon={Layers} color={BLUE}>सेक्सनहरू</SectionLabel>
-        <div style={{fontSize:15,color:INK_SOFT,marginBottom:12,lineHeight:1.6}}>सेक्सन भनेको हाल सक्रिय "{classLabel}" भित्रका महाशाखा हुन् (क, ख...)। अर्को कक्षाका सेक्सन हेर्न माथिको "कक्षा" प्रयोग गर्नुहोस्।</div>
-        <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:12}}>
-          {/* SIMPLIFY — the कक्षा chip-row + mismatch warning on every
-              section (added to fix a real data-repair need) turned every
-              single row into something a new user had to parse, even
-              though in normal use — create a section, it belongs to
-              whatever class was active, done — there is nothing to
-              repair. Default view now only lists sections already
-              belonging to the active class (same rule the pill bar at the
-              top of the app uses), with none of that machinery visible.
-              Anything from another class is still there, just tucked
-              behind an explicit "देखाउनुहोस्" below, and only then does the
-              per-row कक्षा fixer reappear — so a new user never sees it
-              until it's actually needed. */}
-          {visibleSections.length===0?<div style={{fontSize:16,color:INK_SOFT}}>कुनै सेक्सन छैन।</div>:visibleSections.map((s,i)=>{
-            const mismatched=s.class_label&&s.class_label!==classLabel;
-            return(
-            <div key={s.id} style={{display:"flex",flexDirection:"column",gap:6,padding:"9px 12px",background:SURFACE_2,borderRadius:8,borderLeft:`3px solid ${mismatched?WARN:PALETTE[i%PALETTE.length]}`}}>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                {editingSectionId===s.id?(
-                  <>
-                    <input autoFocus value={sectionEditValue} onChange={(e)=>setSectionEditValue(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&renameSection(s)} className="ss-field" style={{flex:1,minWidth:0,borderRadius:8,padding:"7px 10px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE}}/>
-                    <button className="ss-btn" onClick={()=>renameSection(s)} disabled={sectionBusy===s.id} style={{background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:8,padding:"7px 11px",fontWeight:700,fontSize:14.5,cursor:"pointer",flexShrink:0,boxShadow:SHADOW.accent}}>✓</button>
-                    <button className="ss-icon-btn" onClick={()=>setEditingSectionId(null)} style={{color:INK_SOFT,fontSize:14.5,cursor:"pointer",flexShrink:0,padding:"7px 10px"}}>✕</button>
-                  </>
-                ):(
-                  <>
-                    <div style={{width:8,height:8,borderRadius:"50%",background:mismatched?WARN:PALETTE[i%PALETTE.length],flexShrink:0}}/>
-                    <div style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:16.5,fontWeight:600,color:INK}}>{s.name}</div>
-                    {currentSection?.id===s.id?(
-                      <span style={{fontSize:13,background:ACCENT_LIGHT,color:ACCENT,padding:"2px 8px",borderRadius:999,fontWeight:700,flexShrink:0}}>सक्रिय</span>
-                    ):(
-                      // FIX — "can create/delete but not switch": this card had
-                      // no way to make a different section active at all — the
-                      // only switcher lived in the small chip bar above the
-                      // main content, easy to miss. Now every non-active row
-                      // gets its own button doing the same thing.
-                      <button className="ss-btn" onClick={()=>onSelectSection(s)} style={{fontSize:13,background:SURFACE,border:`1.5px solid ${BORDER}`,color:INK_SOFT,padding:"4px 10px",borderRadius:999,fontWeight:700,flexShrink:0,cursor:"pointer"}}>यो छान्नुहोस्</button>
-                    )}
-                    <button className="ss-icon-btn" onClick={()=>{setEditingSectionId(s.id);setSectionEditValue(s.name);}} disabled={sectionBusy===s.id} style={{color:INK_SOFT,cursor:"pointer",padding:4,flexShrink:0,display:"flex"}} title="नाम बदल्नुहोस्"><PenSquare size={15}/></button>
-                    <button className="ss-icon-btn" onClick={()=>deleteSectionHandler(s)} disabled={sectionBusy===s.id} style={{color:DANGER,cursor:"pointer",padding:4,flexShrink:0,display:"flex"}} title="मेटाउनुहोस्"><Trash2 size={15}/></button>
-                  </>
-                )}
-              </div>
-              {showAllClassSections&&(
-                <div style={{display:"flex",flexDirection:"column",gap:5,paddingLeft:16}}>
-                  <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                    <span style={{fontSize:13,color:INK_SOFT,flexShrink:0}}>कक्षा:</span>
-                    {knownClasses.map((label)=>{
-                      const active=(s.class_label||"")===label;
-                      return(
-                        <button key={label} onClick={()=>changeSectionClass(s,label)} disabled={sectionClassBusy===s.id} className="ss-chip" style={{padding:"3px 10px",borderRadius:999,border:`1.5px solid ${active?ACCENT:BORDER}`,background:active?ACCENT_LIGHT:SURFACE,color:active?ACCENT:INK_SOFT,fontWeight:700,fontSize:12.5,cursor:active?"default":"pointer"}}>{label}</button>
-                      );
-                    })}
-                    <button onClick={()=>changeSectionClass(s,"")} disabled={sectionClassBusy===s.id} className="ss-chip" style={{padding:"3px 10px",borderRadius:999,border:`1.5px dashed ${BORDER}`,background:"transparent",color:INK_SOFT,fontWeight:600,fontSize:12.5,cursor:"pointer"}}>कुनै छैन</button>
-                  </div>
-                  {mismatched&&<span style={{fontSize:12.5,color:WARN,fontWeight:600}}>⚠ हाल सक्रिय "{classLabel}" भन्दा फरक</span>}
-                  {sectionClassMsg===s.id&&<span style={{fontSize:12.5,color:ACCENT,fontWeight:600}}>✓ सुरक्षित भयो</span>}
-                </div>
-              )}
-            </div>
-          );})}
-        </div>
-        {otherClassSections.length>0&&(
-          <button onClick={()=>setShowAllClassSections((v)=>!v)} style={{background:"none",border:"none",padding:0,marginBottom:12,color:ACCENT,fontWeight:700,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
-            {showAllClassSections?<EyeOff size={14}/>:<Eye size={14}/>}
-            {showAllClassSections?"अरू कक्षाका सेक्सन लुकाउनुहोस्":`अरू कक्षाका सेक्सन पनि देखाउनुहोस् (${otherClassSections.length}) — मिलाउन चाहिएमा मात्र`}
-          </button>
-        )}
-        <div style={{fontSize:14,color:INK_SOFT,fontWeight:600,marginBottom:7}}>"{classLabel}" मा नयाँ सेक्सन थप्नुहोस्</div>
-        <div style={{display:"flex",gap:8}}>
-          <input value={name} onChange={(e)=>setName(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&addSection()} placeholder="जस्तै: क" className="ss-field" style={{flex:1,minWidth:0,borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,outline:"none"}}/>
-          <button className="ss-btn" onClick={addSection} disabled={saving} style={{background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontWeight:700,fontSize:16.5,cursor:"pointer",boxShadow:SHADOW.accent}}>{saving?"...":"थप"}</button>
-        </div>
-        {sectionMsg&&<div style={{marginTop:8,fontSize:15,color:sectionMsg.startsWith("त्रुटि")||sectionMsg.includes("पहिल्यै")?DANGER:ACCENT,fontWeight:600}}>{sectionMsg}</div>}
-      </Card>
-
-      {/* NEW — दोहोरिएका अध्याय मिलाउनुहोस्/पुराना ट्याग मिलाउनुहोस्/फाइल
-          प्रकार मिलाउनुहोस् (the repair-tools panel) was removed from
-          here — see the note above runRepair's old location for why. */}
+      {/* MOVED — कक्षा र सेक्सन are now one merged card at the top of
+          Settings (see above). दोहोरिएका अध्याय मिलाउनुहोस्/पुराना ट्याग
+          मिलाउनुहोस्/फाइल प्रकार मिलाउनुहोस् (the repair-tools panel) was
+          removed from here — see the note above runRepair's old location
+          for why. */}
 
       {/* NEW — there was no way to get your data out of the app at all.
           Everything lives in one Supabase project with no export button
