@@ -4217,15 +4217,24 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
         setExportMsg("पहिले सेटिङ्समा यस वर्षको पाठ योजना ढाँचा अपलोड गर्नुहोस्।"); setExportBusy(false); return;
       }
       const lpBlob = await db.downloadMaterialFile(template.lesson_plan_storage_path);
-      const files = []; const everUnmatched = new Set();
+      const files = []; const everUnmatched = new Set(); let headerEverUnmatched = false;
+      // ROUND 6 — a running counter (not the array index, so a lesson with
+      // a blank title — skipped below — doesn't create a gap) gives this
+      // official lesson its number within the unit, matching the
+      // template's own "Lesson: पाठ २ - ..." numbering convention.
+      let lessonNumber = 0;
       for (const l of draft.lessons) {
         if (!l.lesson_title.trim()) continue;
-        const { blob, unmatchedKeys } = await fillLessonPlanDocx(lpBlob, {
+        lessonNumber += 1;
+        const { blob, unmatchedKeys, headerFilled } = await fillLessonPlanDocx(lpBlob, {
           major_learning_outcomes: l.major_learning_outcomes,
           materials_required: l.materials_required,
           engage: l.engage, explore: l.explore, explain: l.explain, elaborate: l.elaborate, evaluate: l.evaluate,
+          chapter_title: chapter.title,
+          lesson_header: `पाठ ${lessonNumber} - ${l.lesson_title}`,
         });
         (unmatchedKeys || []).forEach((k) => everUnmatched.add(k));
+        if (headerFilled && (!headerFilled.unit || !headerFilled.lesson)) headerEverUnmatched = true;
         files.push({ filename: `${l.lesson_title}-पाठ-योजना.docx`, blob });
       }
       if (!files.length) { setExportMsg("कम्तीमा एउटा आधिकारिक पाठको नाम राख्नुहोस्।"); setExportBusy(false); return; }
@@ -4233,6 +4242,8 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
       else await downloadBlob(await zipFiles(files), `${chapter.title}-पाठ-योजनाहरू.zip`);
       setExportMsg(everUnmatched.size
         ? `पाठ योजना फाइल तयार भयो, तर ढाँचामा यी लेबल भेटिएनन् — त्यहाँ पुरानै नमूना पाठ यथावत् रहन सक्छ: ${Array.from(everUnmatched).map((k)=>LABEL_NAMES[k]||k).join(", ")}। ढाँचा फाइलको त्यो लेबल जाँच्नुहोस्।`
+        : headerEverUnmatched
+        ? "Word फाइल तयार भयो, तर ढाँचाको \"Unit:\"/\"Lesson:\" लेबल चिन्न सकिएन — त्यहाँ पुरानै नमूनाको एकाइ/पाठको नाम यथावत् रहन सक्छ। Word वा Google Docs मा खोली 'PDF मा बचत गर्नुहोस्' गर्नुहोस्।"
         : "Word फाइल तयार भयो। Word वा Google Docs मा खोली 'PDF मा बचत गर्नुहोस्' गर्नुहोस्।");
     } catch (e) { setExportMsg("त्रुटि: " + (e.message || "एक्सपोर्ट गर्न सकिएन।")); }
     setExportBusy(false);
