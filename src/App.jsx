@@ -4183,12 +4183,27 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
   };
 
   return (
-    <div className="no-print" onClick={onClose} style={{position:"fixed",inset:0,zIndex:88,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:16}}>
-      <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:"24px 26px",maxWidth:"min(94vw, 780px)",width:"100%",maxHeight:"90vh",overflowY:"auto",boxSizing:"border-box",boxShadow:SHADOW.lg}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+    // FIX — outer backdrop's height came from `inset:0` alone, which some
+    // browsers size against the *layout* viewport rather than the actual
+    // visible one; height:"100dvh" as a fallback keeps it a true full-bleed
+    // cover in every case, so the page behind (visible in the report —
+    // "क्रियाकलाप"/"Our Earth" chapter titles bleeding through at the
+    // bottom) can never peek past the backdrop's edge.
+    <div className="no-print" onClick={onClose} style={{position:"fixed",inset:0,height:"100dvh",zIndex:88,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:16}}>
+      {/* FIX — the title bar (name + ✕) used to live INSIDE the same
+          overflowY:"auto" element as the lesson list below it, so as a
+          teacher scrolled through several official lessons the title —
+          and the only way to close the popup — scrolled away with them
+          ("the top bar hides while scrolling"). Split into a real
+          flex-column: a pinned header (flexShrink:0, never scrolls) and a
+          separate scrollable body below it, capped so together they never
+          exceed 90vh. */}
+      <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,maxWidth:"min(94vw, 780px)",width:"100%",maxHeight:"90vh",boxSizing:"border-box",boxShadow:SHADOW.lg,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"24px 26px 4px",flexShrink:0}}>
           <div style={{fontSize:19,fontWeight:800,color:INK}}>{focusMode==="rubric"?"रुब्रिक्स":"आधिकारिक पाठ योजना"} — {chapter.title}</div>
           <IconButton icon={X} onClick={()=>onClose(false)} size={20}/>
         </div>
+        <div style={{overflowY:"auto",padding:"0 26px 26px"}}>
 
         {phase==="loading"&&<div style={{padding:"30px 0"}}><Spinner/></div>}
 
@@ -4361,6 +4376,7 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
             {exportMsg&&<div style={{fontSize:14.5,color:INK_SOFT,lineHeight:1.6}}>{exportMsg}</div>}
           </div>
         )}
+        </div>
       </div>
     </div>
   );
