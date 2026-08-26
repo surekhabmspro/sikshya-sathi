@@ -134,7 +134,6 @@ const LESSON_PLAN_LABELS = {
 // warn the teacher exactly which fields didn't get filled in.
 export async function fillLessonPlanDocx(templateBlob, data) {
   const { zip, doc } = await loadDocxXml(templateBlob);
-  const rows = Array.from(doc.getElementsByTagName("w:tr"));
   const matchedKeys = new Set();
 
   const fillCell = (tc, key) => {
@@ -144,65 +143,89 @@ export async function fillLessonPlanDocx(templateBlob, data) {
     matchedKeys.add(key);
   };
 
-  // FIX (layout-aware) — the previous version only handled templates where
-  // a row is [label cell][content cell] side by side. This teacher's real
-  // template instead puts most labels (Major Learning Outcome, Materials
-  // Required, Engage, Elaborate, Evaluate) ALONE in their own row, with the
-  // content in a separate row right below — and puts Explore/Explain as a
-  // two-label header row (Explore | Explain) followed by a two-cell content
-  // row underneath, column-aligned. The old same-row pairing silently
-  // matched none of the single-label rows, and for the Explore/Explain
-  // header row it mistakenly overwrote the "Explain" label cell with the
-  // "Explore" content — which is exactly why every exported lesson came
-  // back looking like an unedited copy of the reference file. This version
-  // tries, in order: (1) single-label row -> single-cell content row below,
-  // (2) multi-label header row -> same-column content row below, (3) the
-  // original same-row [label][content] pairing, kept for any template that
-  // genuinely uses that layout.
-  let i = 0;
-  while (i < rows.length) {
-    const cells = getRowCells(rows[i]);
+  // FIX (ROUND 5) — the previous "layout-aware" version still only ever
+  // scanned <w:tr> table rows for labels. But this teacher's real template
+  // (confirmed by inspecting the actual uploaded reference files) puts most
+  // labels — "Major Learning Outcome/s:", "Materials Required...", "Engage",
+  // "Elaborate", "Evaluate" — as PLAIN PARAGRAPHS sitting above a separate
+  // one-cell content table, not inside any table row at all. Only
+  // "Explore"/"Explain" happens to live inside a table as a two-column
+  // header row. Because the old code never looked at paragraphs, those five
+  // fields' content tables were never touched — they kept the original
+  // reference file's own text verbatim, which is exactly why every export
+  // came back "100% identical to the reference file" except for
+  // Explore/Explain. Fix: walk the document body's direct children
+  // (paragraphs AND tables) in document order, remembering the most recent
+  // label-matching paragraph as a "pending label", and filling the next
+  // table's single content cell when one is pending. The old table-internal
+  // matching (multi-label header row, and same-row [label][content]) is
+  // kept as-is for templates/rows that use those layouts (e.g.
+  // Explore/Explain).
+  const body = doc.getElementsByTagName("w:body")[0];
+  const topLevel = body ? Array.from(body.childNodes).filter(
+    (n) => n.nodeType === 1 && (n.tagName === "w:p" || n.tagName === "w:tbl")
+  ) : [];
 
-    // Case 1: a row that is ONLY a single label, with its content living in
-    // the next row's single cell.
-    if (cells.length === 1) {
-      const key = matchLabel(getCellText(cells[0]), LESSON_PLAN_LABELS);
-      if (key && i + 1 < rows.length) {
-        const nextCells = getRowCells(rows[i + 1]);
-        if (nextCells.length === 1) {
-          fillCell(nextCells[0], key);
-          i += 2;
+  let pendingLabel = null;
+  for (const el of topLevel) {
+    if (el.tagName === "w:p") {
+      const text = getCellText(el);
+      const key = matchLabel(text, LESSON_PLAN_LABELS);
+      if (key) {
+        pendingLabel = key;
+      } else if (text.trim()) {
+        // A non-blank paragraph that isn't itself a label breaks the link
+        // between an earlier label and a later table. Blank/spacer
+        // paragraphs (common between a label and its table) are ignored so
+        // they don't clear a still-pending label.
+        pendingLabel = null;
+      }
+      continue;
+    }
+
+    // el.tagName === "w:tbl"
+    const rows = Array.from(el.getElementsByTagName("w:tr")).filter((tr) => tr.parentNode === el);
+
+    // Case A: a label paragraph immediately preceded this table, and the
+    // table's first row is a single content cell.
+    if (pendingLabel && rows.length >= 1) {
+      const firstRowCells = getRowCells(rows[0]);
+      if (firstRowCells.length === 1) {
+        fillCell(firstRowCells[0], pendingLabel);
+        pendingLabel = null;
+        continue;
+      }
+    }
+    pendingLabel = null;
+
+    // Case B: a header row INSIDE this table where multiple cells are each
+    // their own label (e.g. "Explore" | "Explain" side by side), with
+    // content in the next row's cells at the same column position.
+    if (rows.length >= 2) {
+      const headerCells = getRowCells(rows[0]);
+      const keys = headerCells.map((c) => matchLabel(getCellText(c), LESSON_PLAN_LABELS));
+      if (keys.some(Boolean)) {
+        const nextCells = getRowCells(rows[1]);
+        if (nextCells.length === headerCells.length) {
+          keys.forEach((key, ci) => { if (key) fillCell(nextCells[ci], key); });
           continue;
         }
       }
     }
 
-    // Case 2: a header row where MULTIPLE cells are each their own label
-    // (e.g. "Explore" | "Explain" side by side), with content living in the
-    // next row's cells at the SAME column position.
-    if (cells.length > 1) {
-      const keys = cells.map((c) => matchLabel(getCellText(c), LESSON_PLAN_LABELS));
-      if (keys.some(Boolean) && i + 1 < rows.length) {
-        const nextCells = getRowCells(rows[i + 1]);
-        if (nextCells.length === cells.length) {
-          let any = false;
-          keys.forEach((key, ci) => { if (key) { fillCell(nextCells[ci], key); any = true; } });
-          if (any) { i += 2; continue; }
-        }
+    // Case C (fallback): the original same-row [label][content] pairing,
+    // kept for any template that lays fields out that way.
+    for (const tr of rows) {
+      const cells = getRowCells(tr);
+      let j = 0;
+      while (j < cells.length) {
+        const key = matchLabel(getCellText(cells[j]), LESSON_PLAN_LABELS);
+        if (key && j + 1 < cells.length) {
+          fillCell(cells[j + 1], key);
+          j += 2;
+        } else j += 1;
       }
     }
-
-    // Case 3 (fallback): the original same-row [label][content] pairing,
-    // kept for any template that DOES lay fields out that way.
-    let j = 0;
-    while (j < cells.length) {
-      const key = matchLabel(getCellText(cells[j]), LESSON_PLAN_LABELS);
-      if (key && j + 1 < cells.length) {
-        fillCell(cells[j + 1], key);
-        j += 2;
-      } else j += 1;
-    }
-    i += 1;
   }
 
   if (!matchedKeys.size) {
