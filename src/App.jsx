@@ -4277,7 +4277,13 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
                         the rest of the unit. Same door the sequential
                         drafting loop uses, so a failed/unsatisfying lesson
                         never means starting the whole unit over. */}
-                    <IconButton icon={regeneratingIdx===li?Loader:RefreshCw} onClick={()=>regenerateLesson(li)} disabled={regeneratingIdx!==null} size={16} title="AI ले फेरि बनाओस्"/>
+                    {/* FIX — this icon swapped to the Loader glyph while
+                        regenerating but never passed spin={true}, so it
+                        just sat there as a static, non-spinning icon —
+                        looked frozen instead of "working". Every other
+                        Loader/RefreshCw swap in the app passes spin
+                        alongside the icon swap; this one had been missed. */}
+                    <IconButton icon={regeneratingIdx===li?Loader:RefreshCw} spin={regeneratingIdx===li} onClick={()=>regenerateLesson(li)} disabled={regeneratingIdx!==null} size={16} title="AI ले फेरि बनाओस्"/>
                     <IconButton icon={ChevronDown} onClick={()=>setOpenIdx(isOpen?-1:li)} size={18} style={{transform:isOpen?"rotate(180deg)":"none",transition:"transform 0.15s"}}/>
                     <IconButton icon={Trash2} onClick={()=>removeOfficialLesson(li)} size={16}/>
                   </div>
@@ -7390,6 +7396,13 @@ export default function App() {
           font-display:swap;
         }
         .ss-display{font-family:'SSText','Kalimati','Times New Roman',serif;}
+        /* FIX — see matching comment in index.html: form controls (button,
+           input, select, textarea) don't inherit font-family by default,
+           so any one of them not individually given the inline 'SSText'
+           style falls back to the device's UI font. This blanket rule is
+           the real fix — the lesson sidebar's tab/trigger buttons were
+           the ones actually missing it. */
+        button, input, select, textarea { font-family: inherit; }
 
         /* NEW — light/dark color tokens. Everything in the component tree
            reads these via var(--x), so toggling data-theme instantly
