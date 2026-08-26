@@ -3606,6 +3606,40 @@ function lessonToForm(l){
 // Adhyaya still shows up ready to receive its first Path) and buckets each
 // lesson under its chapter_id (falling back to a title match for any old
 // rows saved before chapter_id was reliably set).
+// NEW — chapters have an `order_index` column in the DB meant for exactly
+// this (see supabase-schema.sql), but nothing anywhere in the app ever
+// sets it when a chapter is created (manual "+ नयाँ अध्याय", textbook
+// import, or resolveChapterId auto-creating one for a fresh Path) — every
+// row sits at the same default 0, so `.order("order_index")` in
+// db.getChapters is a no-op tie and Postgres just returns whatever
+// physical/insertion order it happens to have, unrelated to the unit
+// numbers a teacher actually sees ("एकाइ १", "एकाइ २"...). Rather than
+// add a migration + retrofit order_index on every existing row, sort by
+// the number already sitting right there in the title — teachers name
+// every chapter "एकाइ N: ..." / "अध्याय N: ..." consistently, so this is
+// a reliable, zero-migration fix. Handles both Devanagari (१२३) and
+// Arabic (123) digits; a title with no number at all sorts to the end,
+// keeping its relative order among other number-less titles.
+const DEVANAGARI_DIGITS = "०१२३४५६७८९";
+function devanagariToArabicDigits(s) {
+  return (s || "").replace(/[०-९]/g, (d) => String(DEVANAGARI_DIGITS.indexOf(d)));
+}
+function extractUnitNumber(title) {
+  const m = devanagariToArabicDigits(title).match(/\d+/);
+  return m ? parseInt(m[0], 10) : null;
+}
+function sortChaptersByUnitNumber(chapters) {
+  return (chapters || [])
+    .map((c, i) => ({ c, i, n: extractUnitNumber(c.title) }))
+    .sort((a, b) => {
+      if (a.n === null && b.n === null) return a.i - b.i;
+      if (a.n === null) return 1;
+      if (b.n === null) return -1;
+      return a.n !== b.n ? a.n - b.n : a.i - b.i;
+    })
+    .map((x) => x.c);
+}
+
 function groupLessonsByChapter(chapters, lessons) {
   const norm=(s)=>(s||"").trim().toLowerCase().replace(/\s+/g," ");
   const byId=new Map();
@@ -4336,6 +4370,21 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
   const [importOpen, setImportOpen] = useState(false);
   const [showForm,setShowForm]=useState(false);
   const [form,setForm]=useState(EMPTY_LESSON_FORM);
+  // NEW — the form Card gets a ref + brief highlight (see .ss-edit-pulse
+  // above) so tapping सम्पादन scrolls it into view immediately instead of
+  // opening silently off-screen below whichever अध्याय group was tapped.
+  const formCardRef=useRef(null);
+  const [formPulse,setFormPulse]=useState(false);
+  const focusForm=()=>{
+    // FIX — the Card only mounts once showForm flips true, so the ref
+    // isn't attached yet in the same tick this runs in. Wait a frame for
+    // React to render it, then scroll + flash.
+    requestAnimationFrame(()=>{
+      formCardRef.current?.scrollIntoView({behavior:"smooth",block:"start"});
+      setFormPulse(true);
+      setTimeout(()=>setFormPulse(false),1000);
+    });
+  };
   const [saving,setSaving]=useState(false);
   const [generating,setGenerating]=useState(false);
   const [stepState,setStepState]=useState({});
@@ -4415,7 +4464,7 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
     const l=lessons.find((x)=>x.id===editLessonId);
     if(l){
       setForm(lessonToForm(l));setShowForm(true);setShowDetails(true);
-      window.scrollTo({top:0,behavior:"smooth"});
+      focusForm();
     }
     onEditConsumed?.();
   },[editLessonId,lessons,onEditConsumed]);
@@ -4429,7 +4478,7 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
     if(existing)setForm(lessonToForm(existing));
     else setForm({...EMPTY_LESSON_FORM,chapter_title:prefillChapter});
     setShowForm(true);setShowDetails(true);
-    window.scrollTo({top:0,behavior:"smooth"});
+    focusForm();
     onPrefillConsumed?.();
   },[prefillChapter,lessons,onPrefillConsumed]);
 
@@ -4490,13 +4539,13 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
     return null;
   };
 
-  const startEdit=(l)=>{setForm(lessonToForm(l));setShowForm(true);setShowDetails(true);setShowMaterials(true);setChangingChapter(false);setStepState({});};
+  const startEdit=(l)=>{setForm(lessonToForm(l));setShowForm(true);setShowDetails(true);setShowMaterials(true);setChangingChapter(false);setStepState({});focusForm();};
   // NEW — chapterTitle is now passed in from whichever अध्याय group's
   // "+ नयाँ पाठ" button was tapped, so the Path being created is always
   // clearly inside a specific Unit — no more guessing/typing the chapter
   // separately after the fact.
   const startNew=(chapterTitle="")=>{setForm({...EMPTY_LESSON_FORM,chapter_title:chapterTitle});setShowForm(true);setShowDetails(false);setShowMaterials(false);setChangingChapter(!chapterTitle);setStepState({});
-    window.scrollTo({top:0,behavior:"smooth"});};
+    focusForm();};
 
   // FIX — THE single door. Was previously three separate implementations
   // (this form's own generate, the dashboard's chapter-prepare card, and a
@@ -4634,6 +4683,7 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
       )}
 
       {showForm&&(
+        <div ref={formCardRef} className={formPulse?"ss-edit-pulse":undefined} style={{borderRadius:22}}>
         <Card style={{marginBottom:14}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
             <div style={{fontWeight:700,fontSize:18}}>{isEditing?"पाठ सम्पादन गर्नुहोस्":"नयाँ पाठ"}</div>
@@ -4736,6 +4786,7 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
             </div>
           </div>
         </Card>
+        </div>
       )}
 
       {loading?<Spinner/>:groups.length===0?<EmptyState icon={ClipboardList} text="अझै कुनै अध्याय छैन।" actionLabel="पहिलो अध्याय थप्नुहोस्" onAction={()=>setAddingChapter(true)}/>:(
@@ -7049,7 +7100,7 @@ export default function App() {
     // from screen until the next successful load. Now a failed fetch
     // leaves whatever was already loaded on screen untouched.
     if(error){setSyncError("सामग्री लोड गर्न सकिएन — इन्टरनेट जाँच्नुहोस्।");return;}
-    setChapters(data||[]);
+    setChapters(sortChaptersByUnitNumber(data||[]));
   },[classLabel]);
   useEffect(()=>{ if(session) loadChapters(); },[session,loadChapters]);
 
@@ -7246,6 +7297,16 @@ export default function App() {
         @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
         @keyframes ss-fade-up{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
         .main-content > *{animation:ss-fade-up .32s cubic-bezier(.2,.7,.2,1) both;}
+
+        /* NEW — brief highlight so the सम्पादन/नयाँ पाठ form is obvious the
+           moment it scrolls into view, instead of a teacher landing on a
+           silent card and wondering if the tap actually registered. */
+        @keyframes ss-edit-pulse{
+          0%{box-shadow:0 0 0 0 color-mix(in srgb, ${ACCENT} 55%, transparent);}
+          70%{box-shadow:0 0 0 14px color-mix(in srgb, ${ACCENT} 0%, transparent);}
+          100%{box-shadow:0 0 0 0 color-mix(in srgb, ${ACCENT} 0%, transparent);}
+        }
+        .ss-edit-pulse{animation:ss-edit-pulse 1s ease-out 1;}
 
         /* Devanagari script needs more breathing room than Latin text to read
            well — matras and conjuncts clip against tight leading. */
