@@ -3893,6 +3893,13 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
       }
       setDraft({ lessons: lessonsAccum });
       try { await persistLessons(lessonsAccum, "draft"); } catch { /* autosave is best-effort; final save on review still retries */ }
+      // FIX — firing 4-5 heavy Gemini calls back-to-back was tripping the
+      // free-tier per-minute rate limit partway through, which is why only
+      // the first lesson(s) came back with real content and the rest were
+      // left as empty placeholders (title only, no engage/explore/etc). A
+      // short pause between lessons keeps calls under the per-minute cap so
+      // the whole sequence has a much better chance of completing cleanly.
+      if (i < officialUnits.length - 1) await new Promise((r) => setTimeout(r, 1500));
     }
     setDraftProgress({ done: officialUnits.length, total: officialUnits.length, label: "" });
     setError(failedTitles.length ? `यी पाठको योजना बनाउन सकिएन, तल "फेरि बनाओस्" थिच्नुहोस्: ${failedTitles.join(", ")}` : "");
@@ -3977,6 +3984,26 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
       if (!data) { setError("कम्तीमा एउटा आधिकारिक पाठको नाम राख्नुहोस्।"); setBusy(false); return; }
       if (status === "approved") onClose(true);
     } catch (e) { setError(e.message || "सुरक्षित हुन सकेन।"); }
+    setBusy(false);
+  };
+
+  // FIX — this modal always auto-loaded whatever plan_groups row already
+  // existed for the chapter (see the useEffect above) and jumped straight
+  // to "review", with no way to throw that saved draft away and start
+  // clean — db.deletePlanGroup existed in db.js already but nothing in
+  // this modal ever called it. This wires it up: deletes the saved row,
+  // clears every piece of local state that referenced it, and drops back
+  // to the "choose" screen so मार्गदर्शन जाँच्नुहोस्/आफैं लेख्नुहोस् can be
+  // used to start over.
+  const discardDraft = async () => {
+    if (!window.confirm("यो सम्पूर्ण मस्यौदा मेटाएर फेरि सुरुदेखि बनाउने? यो पूर्ववत् गर्न सकिँदैन।")) return;
+    setBusy(true); setError("");
+    try {
+      if (existingGroupRef.current?.id) await db.deletePlanGroup(existingGroupRef.current.id);
+      existingGroupRef.current = null; setExistingGroup(null);
+      setDraft({ lessons: [] }); setOpenIdx(0); setPendingOfficialUnits([]);
+      setPhase("choose");
+    } catch (e) { setError(e.message || "मेटाउन सकिएन।"); }
     setBusy(false);
   };
 
@@ -4129,6 +4156,7 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
         {phase==="review"&&(
           <div style={{display:"flex",flexDirection:"column",gap:16,marginTop:10}}>
             {error&&<div style={{fontSize:15,color:DANGER,background:DANGER_BG,borderRadius:10,padding:"10px 12px"}}>{error}</div>}
+            <button onClick={discardDraft} disabled={busy} style={{alignSelf:"flex-start",fontSize:13.5,fontWeight:700,color:DANGER,background:"none",border:"none",padding:0,cursor:"pointer",textDecoration:"underline"}}>🗑 मस्यौदा मेटाएर फेरि सुरु गर्नुहोस्</button>
             {groupChapterTitles.length>1&&(
               <div style={{fontSize:14.5,color:ACCENT,background:ACCENT_LIGHT,borderRadius:10,padding:"9px 12px",lineHeight:1.6}}>
                 यो योजना {groupChapterTitles.length} वटा एकाइसँग साझा छ: {groupChapterTitles.join(", ")}{groupReason?` — ${groupReason}`:""}
