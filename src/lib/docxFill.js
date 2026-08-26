@@ -301,9 +301,20 @@ export async function fillRubricDocx(templateBlob, rubricRows) {
 // inside a PWA on both platforms and hands the file straight to "Save to
 // Files"/Drive/etc.); the old anchor-click stays as the desktop-browser
 // fallback since navigator.share with files isn't available there.
+//
+// FIX — some desktop browsers (Windows Chrome/Edge in particular) also
+// report navigator.canShare({files:[...]}) === true, but there the OS
+// "Share" flyout is a completely different thing from a save dialog — on
+// Windows it surfaces as a small notification-style popup near the
+// taskbar with no obvious way to actually save the .docx, which is
+// exactly the "notification appears instead of a file download" report.
+// Restricted the share-first path to an actual touch/mobile device (where
+// it's the fix it was meant to be); every desktop browser now always
+// gets the plain, reliable anchor-download.
+const IS_MOBILE_DEVICE = typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
 export async function downloadBlob(blob, filename) {
   const file = new File([blob], filename, { type: blob.type });
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+  if (IS_MOBILE_DEVICE && navigator.canShare && navigator.canShare({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title: filename });
       return;
