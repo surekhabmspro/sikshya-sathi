@@ -2276,7 +2276,9 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
               <AIButton label={exercisesGenerating?"बनाउँदै...":"AI बाट पाठ्यपुस्तकबाट अभ्यास ल्याउनुहोस्"} onClick={generateExercises} loading={exercisesGenerating}/>
             </div>
           ):(
-            <div style={{display:"flex",flexDirection:"column",gap:14}}>{(()=>{
+            // FIX — gap between exercise-type cards bumped 14→20 for
+            // more breathing room between groups on a screen/projector.
+            <div style={{display:"flex",flexDirection:"column",gap:20}}>{(()=>{
               // NEW — group by type so the type heading and the edit button
               // appear once per card, with each question immediately
               // followed by its own answer inside that same card (matches
@@ -2288,8 +2290,10 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                 const color=EXERCISE_TYPE_COLOR[g.type]||PALETTE[0];
                 const isEditingCard=editingType===g.type;
                 return(
-                  <Card key={g.type} accentColor={color} style={{padding:"16px 18px"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:12}}>
+                  <Card key={g.type} accentColor={color} style={{padding:"18px 20px"}}>
+                    {/* FIX — marginBottom under the type header bumped
+                        12→16 so it doesn't crowd the first question. */}
+                    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:16}}>
                       <span style={{fontSize:12,fontWeight:700,color,background:`color-mix(in srgb, ${color} 15%, white)`,padding:"2px 9px",borderRadius:999}}>{g.type}</span>
                       <div style={{fontSize:17,fontWeight:700,color:INK}}>{EXERCISE_TYPE_HEADER[g.type]||`${g.type} :`}</div>
                       <div style={{marginLeft:"auto",display:"flex",gap:8,flexShrink:0}}>
@@ -2301,19 +2305,44 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                         )}
                       </div>
                     </div>
-                    <div style={{display:"flex",flexDirection:"column",gap:16}}>{g.items.map((item,i)=>{
+                    {/* FIX — gap between questions within a card bumped
+                        16→24, and each question's own bottom padding
+                        14→20, so there's clearly more air around each
+                        numbered question than there is around the lines
+                        inside one answer — that's what makes distinct
+                        questions read as distinct at a glance instead of
+                        running together. */}
+                    <div style={{display:"flex",flexDirection:"column",gap:24}}>{g.items.map((item,i)=>{
                       const isTrueFalse=item.type==="सत्य/असत्य";
                       const isMCQ=item.type==="बहुविकल्पीय"&&Array.isArray(item.options)&&item.options.length>0;
                       const isMatch=item.type==="मिलान गर्नुहोस्"&&Array.isArray(item.match_pairs)&&item.match_pairs.length>0;
                       const draft=editDrafts[item.id];
                       return(
-                        <div key={item.id} style={{paddingBottom:i<g.items.length-1?14:0,borderBottom:i<g.items.length-1?`1px solid ${BORDER}`:"none"}}>
-                          <div style={{display:"flex",alignItems:"flex-start",gap:12}}>
+                        <div key={item.id} style={{paddingBottom:i<g.items.length-1?20:0,borderBottom:i<g.items.length-1?`1px solid ${BORDER}`:"none"}}>
+                          <div style={{display:"flex",alignItems:"flex-start",gap:14}}>
                             <div style={{width:28,height:28,borderRadius:"50%",background:`linear-gradient(160deg, ${color} 0%, color-mix(in srgb, ${color} 70%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div>
                             <div style={{flex:1,minWidth:0}}>
                               <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
-                                <div style={{fontSize:16,color:INK,fontWeight:500,lineHeight:1.5,marginBottom:8}}>{isMCQ?stripEmbeddedOptions(item.text):item.text}</div>
-                                {!isEditingCard&&<span style={{fontSize:11.5,fontWeight:700,flexShrink:0,color:item.source==="ai"?MARIGOLD_DARK:ACCENT,background:item.source==="ai"?`color-mix(in srgb, ${MARIGOLD_DARK} 15%, white)`:`color-mix(in srgb, ${ACCENT} 15%, white)`,padding:"2px 8px",borderRadius:999}}>{item.source==="ai"?"AI ज्ञानबाट":"पाठ्यपुस्तकबाट"}</span>}
+                                {/* FIX — bumped from 16/500 to 19/700 for
+                                    projector/screen readability (reported
+                                    hard to read from a distance); the
+                                    answer block below is already 21/700,
+                                    so the question itself was actually
+                                    smaller and lighter than its own
+                                    answer, which read as backwards.
+                                    lineHeight 1.5→1.65 and marginBottom
+                                    8→12 so a wrapped 2-line question has
+                                    real space between its own lines and
+                                    before the answer starts. */}
+                                <div style={{fontSize:19,color:INK,fontWeight:700,lineHeight:1.65,marginBottom:12}}>{isMCQ?stripEmbeddedOptions(item.text):item.text}</div>
+                                {/* FIX — source badge bumped 11.5→13.5px
+                                    and given a solid border instead of
+                                    relying only on a faint tinted
+                                    background, since a washed-out
+                                    projector can flatten the color-mix
+                                    tint against a light card to near-
+                                    invisible. */}
+                                {!isEditingCard&&<span style={{fontSize:13.5,fontWeight:700,flexShrink:0,color:item.source==="ai"?MARIGOLD_DARK:ACCENT,background:item.source==="ai"?`color-mix(in srgb, ${MARIGOLD_DARK} 15%, white)`:`color-mix(in srgb, ${ACCENT} 15%, white)`,border:`1.5px solid ${item.source==="ai"?MARIGOLD_DARK:ACCENT}`,padding:"2px 9px",borderRadius:999}}>{item.source==="ai"?"AI ज्ञानबाट":"पाठ्यपुस्तकबाट"}</span>}
                                 {!isEditingCard&&<button className="ss-icon-btn" onClick={()=>removeExercise(item.id)} title="हटाउनुहोस्" style={{cursor:"pointer",padding:4,color:DANGER,display:"flex",flexShrink:0}}><Trash2 size={14}/></button>}
                               </div>
                               {isMCQ&&(
@@ -2376,13 +2405,20 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                                 isEditingCard?(
                                   <textarea value={draft} onChange={(e)=>setEditDrafts((prev)=>({...prev,[item.id]:e.target.value}))} rows={2} className="ss-field" style={{width:"100%",border:`1.5px solid ${BORDER}`,borderRadius:10,padding:"9px 12px",fontSize:19,background:SURFACE,color:INK,resize:"vertical"}}/>
                                 ):item.answer&&(
-                                  <div style={{background:SURFACE_2,borderRadius:10,padding:"11px 14px",fontSize:21,fontWeight:700,color:INK,lineHeight:1.6}}>
+                                  // FIX — answer block padding 11/14→14/18
+                                  // and, for multi-sentence answers, the
+                                  // gap between points 4→10 — at 4px the
+                                  // separate sentences in a long answer
+                                  // (like image 3's गाउँमा स्वास्थ्य सेवा
+                                  // example) read as one packed paragraph
+                                  // instead of clearly separate points.
+                                  <div style={{background:SURFACE_2,borderRadius:10,padding:"14px 18px",fontSize:21,fontWeight:700,color:INK,lineHeight:1.65}}>
                                     <span style={{fontWeight:700,color:ACCENT}}>उत्तर: </span>
                                     {(()=>{
                                       const points=splitAnswerPoints(item.answer);
                                       if(points.length<2)return item.answer;
                                       return(
-                                        <div style={{display:"flex",flexDirection:"column",gap:4,marginTop:points.length>1?4:0}}>
+                                        <div style={{display:"flex",flexDirection:"column",gap:10,marginTop:points.length>1?8:0}}>
                                           {points.map((pt,pi)=>(<div key={pi}>{pt}</div>))}
                                         </div>
                                       );
@@ -2535,9 +2571,23 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                 const word=idx>-1?v.slice(0,idx).trim():v.trim();
                 const meaning=idx>-1?v.slice(idx+1).trim():"";
                 return(
-                  <div key={v} style={{display:"flex",alignItems:"baseline",gap:14,padding:"14px 18px",background:WARN_BG,borderRadius:12,cursor:meaning?"pointer":"default"}} onClick={()=>meaning&&setVocabPopup({word,meaning})}>
-                    <div style={{fontSize:"clamp(20px, 2.4vw, 24px)",fontWeight:800,color:MARIGOLD_DARK,flexShrink:0}}>{word}</div>
-                    {meaning&&<div style={{fontSize:"clamp(17px, 2vw, 20px)",color:INK,lineHeight:1.6}}>{meaning}</div>}
+                  // FIX — the whole card was already clickable (opens the
+                  // word's detail popup, which auto-runs the picture
+                  // lookup), but nothing on the card itself signalled
+                  // that a picture search was available — a teacher had
+                  // to already know that and tap the card text. Added an
+                  // explicit picture-icon button per card so it's visibly
+                  // its own action, and it now works even for a word with
+                  // no meaning line (previously the whole card, including
+                  // any picture lookup, was disabled for those).
+                  <div key={v} style={{display:"flex",alignItems:"center",gap:14,padding:"14px 18px",background:WARN_BG,borderRadius:12}}>
+                    <div onClick={()=>meaning&&setVocabPopup({word,meaning})} style={{flex:1,minWidth:0,display:"flex",alignItems:"baseline",gap:14,cursor:meaning?"pointer":"default"}}>
+                      <div style={{fontSize:"clamp(20px, 2.4vw, 24px)",fontWeight:800,color:MARIGOLD_DARK,flexShrink:0}}>{word}</div>
+                      {meaning&&<div style={{fontSize:"clamp(17px, 2vw, 20px)",color:INK,lineHeight:1.6}}>{meaning}</div>}
+                    </div>
+                    <button className="ss-btn" onClick={()=>setVocabPopup({word,meaning})} title="यो शब्दको तस्बिर खोज्नुहोस्" style={{flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",width:38,height:38,borderRadius:10,border:`1.5px solid ${MARIGOLD_DARK}`,background:SURFACE,color:MARIGOLD_DARK,cursor:"pointer"}}>
+                      <ImageIcon size={17}/>
+                    </button>
                   </div>
                 );
               })}
@@ -2893,6 +2943,32 @@ function selfTestSimulation(html, timeoutMs=1500){
             if(blanks/cardish.length>0.25)contentOk=false;
           }
         }
+        // NEW — the prompt (see gemini.js rule about avoiding the
+        // bottom-left mascot corner and bottom-right zoom-control corner)
+        // is just an instruction, and teachers kept reporting real
+        // overlap in class despite it. Rather than trust the prompt text
+        // alone, actually measure: any interactive element whose
+        // rendered box lands inside either reserved corner fails the
+        // self-test and triggers the same one-shot retry as a blank
+        // generation. Cheap (no extra Gemini call) since it reuses this
+        // already-loaded hidden iframe.
+        if(contentOk&&body){
+          const vw=1280, vh=720;
+          const corners=[
+            {x0:0,y0:vh-70,x1:70,y1:vh},        // bottom-left: mascot
+            {x0:vw-150,y0:vh-40,x1:vw,y1:vh},   // bottom-right: A-/%/A+ zoom controls
+          ];
+          const interactive=body.querySelectorAll('button,[role="button"],input,select,[onclick],[class*="card" i],[class*="option" i],[class*="tile" i],[class*="pair" i],[class*="chip" i]');
+          let cornerHit=0;
+          interactive.forEach((el)=>{
+            const r=el.getBoundingClientRect();
+            if(r.width<8||r.height<8)return;
+            corners.forEach((z)=>{
+              if(r.left<z.x1&&r.right>z.x0&&r.top<z.y1&&r.bottom>z.y0)cornerHit++;
+            });
+          });
+          if(cornerHit>0)contentOk=false;
+        }
       }catch(e){ /* couldn't inspect it — don't fail the sim over that */ }
       finish(contentOk);
     },timeoutMs);
@@ -3156,10 +3232,25 @@ function SimulationViewerOverlay({ viewing, generating, onRegenerate, onClose, o
           never meant to be used as a background at all. */}
       <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"#1C1006",color:"#fff",flexShrink:0}}>
         <div style={{flex:1,minWidth:0,fontWeight:700,fontSize:15.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{viewing.title}</div>
-        <span className="ss-sim-subtitle" style={{fontSize:13,color:"rgba(255,255,255,0.6)",fontWeight:600,whiteSpace:"nowrap"}}>🖥️ ल्यापटप/प्रोजेक्टरका लागि डिजाइन गरिएको</span>
-        <IconButton icon={highContrast?EyeOff:Eye} onClick={()=>setHighContrast((v)=>!v)} title="उच्च कन्ट्रास्ट मोड" variant="hero" size={17} style={{borderRadius:8,padding:8}}/>
-        <IconButton icon={generating?Loader:RefreshCw} spin={generating} onClick={onRegenerate} disabled={generating} title="यही सिमुलेसनको सामग्री ताजा बनाउनुहोस् (उही किसिम राखेर)" variant="hero" size={17} style={{borderRadius:8,padding:8}}/>
-        <IconButton icon={X} onClick={onClose} variant="hero" size={19} style={{borderRadius:8,padding:8}}/>
+        {/* FIX — this had no overflow/minWidth handling of its own, so on a
+            narrower window (a smaller laptop, or a browser at less than
+            100% zoom) the flexbox couldn't actually shrink it below its
+            full text width (whiteSpace:nowrap + overflow:visible = the
+            browser's "automatic minimum size" is the full text). The
+            title (which DOES have minWidth:0) got squeezed toward zero
+            first, but once that ran out, this subtitle's un-clippable
+            text visually ran into/behind the icon buttons next to it —
+            the overlap seen on a real screen/projector. Giving it the
+            same overflow:hidden+ellipsis+minWidth:0 treatment as the
+            title lets it truncate instead of colliding, and flexShrink:0
+            on the icon buttons guarantees they never get compressed
+            themselves. */}
+        <span className="ss-sim-subtitle" style={{fontSize:13,color:"rgba(255,255,255,0.6)",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",minWidth:0,flexShrink:1,maxWidth:"34vw"}}>🖥️ ल्यापटप/प्रोजेक्टरका लागि डिजाइन गरिएको</span>
+        <div style={{display:"flex",gap:10,flexShrink:0}}>
+          <IconButton icon={highContrast?EyeOff:Eye} onClick={()=>setHighContrast((v)=>!v)} title="उच्च कन्ट्रास्ट मोड" variant="hero" size={17} style={{borderRadius:8,padding:8}}/>
+          <IconButton icon={generating?Loader:RefreshCw} spin={generating} onClick={onRegenerate} disabled={generating} title="यही सिमुलेसनको सामग्री ताजा बनाउनुहोस् (उही किसिम राखेर)" variant="hero" size={17} style={{borderRadius:8,padding:8}}/>
+          <IconButton icon={X} onClick={onClose} variant="hero" size={19} style={{borderRadius:8,padding:8}}/>
+        </div>
         <style>{`@media (max-width:560px){.ss-sim-subtitle{display:none;}}`}</style>
       </div>
       <SimulationStage html={displayHtml} title={viewing.title}/>
