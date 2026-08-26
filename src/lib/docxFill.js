@@ -124,7 +124,70 @@ const LESSON_PLAN_LABELS = {
   evaluate: ["evaluate", "इभालुएट", "मूल्याङ्कन"],
 };
 
-// data: { major_learning_outcomes:[], materials_required:[], engage, explore, explain, elaborate, evaluate, chapter_title? }
+// ─── HEADER FIELDS (Class / Teacher's name / Section / Level / Subject /
+// Time / Unit / Lesson) ─────────────────────────────────────────────────
+// FIX (ROUND 6 — the actual reason exports "looked exactly like the
+// reference file") — every teacher's real template has this header block
+// laid out as its OWN, 4th layout pattern that none of the three cases
+// above (Case A/B/C, all designed for the 5E body fields) ever covers:
+// the label ("Unit: ") and its value ("४, सामाजिक समस्या र समाधान") are
+// two separate <w:r> runs sitting in the SAME paragraph, inside the SAME
+// table cell — not a label-cell+content-cell pair (Case C), not a
+// label-paragraph-then-table (Case A), not a header-row-then-data-row
+// (Case B). So this whole block was never touched by any prior round's
+// fix, and silently kept the original sample file's own header text
+// forever — including "Lesson: पाठ २ - कुलतबाट बचौं", which is exactly
+// what a teacher sees first when they open the file, no matter which
+// lesson they actually exported. That's why the export "looked identical
+// to the reference" even in rounds where the 5E body content underneath
+// (Engage/Explore/.../Evaluate) was, in fact, being filled correctly.
+const HEADER_RUN_LABELS = {
+  unit: ["unit:", "एकाइ:", "अध्याय:"],
+  lesson: ["lesson:", "पाठ:"],
+};
+
+function getRunText(r) {
+  return Array.from(r.getElementsByTagName("w:t")).map((t) => t.textContent).join("");
+}
+
+// Scans every paragraph in the WHOLE document (not just top-level body
+// children — this header table is nested two levels deep inside the
+// letterhead's outer table) for a run whose own text matches one of
+// `keywords` as the run's complete trimmed content (so it only matches
+// the actual "Unit: " / "Lesson: " label runs, never a label keyword
+// that happens to appear mid-sentence somewhere in AI-drafted content).
+// When found, the run immediately after it in the same paragraph is
+// treated as the value run: its text is replaced (keeping that run's own
+// font/size/color), and any further runs in the paragraph after it are
+// removed so multi-run values collapse onto the one value run — mirrors
+// setCellLines' formatting-preservation approach, just at run level
+// instead of paragraph level.
+function fillHeaderField(doc, keywords, value) {
+  const paragraphs = Array.from(doc.getElementsByTagName("w:p"));
+  for (const p of paragraphs) {
+    const runs = Array.from(p.getElementsByTagName("w:r")).filter((r) => r.parentNode === p);
+    for (let i = 0; i < runs.length - 1; i++) {
+      const labelText = normalize(getRunText(runs[i])).replace(/\s+$/, "");
+      if (keywords.some((k) => labelText === normalize(k).replace(/\s+$/, ""))) {
+        const valueRun = runs[i + 1];
+        const ts = Array.from(valueRun.getElementsByTagName("w:t"));
+        let tNode = ts[0];
+        if (!tNode) {
+          tNode = doc.createElementNS(W_NS, "w:t");
+          valueRun.appendChild(tNode);
+        }
+        for (let k = ts.length - 1; k >= 1; k--) ts[k].parentNode.removeChild(ts[k]);
+        tNode.setAttribute("xml:space", "preserve");
+        tNode.textContent = value;
+        for (let j = runs.length - 1; j > i + 1; j--) runs[j].parentNode.removeChild(runs[j]);
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// data: { major_learning_outcomes:[], materials_required:[], engage, explore, explain, elaborate, evaluate, chapter_title?, lesson_header? }
 // FIX — now tracks WHICH of the expected rows were actually found/filled
 // (matchedKeys) vs not (unmatchedKeys), instead of only a single
 // matchedAny boolean. A template that's missing just the Engage/Explore
@@ -232,7 +295,17 @@ export async function fillLessonPlanDocx(templateBlob, data) {
     throw new Error("यो ढाँचा फाइलमा Major Learning Outcome / Engage / Explore जस्ता चिन्हारी शब्दहरू भेटिएनन् — ढाँचा फाइल जाँच्नुहोस्।");
   }
   const unmatchedKeys = Object.keys(LESSON_PLAN_LABELS).filter((k) => !matchedKeys.has(k));
-  return { blob: await saveDocxXml(zip, doc), matched: matchedKeys.size > 0, matchedKeys: Array.from(matchedKeys), unmatchedKeys };
+
+  // ROUND 6 — fill the "Unit: " / "Lesson: " header runs (see
+  // fillHeaderField above). Tracked separately from matchedKeys/unmatchedKeys
+  // (a different layout entirely, matched by run not by cell) so the
+  // caller can warn specifically if a template's header uses wording this
+  // doesn't recognise, without conflating it with the 5E body fields.
+  const headerFilled = { unit: false, lesson: false };
+  if (data.chapter_title) headerFilled.unit = fillHeaderField(doc, HEADER_RUN_LABELS.unit, data.chapter_title);
+  if (data.lesson_header) headerFilled.lesson = fillHeaderField(doc, HEADER_RUN_LABELS.lesson, data.lesson_header);
+
+  return { blob: await saveDocxXml(zip, doc), matched: matchedKeys.size > 0, matchedKeys: Array.from(matchedKeys), unmatchedKeys, headerFilled };
 }
 
 // ─── RUBRIC ───────────────────────────────────────────────────────────────
