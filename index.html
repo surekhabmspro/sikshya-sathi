@@ -90,6 +90,19 @@
         color: var(--ink);
         font-family: 'SSText','Kalimati','Times New Roman',serif;
       }
+      /* FIX — button/input/select/textarea do NOT inherit the page's
+         font-family by default (browsers give form controls their own
+         UI-chrome font unless told otherwise) — every OTHER piece of text
+         in the app got 'SSText' via a hand-added inline fontFamily style,
+         but that was done element-by-element and several buttons (the
+         lesson sidebar's "आजको उद्देश्य हेर्नुहोस्"/"कठिन शब्द अर्थ
+         हेर्नुहोस्" triggers and the पढाउने/पाठ अभ्यास समाधान/... tab
+         buttons among them) never got one, so they fell back to the
+         device's default UI font instead — the "left panel is in a
+         different font" report. This one rule covers every current AND
+         future form control at once, so no individual button can be
+         missed again the way these were.  */
+      button, input, select, textarea { font-family: inherit; }
       .ss-display { font-family: 'SSText','Kalimati','Times New Roman',serif; }
       /* NEW — this stylesheet did not exist at all before, which is why
          printing produced a blank page: the .no-print class referenced
