@@ -3837,6 +3837,60 @@ function YojanaSheet({ lesson, onClose }) {
 // single official plan). So this list is its own independent, freely
 // editable set of "official lesson" entries — named by the AI (from the
 // guide) or by the teacher — never assumed to be 1:1 with Planner lessons.
+// FIX (popup tearing into two — the आधिकारिक पाठ योजना/रुब्रिक्स popup
+// showing a gap with the page bleeding through partway down, worse than
+// before once the popup got a scrollable body) — root cause: this popup's
+// backdrop used position:"fixed" + inset:0, which is normally full-screen,
+// but on this phone's browser/webview the visible screen height changes
+// slightly while the popup is open (address bar show/hide, keyboard
+// opening for the textarea fields, etc.) and the fixed backdrop doesn't
+// always get resized to match — so it ends up shorter than the actual
+// screen, leaving a strip of the real page (the एकाइ cards behind it)
+// visible below where the backdrop actually ends. Two changes fix this
+// together: (1) useLockBodyScroll stops the page underneath from being
+// scrollable at all while the popup is open, which removes the main
+// trigger for the browser resizing things mid-popup, and (2)
+// useViewportHeightPx measures the real visible height with JS
+// (window.visualViewport, which tracks the keyboard/address-bar
+// accurately) and keeps the backdrop pinned to that exact height instead
+// of trusting CSS alone.
+function useLockBodyScroll() {
+  useEffect(() => {
+    const prevOverflow = document.body.style.overflow;
+    const prevPosition = document.body.style.position;
+    const prevWidth = document.body.style.width;
+    const scrollY = window.scrollY;
+    document.body.style.overflow = "hidden";
+    document.body.style.position = "fixed";
+    document.body.style.width = "100%";
+    document.body.style.top = `-${scrollY}px`;
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.body.style.position = prevPosition;
+      document.body.style.width = prevWidth;
+      document.body.style.top = "";
+      window.scrollTo(0, scrollY);
+    };
+  }, []);
+}
+function useViewportHeightPx() {
+  const getH = () => (typeof window !== "undefined" ? Math.round(window.visualViewport?.height || window.innerHeight) : 0);
+  const [h, setH] = useState(getH);
+  useEffect(() => {
+    const update = () => setH(getH());
+    update();
+    window.visualViewport?.addEventListener("resize", update);
+    window.addEventListener("resize", update);
+    window.addEventListener("orientationchange", update);
+    return () => {
+      window.visualViewport?.removeEventListener("resize", update);
+      window.removeEventListener("resize", update);
+      window.removeEventListener("orientationchange", update);
+    };
+  }, []);
+  return h;
+}
+
 const RUBRIC_LEVELS = ["उत्कृष्ट", "राम्रो", "सामान्य", "सुधार आवश्यक"];
 const emptyRubricRow = () => ({ criteria: "", levels: RUBRIC_LEVELS.map((level) => ({ level, desc: "" })) });
 const emptyOfficialLesson = (title = "") => ({
@@ -3884,6 +3938,8 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
   // it instead of accidentally inserting a fresh duplicate row on every
   // lesson.
   const existingGroupRef = useRef(null);
+  useLockBodyScroll();
+  const viewportH = useViewportHeightPx();
 
   // Classroom (Planner) lessons under the given chapter titles — used only
   // as REFERENCE context for the AI and as a helpful hint in the UI, never
@@ -4189,7 +4245,7 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
     // cover in every case, so the page behind (visible in the report —
     // "क्रियाकलाप"/"Our Earth" chapter titles bleeding through at the
     // bottom) can never peek past the backdrop's edge.
-    <div className="no-print" onClick={onClose} style={{position:"fixed",inset:0,height:"100dvh",zIndex:88,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:16}}>
+    <div className="no-print" onClick={onClose} style={{position:"fixed",top:0,left:0,right:0,height:viewportH?`${viewportH}px`:"100dvh",zIndex:88,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:16}}>
       {/* FIX — the title bar (name + ✕) used to live INSIDE the same
           overflowY:"auto" element as the lesson list below it, so as a
           teacher scrolled through several official lessons the title —
