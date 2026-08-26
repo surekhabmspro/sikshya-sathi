@@ -4170,7 +4170,17 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
                 <div key={li} style={{border:`1.5px solid ${BORDER}`,borderRadius:14,overflow:"hidden"}}>
                   <div style={{display:"flex",alignItems:"center",gap:6,padding:"10px 10px 10px 14px",background:SURFACE_2}}>
                     <div style={{fontWeight:800,fontSize:14.5,color:INK_SOFT,flexShrink:0}}>{li+1}.</div>
-                    <input value={lesson.lesson_title} onChange={(e)=>setLessonField(li,"lesson_title",e.target.value)} placeholder="आधिकारिक पाठको नाम" className="ss-field" style={{flex:1,borderRadius:8,padding:"7px 10px",fontSize:15.5,fontWeight:700,border:`1.5px solid ${BORDER}`,background:SURFACE}}/>
+                    {/* FIX (mobile icons clipped) — flex:1 alone doesn't
+                        let a flex item shrink below its default/content
+                        width (flex items are min-width:auto by default), so
+                        on a narrow phone this input was pushing the
+                        refresh/expand/delete IconButtons past the row's
+                        right edge, where the card's overflow:"hidden" then
+                        clipped them out of view entirely. minWidth:0 lets
+                        the input actually shrink to fit, so the three
+                        buttons stay visible and tappable on any screen
+                        width. */}
+                    <input value={lesson.lesson_title} onChange={(e)=>setLessonField(li,"lesson_title",e.target.value)} placeholder="आधिकारिक पाठको नाम" className="ss-field" style={{flex:1,minWidth:0,borderRadius:8,padding:"7px 10px",fontSize:15.5,fontWeight:700,border:`1.5px solid ${BORDER}`,background:SURFACE}}/>
                     {/* NEW — regenerate just THIS official lesson via
                         gemini.draftSingleOfficialLesson, without redoing
                         the rest of the unit. Same door the sequential
