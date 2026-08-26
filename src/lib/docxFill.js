@@ -137,22 +137,72 @@ export async function fillLessonPlanDocx(templateBlob, data) {
   const rows = Array.from(doc.getElementsByTagName("w:tr"));
   const matchedKeys = new Set();
 
-  for (const tr of rows) {
-    const cells = getRowCells(tr);
-    let i = 0;
-    while (i < cells.length) {
-      const labelText = getCellText(cells[i]);
-      const key = matchLabel(labelText, LESSON_PLAN_LABELS);
-      if (key && i + 1 < cells.length) {
-        const value = data[key];
-        const lines = Array.isArray(value) ? formatListLines(value) : [(value || "").trim() || "—"];
-        setCellLines(cells[i + 1], lines);
-        matchedKeys.add(key);
-        i += 2;
-      } else {
-        i += 1;
+  const fillCell = (tc, key) => {
+    const value = data[key];
+    const lines = Array.isArray(value) ? formatListLines(value) : [(value || "").trim() || "—"];
+    setCellLines(tc, lines);
+    matchedKeys.add(key);
+  };
+
+  // FIX (layout-aware) — the previous version only handled templates where
+  // a row is [label cell][content cell] side by side. This teacher's real
+  // template instead puts most labels (Major Learning Outcome, Materials
+  // Required, Engage, Elaborate, Evaluate) ALONE in their own row, with the
+  // content in a separate row right below — and puts Explore/Explain as a
+  // two-label header row (Explore | Explain) followed by a two-cell content
+  // row underneath, column-aligned. The old same-row pairing silently
+  // matched none of the single-label rows, and for the Explore/Explain
+  // header row it mistakenly overwrote the "Explain" label cell with the
+  // "Explore" content — which is exactly why every exported lesson came
+  // back looking like an unedited copy of the reference file. This version
+  // tries, in order: (1) single-label row -> single-cell content row below,
+  // (2) multi-label header row -> same-column content row below, (3) the
+  // original same-row [label][content] pairing, kept for any template that
+  // genuinely uses that layout.
+  let i = 0;
+  while (i < rows.length) {
+    const cells = getRowCells(rows[i]);
+
+    // Case 1: a row that is ONLY a single label, with its content living in
+    // the next row's single cell.
+    if (cells.length === 1) {
+      const key = matchLabel(getCellText(cells[0]), LESSON_PLAN_LABELS);
+      if (key && i + 1 < rows.length) {
+        const nextCells = getRowCells(rows[i + 1]);
+        if (nextCells.length === 1) {
+          fillCell(nextCells[0], key);
+          i += 2;
+          continue;
+        }
       }
     }
+
+    // Case 2: a header row where MULTIPLE cells are each their own label
+    // (e.g. "Explore" | "Explain" side by side), with content living in the
+    // next row's cells at the SAME column position.
+    if (cells.length > 1) {
+      const keys = cells.map((c) => matchLabel(getCellText(c), LESSON_PLAN_LABELS));
+      if (keys.some(Boolean) && i + 1 < rows.length) {
+        const nextCells = getRowCells(rows[i + 1]);
+        if (nextCells.length === cells.length) {
+          let any = false;
+          keys.forEach((key, ci) => { if (key) { fillCell(nextCells[ci], key); any = true; } });
+          if (any) { i += 2; continue; }
+        }
+      }
+    }
+
+    // Case 3 (fallback): the original same-row [label][content] pairing,
+    // kept for any template that DOES lay fields out that way.
+    let j = 0;
+    while (j < cells.length) {
+      const key = matchLabel(getCellText(cells[j]), LESSON_PLAN_LABELS);
+      if (key && j + 1 < cells.length) {
+        fillCell(cells[j + 1], key);
+        j += 2;
+      } else j += 1;
+    }
+    i += 1;
   }
 
   if (!matchedKeys.size) {
