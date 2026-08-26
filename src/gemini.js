@@ -716,18 +716,37 @@ function hasBothSources(ctx) {
   const { pdfBase64 = null, materialParts = [], textbookText = null } = ctx;
   return materialParts.length > 0 && !!(pdfBase64 || textbookText);
 }
+// FIX (लेसन योजना outputs coming back identical to the teacher's own
+// uploaded reference/sample file — reported repeatedly) — root cause
+// found: MATERIALS_PRIORITY_NOTE, added below whenever a chapter has both
+// tagged materials and textbook text, explicitly tells Gemini to treat
+// the tagged material as the primary source and "follow ITS structure,
+// order, and emphasis" (पछ्याउनुहोस्). That's the right instruction for
+// pulling factual content out of a teacher's PPT/notes — but if the
+// tagged material for a chapter happens to BE an already-completed
+// sample lesson plan (which is exactly what a teacher uploads as a
+// "reference"), telling the AI to closely follow its structure/order/
+// emphasis is functionally an instruction to reproduce it. The plan/
+// rubric drafting calls (draftPlanGroupLessons, draftSingleOfficialLesson)
+// now pass materialsMode:"inspiration-only" so they get a different note
+// — extract topic/content ideas only, never mirror wording or structure —
+// instead of the priority-following one every other caller still gets.
+const MATERIALS_INSPIRATION_ONLY_NOTE = `\n\n[स्रोत प्रयोगको सीमा — महत्त्वपूर्ण]: माथि संलग्न ट्याग गरिएको सामग्री (यदि कुनै विद्यमान/नमूना पाठ योजना, रुब्रिक्स, वा गत वर्षको तयार कागजात हो भने पनि) र पाठ्यपुस्तक/मार्गदर्शन दुवैलाई विषयवस्तु र सिकाइ उपलब्धि बुझ्नका लागि मात्र सन्दर्भको रूपमा हेर्नुहोस्। तिनको बाक्य, संरचना, वा शब्दावली जस्ताको त्यस्तै सार्नु/नक्कल गर्नु हुँदैन — यो खास आधिकारिक पाठको लागि सम्पूर्ण सामग्री (Engage/Explore/Explain/Elaborate/Evaluate का विवरण, सिकाइ उपलब्धि, रुब्रिक्स) आफ्नै मौलिक शब्दमा नयाँ बनाउनुहोस्। कुनै पनि संलग्न फाइलसँग ठ्याक्कै उस्तै वाक्य आउनु गम्भीर त्रुटि मानिनेछ।`;
 async function runPrompt(prompt, ctx, options = {}) {
+  const { materialsMode, ...callOptions } = options;
   const parts = contextParts(ctx);
-  if (!parts.length) return callGemini([{ text: prompt }], options);
+  if (!parts.length) return callGemini([{ text: prompt }], callOptions);
   let finalPrompt = prompt + RAW_TEXT_LAYER_WARNING; // any PDF/file is attached here — always warn, not just the two extraction calls
-  if (hasBothSources(ctx)) finalPrompt += MATERIALS_PRIORITY_NOTE;
-  return callGemini([...parts, { text: finalPrompt }], options);
+  if (materialsMode === "inspiration-only") finalPrompt += MATERIALS_INSPIRATION_ONLY_NOTE;
+  else if (hasBothSources(ctx)) finalPrompt += MATERIALS_PRIORITY_NOTE;
+  return callGemini([...parts, { text: finalPrompt }], callOptions);
 }
-async function runPromptJSON(prompt, ctx) {
+async function runPromptJSON(prompt, ctx, materialsMode) {
   const parts = contextParts(ctx);
   if (!parts.length) return generateTextJSON(prompt);
   let finalPrompt = prompt + RAW_TEXT_LAYER_WARNING;
-  if (hasBothSources(ctx)) finalPrompt += MATERIALS_PRIORITY_NOTE;
+  if (materialsMode === "inspiration-only") finalPrompt += MATERIALS_INSPIRATION_ONLY_NOTE;
+  else if (hasBothSources(ctx)) finalPrompt += MATERIALS_PRIORITY_NOTE;
   return callGemini([...parts, { text: finalPrompt }], { jsonMode: true });
 }
 // NEW — the one function callers should use when they have a getMaterialContext()
@@ -1605,7 +1624,7 @@ export const draftPlanGroupLessons = async (groupChapterTitles, officialTitles, 
   // upstream truncations above, this was the main reason a chapter's real
   // guide content (further down the document) never reached the actual
   // drafting prompt, so the AI had nothing distinguishing to work from.
-  const guideBlock = guideClassText ? `\n\nशिक्षक निर्देशिकाको मार्गदर्शन (यसैलाई मुख्य आधार बनाउनुहोस्):\n${guideClassText}` : "";
+  const guideBlock = guideClassText ? `\n\nशिक्षक निर्देशिकाको मार्गदर्शन (यसका सिकाइ उपलब्धि/मापदण्ड ध्यानमा राख्नुहोस्, तर वाक्य/उदाहरण नक्कल नगरी आफ्नै मौलिक शब्दमा लेख्नुहोस्):\n${guideClassText}` : "";
   const lessonsLine = officialTitles.map((t, i) => `${i + 1}. "${t}"`).join("\n");
   const prompt = `तपाईं नेपालको ${classContext}का लागि विद्यालयमा बुझाउनका लागि पाठ योजना र मूल्याङ्कन रुब्रिक्स तयार गर्दै हुनुहुन्छ, 5E मोडेल (Engage, Explore, Explain, Elaborate, Evaluate) मा।
 एकाइ: ${chaptersLine}
@@ -1626,12 +1645,15 @@ ${guideBlock}
   "evaluate": "मूल्याङ्कनका लागि प्रश्न/कार्य विवरण",
   "rubric": [{"criteria":"मूल्याङ्कनको क्षेत्र","levels":[{"level":"उत्कृष्ट","desc":"विवरण"},{"level":"राम्रो","desc":"विवरण"},{"level":"सामान्य","desc":"विवरण"},{"level":"सुधार आवश्यक","desc":"विवरण"}]}]
 }]
-महत्त्वपूर्ण: हरेकको सामग्री सोहीसँग मात्र सान्दर्भिक र फरक-फरक हुनुपर्छ — दुई वटाको जवाफ उस्तै/दोहोरिनु हुँदैन। rubric मा कम्तीमा ३ वटा फरक-फरक मूल्याङ्कन क्षेत्र (जस्तै विषयवस्तु बुझाइ, सहभागिता, प्रस्तुति) समावेश गर्नुहोस्।`;
+महत्त्वपूर्ण: हरेकको सामग्री सोहीसँग मात्र सान्दर्भिक र फरक-फरक हुनुपर्छ — दुई वटाको जवाफ उस्तै/दोहोरिनु हुँदैन। rubric मा कम्तीमा ३ वटा फरक-फरक मूल्याङ्कन क्षेत्र (जस्तै विषयवस्तु बुझाइ, सहभागिता, प्रस्तुति) समावेश गर्नुहोस्। यो सम्पूर्ण योजना आफैं मौलिक रूपमा लेख्नुहोस् — माथि संलग्न कुनै पनि फाइल (नमूना/सन्दर्भ पाठ योजना भए पनि) बाट वाक्य वा अनुच्छेद जस्ताको त्यस्तै नसार्नुहोस्।`;
   // FIX — 8192 output tokens was tight once several official lessons each
   // need their own full plan+rubric in one JSON array; raised the budget
   // and timeout together (same pattern as the other big drafting calls in
   // this file) so a multi-lesson group doesn't get cut off mid-JSON.
-  const text = await runPrompt(prompt, ctx, { jsonMode: true, maxOutputTokens: 16000, timeoutMs: 120000 });
+  // materialsMode:"inspiration-only" — see note above runPrompt: don't
+  // let a tagged reference/sample lesson plan get treated as the thing to
+  // mirror.
+  const text = await runPrompt(prompt, ctx, { jsonMode: true, maxOutputTokens: 16000, timeoutMs: 120000, materialsMode: "inspiration-only" });
   const result = parseJSON(text);
   if (!Array.isArray(result) || !result.length) {
     const preview = (text && text.trim()) ? text.trim().slice(0, 300) : "(खाली प्रतिक्रिया)";
@@ -1654,7 +1676,7 @@ export const draftSingleOfficialLesson = async (groupChapterTitles, officialTitl
   const mergedNote = isMerged
     ? `यी ${groupChapterTitles.length} वटा एकाइहरूको सिकाइ उपलब्धि समान भएकाले शिक्षक निर्देशिकाले एउटै समूहमा राखेको छ। यो भने ती एकाइहरूअन्तर्गतको एउटै आधिकारिक पाठ मात्र हो — यसैसँग मात्र सान्दर्भिक सामग्री दिनुहोस्।`
     : "";
-  const guideBlock = guideClassText ? `\n\nशिक्षक निर्देशिकाको मार्गदर्शन (यसैलाई मुख्य आधार बनाउनुहोस्):\n${guideClassText}` : "";
+  const guideBlock = guideClassText ? `\n\nशिक्षक निर्देशिकाको मार्गदर्शन (यसका सिकाइ उपलब्धि/मापदण्ड ध्यानमा राख्नुहोस्, तर वाक्य/उदाहरण नक्कल नगरी आफ्नै मौलिक शब्दमा लेख्नुहोस्):\n${guideClassText}` : "";
   const prompt = `तपाईं नेपालको ${classContext}का लागि विद्यालयमा बुझाउनका लागि पाठ योजना र मूल्याङ्कन रुब्रिक्स तयार गर्दै हुनुहुन्छ, 5E मोडेल (Engage, Explore, Explain, Elaborate, Evaluate) मा।
 एकाइ: ${chaptersLine}
 ${mergedNote}
@@ -1673,8 +1695,11 @@ ${guideBlock}
   "evaluate": "मूल्याङ्कनका लागि प्रश्न/कार्य विवरण",
   "rubric": [{"criteria":"मूल्याङ्कनको क्षेत्र","levels":[{"level":"उत्कृष्ट","desc":"विवरण"},{"level":"राम्रो","desc":"विवरण"},{"level":"सामान्य","desc":"विवरण"},{"level":"सुधार आवश्यक","desc":"विवरण"}]}]
 }
-महत्त्वपूर्ण: rubric मा कम्तीमा ३ वटा फरक-फरक मूल्याङ्कन क्षेत्र (जस्तै विषयवस्तु बुझाइ, सहभागिता, प्रस्तुति) समावेश गर्नुहोस्।`;
-  const text = await runPrompt(prompt, ctx, { jsonMode: true, maxOutputTokens: 8192, timeoutMs: 90000 });
+महत्त्वपूर्ण: rubric मा कम्तीमा ३ वटा फरक-फरक मूल्याङ्कन क्षेत्र (जस्तै विषयवस्तु बुझाइ, सहभागिता, प्रस्तुति) समावेश गर्नुहोस्। यो योजना आफैं मौलिक रूपमा लेख्नुहोस् — माथि संलग्न कुनै पनि फाइल (नमूना/सन्दर्भ पाठ योजना भए पनि) बाट वाक्य वा अनुच्छेद जस्ताको त्यस्तै नसार्नुहोस्।`;
+  // materialsMode:"inspiration-only" — see note above runPrompt: a tagged
+  // reference/sample lesson plan must feed topic ideas only, never get
+  // mirrored structurally the way runPrompt's default note would ask for.
+  const text = await runPrompt(prompt, ctx, { jsonMode: true, maxOutputTokens: 8192, timeoutMs: 90000, materialsMode: "inspiration-only" });
   const result = parseJSON(text);
   if (!result || Array.isArray(result) || !result.lesson_title) {
     const preview = (text && text.trim()) ? text.trim().slice(0, 300) : "(खाली प्रतिक्रिया)";
