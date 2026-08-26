@@ -1614,6 +1614,7 @@ ${guideClassText}
 // whole chapter, and not necessarily one per classroom lesson either.
 // officialTitles: string[], in the order the plans should come back. Returns
 // an array the same length and order, one full plan-group shape per entry.
+const OFFICIAL_LESSON_ANTI_COPY_RULE = `⚠️ अनिवार्य नियम: तलको मार्गदर्शनमा (वा माथि कुनै संलग्न फाइलमा) पहिले नै लेखिएको कुनै पनि वाक्य, उदाहरण, वा अनुच्छेद जस्ताको त्यस्तै/लगभग उस्तै नसार्नुहोस् — त्यहाँबाट केवल विषयवस्तु र सिकाइ उपलब्धि बुझ्नुहोस्, अनि हरेक आधिकारिक पाठको Engage/Explore/Explain/Elaborate/Evaluate विवरण, सिकाइ उपलब्धि, र रुब्रिक्स आफैं मौलिक रूपमा नयाँ शब्दमा लेख्नुहोस्। यो सबैभन्दा महत्त्वपूर्ण नियम हो।\n\n`;
 export const draftPlanGroupLessons = async (groupChapterTitles, officialTitles, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", guideClassText = null) => {
   const isMerged = groupChapterTitles.length > 1;
   const chaptersLine = groupChapterTitles.map((t) => `"${t}"`).join(", ");
@@ -1626,7 +1627,7 @@ export const draftPlanGroupLessons = async (groupChapterTitles, officialTitles, 
   // drafting prompt, so the AI had nothing distinguishing to work from.
   const guideBlock = guideClassText ? `\n\nशिक्षक निर्देशिकाको मार्गदर्शन (यसका सिकाइ उपलब्धि/मापदण्ड ध्यानमा राख्नुहोस्, तर वाक्य/उदाहरण नक्कल नगरी आफ्नै मौलिक शब्दमा लेख्नुहोस्):\n${guideClassText}` : "";
   const lessonsLine = officialTitles.map((t, i) => `${i + 1}. "${t}"`).join("\n");
-  const prompt = `तपाईं नेपालको ${classContext}का लागि विद्यालयमा बुझाउनका लागि पाठ योजना र मूल्याङ्कन रुब्रिक्स तयार गर्दै हुनुहुन्छ, 5E मोडेल (Engage, Explore, Explain, Elaborate, Evaluate) मा।
+  const prompt = `${OFFICIAL_LESSON_ANTI_COPY_RULE}तपाईं नेपालको ${classContext}का लागि विद्यालयमा बुझाउनका लागि पाठ योजना र मूल्याङ्कन रुब्रिक्स तयार गर्दै हुनुहुन्छ, 5E मोडेल (Engage, Explore, Explain, Elaborate, Evaluate) मा।
 एकाइ: ${chaptersLine}
 ${mergedNote}
 यी आधिकारिक पाठ योजनाहरू बनाउनुहोस् (क्रमैसँग, हरेकको लागि छुट्टै योजना चाहिन्छ):
@@ -1677,7 +1678,7 @@ export const draftSingleOfficialLesson = async (groupChapterTitles, officialTitl
     ? `यी ${groupChapterTitles.length} वटा एकाइहरूको सिकाइ उपलब्धि समान भएकाले शिक्षक निर्देशिकाले एउटै समूहमा राखेको छ। यो भने ती एकाइहरूअन्तर्गतको एउटै आधिकारिक पाठ मात्र हो — यसैसँग मात्र सान्दर्भिक सामग्री दिनुहोस्।`
     : "";
   const guideBlock = guideClassText ? `\n\nशिक्षक निर्देशिकाको मार्गदर्शन (यसका सिकाइ उपलब्धि/मापदण्ड ध्यानमा राख्नुहोस्, तर वाक्य/उदाहरण नक्कल नगरी आफ्नै मौलिक शब्दमा लेख्नुहोस्):\n${guideClassText}` : "";
-  const prompt = `तपाईं नेपालको ${classContext}का लागि विद्यालयमा बुझाउनका लागि पाठ योजना र मूल्याङ्कन रुब्रिक्स तयार गर्दै हुनुहुन्छ, 5E मोडेल (Engage, Explore, Explain, Elaborate, Evaluate) मा।
+  const prompt = `${OFFICIAL_LESSON_ANTI_COPY_RULE}तपाईं नेपालको ${classContext}का लागि विद्यालयमा बुझाउनका लागि पाठ योजना र मूल्याङ्कन रुब्रिक्स तयार गर्दै हुनुहुन्छ, 5E मोडेल (Engage, Explore, Explain, Elaborate, Evaluate) मा।
 एकाइ: ${chaptersLine}
 ${mergedNote}
 यो एउटै आधिकारिक पाठको लागि मात्र योजना बनाउनुहोस्: "${officialTitle}"
