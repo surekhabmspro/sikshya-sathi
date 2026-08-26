@@ -787,7 +787,7 @@ async function preparePath({ chapterTitle, chapterId, pathTitle, lessonId, secti
       section_id: sectionId || null, class_label: classLabel,
       objectives: result.objectives || [], vocabulary: result.vocabulary || [],
       sequence: result.sequence || [], key_questions: result.key_questions || [],
-      activities: result.activities || [], homework: result.homework || "", notes: result.notes || "",
+      activities: result.activities || [], homework: result.homework ? [result.homework] : [], notes: result.notes || "",
     };
     if (lessonId) payload.id = lessonId;
     const { data, error: err } = await db.upsertLesson(payload);
@@ -1573,6 +1573,7 @@ function LessonEditModal({ lesson, classContext, classLabel, onClose, onSaved })
       sequence:form.sequence.split("\n").filter(Boolean),
       key_questions:form.key_questions.split("\n").filter(Boolean),
       activities:form.activities.split("\n").filter(Boolean),
+      homework:form.homework.split("\n").filter(Boolean),
     };
     const{data,error:err}=await db.upsertLesson(payload);
     setSaving(false);
@@ -1614,10 +1615,10 @@ function LessonEditModal({ lesson, classContext, classLabel, onClose, onSaved })
             {showDetails?<ArrowDown size={15}/>:<ArrowRight size={15}/>}विवरण {showDetails?"लुकाउनुहोस्":"देखाउनुहोस्"}
           </button>
           {showDetails&&(<>
-            {[["homework","गृहकार्य"],["notes","नोट"]].map(([f,p])=>(
+            {[["notes","नोट"]].map(([f,p])=>(
               <input key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
             ))}
-            {[["objectives","उद्देश्यहरू (प्रत्येक नयाँ लाइनमा)"],["vocabulary","शब्दावली — शब्द: अर्थ; अर्को शब्द: अर्थ"],["sequence","पढाउने क्रम (प्रत्येक नयाँ लाइनमा)"],["key_questions","मुख्य प्रश्नहरू (प्रत्येक नयाँ लाइनमा)"],["activities","क्रियाकलापहरू (प्रत्येक नयाँ लाइनमा)"]].map(([f,p])=>(
+            {[["objectives","उद्देश्यहरू (प्रत्येक नयाँ लाइनमा)"],["vocabulary","शब्दावली — शब्द: अर्थ; अर्को शब्द: अर्थ"],["sequence","पढाउने क्रम (प्रत्येक नयाँ लाइनमा)"],["key_questions","मुख्य प्रश्नहरू (प्रत्येक नयाँ लाइनमा)"],["activities","क्रियाकलापहरू (प्रत्येक नयाँ लाइनमा)"],["homework","गृहकार्य (प्रत्येक नयाँ लाइनमा)"]].map(([f,p])=>(
               <textarea key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} rows={3} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
             ))}
           </>)}
@@ -2056,29 +2057,46 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
     setLinkedRubric([]);setLinkedAssessmentId(null);setRubricForm(false);
   };
 
-  // NEW — गृहकार्य was a single plain-text field on the lesson with no way
-  // to change or clear it from LessonMode itself (only from the separate
-  // Planner edit form). Stateful + persisted the same way sequence/
-  // activities are above.
-  const [homeworkState,setHomeworkState]=useState(lesson.homework||"");
-  const [hwEditing,setHwEditing]=useState(false);
-  const [hwEditText,setHwEditText]=useState("");
-  const [hwSaving,setHwSaving]=useState(false);
-  useEffect(()=>{setHomeworkState(lesson.homework||"");setHwEditing(false);},[lesson.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  const startEditHomework=()=>{setHwEditText(homeworkState);setHwEditing(true);};
-  const saveHomework=async()=>{
-    setHwSaving(true);
-    const text=hwEditText.trim();
-    const{error}=await db.updateLesson(lesson.id,{homework:text});
-    setHwSaving(false);
-    if(error){alert("सुरक्षित हुन सकेन: "+(error.message||""));return;}
-    setHomeworkState(text);setHwEditing(false);
+  // FIX — गृहकार्य was a single plain-text field on the lesson (one value,
+  // no AI generation of its own, only ever edited/cleared as one blob).
+  // Rebuilt as a list — same state/persist/edit/delete shape as
+  // activitiesState above — so a teacher can have several distinct
+  // गृहकार्य items per lesson, generate more via AI on demand, and
+  // edit/delete each one individually instead of the whole thing at once.
+  const [homeworkState,setHomeworkState]=useState(()=>lesson.homework||[]);
+  const [homeworkGenerating,setHomeworkGenerating]=useState(false);
+  const [homeworkError,setHomeworkError]=useState("");
+  useEffect(()=>{setHomeworkState(lesson.homework||[]);setHomeworkError("");},[lesson.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const persistHomework=async(next)=>{
+    setHomeworkState(next);
+    const{error}=await db.updateLesson(lesson.id,{homework:next});
+    if(error){setHomeworkError("सुरक्षित हुन सकेन: "+(error.message||""));return false;}
+    return true;
   };
-  const deleteHomework=async()=>{
-    if(!window.confirm("गृहकार्य हटाउने?"))return;
-    const{error}=await db.updateLesson(lesson.id,{homework:""});
-    if(error){alert("हटाउन सकिएन: "+(error.message||""));return;}
-    setHomeworkState("");setHwEditing(false);
+  const addMoreHomework=async()=>{
+    setHomeworkGenerating(true);setHomeworkError("");
+    try{
+      const ctx=await getMaterialContext(chapterTitle,classLabel,lesson.id);
+      const more=await gemini.generateMoreHomework(chapterTitle,ctx,classContext,lesson.title,homeworkState);
+      const fresh=(more||[]).filter((h)=>h&&!homeworkState.includes(h));
+      if(fresh.length===0){setHomeworkError("AI ले थप नयाँ गृहकार्य दिन सकेन — फेरि प्रयास गर्नुहोस्।");return;}
+      await persistHomework([...homeworkState,...fresh]);
+    }catch(e){setHomeworkError("AI त्रुटि: "+e.message);}
+    setHomeworkGenerating(false);
+  };
+  const [hwEditingIdx,setHwEditingIdx]=useState(null);
+  const [hwEditText,setHwEditText]=useState("");
+  const startEditHomework=(i)=>{setHwEditingIdx(i);setHwEditText(homeworkState[i]);};
+  const saveEditedHomework=(i)=>{
+    const text=hwEditText.trim();
+    if(!text)return;
+    persistHomework(homeworkState.map((h,idx)=>idx===i?text:h));
+    setHwEditingIdx(null);
+  };
+  const deleteHomework=(i)=>{
+    if(!window.confirm("यो गृहकार्य हटाउने?"))return;
+    persistHomework(homeworkState.filter((_,idx)=>idx!==i));
+    setHwEditingIdx(null);
   };
 
   // NEW — "प्रिन्ट" from the Planner list opens this lesson and prints it
@@ -2394,21 +2412,39 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
         {tab==="homework"&&<div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginBottom:10}}>
             <SectionLabel icon={PenSquare} color={MARIGOLD_DARK}>दिने गृहकार्य</SectionLabel>
-            {!hwEditing&&<div style={{display:"flex",gap:14,flexShrink:0}}>
-              <button className="ss-btn" onClick={startEditHomework} title="सम्पादन" style={{background:"none",border:"none",cursor:"pointer",padding:0,color:ACCENT,display:"flex",alignItems:"center",gap:4,fontWeight:700,fontSize:14.5}}><PenSquare size={14}/>सम्पादन</button>
-              {homeworkState&&<button className="ss-btn" onClick={deleteHomework} title="हटाउनुहोस्" style={{background:"none",border:"none",cursor:"pointer",padding:0,color:DANGER,display:"flex",alignItems:"center",gap:4,fontWeight:700,fontSize:14.5}}><Trash2 size={14}/>हटाउनुहोस्</button>}
-            </div>}
+            {/* FIX — गृहकार्य only ever came with the one item the initial
+                lesson plan generated (or none); this lets a teacher ask AI
+                for a few more without regenerating the whole plan — same
+                "AI बाट थप्नुहोस्" pattern as क्रियाकलापहरू above. */}
+            <AIButton label={homeworkGenerating?"बनाउँदै...":"AI बाट थप्नुहोस्"} onClick={addMoreHomework} loading={homeworkGenerating}/>
           </div>
-          {hwEditing?(
-            <Card>
-              <textarea autoFocus value={hwEditText} onChange={(e)=>setHwEditText(e.target.value)} rows={4} className="ss-field" style={{width:"100%",borderRadius:10,padding:"9px 11px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,resize:"vertical",marginBottom:10}}/>
-              <div style={{display:"flex",gap:8}}>
-                <button className="ss-btn" onClick={()=>setHwEditing(false)} style={{flex:1,padding:"10px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer"}}>रद्द</button>
-                <button className="ss-btn" onClick={saveHomework} disabled={hwSaving} style={{flex:1,padding:"10px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,cursor:"pointer"}}>{hwSaving?"...":"सुरक्षित"}</button>
+          {homeworkError&&<ErrorMsg msg={homeworkError}/>}
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>{homeworkState.length===0?<div style={{color:INK_SOFT}}>गृहकार्य थपिएको छैन।</div>:homeworkState.map((h,i)=>{const color=PALETTE[i%PALETTE.length];const isEditing=hwEditingIdx===i;return(
+          <Card key={i} accentColor={color} style={{padding:"16px 18px"}}>
+            <div style={{display:"flex",alignItems:"flex-start",gap:14}}>
+              <div style={{width:32,height:32,borderRadius:"50%",background:`linear-gradient(160deg, ${color} 0%, color-mix(in srgb, ${color} 70%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:17,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div>
+              <div style={{flex:1,minWidth:0}}>
+              {isEditing?(
+                <div>
+                  <textarea autoFocus value={hwEditText} onChange={(e)=>setHwEditText(e.target.value)} rows={2} className="ss-field" style={{width:"100%",borderRadius:10,padding:"9px 11px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,resize:"vertical",marginBottom:8}}/>
+                  <div style={{display:"flex",gap:7}}>
+                    <button className="ss-btn" onClick={()=>setHwEditingIdx(null)} style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,fontSize:14,cursor:"pointer"}}>रद्द</button>
+                    <button className="ss-btn" onClick={()=>saveEditedHomework(i)} style={{padding:"6px 12px",borderRadius:8,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer"}}>सुरक्षित गर्नुहोस्</button>
+                  </div>
+                </div>
+              ):(
+                <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
+                  <div style={{fontSize:17,color:INK,lineHeight:1.6}}>{h}</div>
+                  <div style={{display:"flex",gap:10,flexShrink:0,paddingTop:5}}>
+                    <button className="ss-icon-btn" onClick={()=>startEditHomework(i)} title="सम्पादन" style={{cursor:"pointer",padding:6,color:ACCENT,display:"flex"}}><PenSquare size={15}/></button>
+                    <button className="ss-icon-btn" onClick={()=>deleteHomework(i)} title="हटाउनुहोस्" style={{cursor:"pointer",padding:6,color:DANGER,display:"flex"}}><Trash2 size={15}/></button>
+                  </div>
+                </div>
+              )}
               </div>
-            </Card>
-          ):<Card><div style={{fontSize:17,color:INK,lineHeight:1.6}}>{homeworkState||"गृहकार्य थपिएको छैन।"}</div></Card>}
-        </div>}
+            </div>
+          </Card>
+        );})}</div></div>}
         {tab==="rubric"&&<div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginBottom:10}}>
             <SectionLabel icon={Layers} color={ROSE}>मूल्याङ्कन मापदण्ड</SectionLabel>
@@ -2726,7 +2762,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
 
         <div style={{marginBottom:16,breakInside:"avoid"}}>
           <div style={{fontWeight:700,fontSize:13.5,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1.5px solid #111",paddingBottom:3,marginBottom:7}}>गृहकार्य</div>
-          <div style={{lineHeight:1.6}}>{lesson.homework||"—"}</div>
+          {homeworkState.length===0?<div>—</div>:<ol style={{margin:0,paddingLeft:20,lineHeight:1.65}}>{homeworkState.map((h,i)=><li key={i} style={{marginBottom:5}}>{h}</li>)}</ol>}
         </div>
 
         <div style={{marginBottom:8,breakInside:"avoid"}}>
@@ -2996,11 +3032,11 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
           active/inactive styling (filled + white text when on, a bordered
           surface card with clearly visible text/icon when off) instead of
           a one-off style that only really showed its state via border
-          color. FIX — label text updated: छिटो मोड no longer skips the
-          review/check step outright (see gemini.js generateSimulation) —
-          it now runs a shorter, targeted check instead — so the copy no
-          longer claims it "skips" verification. */}
-      <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:600,flex:1,minWidth:170}}>छिटो मोड — हल्का AI मोडेल प्रयोग गरी चाँडो बनाउनुहोस् (गुणस्तर अलि कम हुन सक्छ):</div>
+          color. FIX — the separate description line above the Chip
+          ("छिटो मोड — ...") was reported as an unnecessary/confusing
+          extra message once the Chip itself already states its own
+          purpose and state via its label ("छिटो मोड: सक्रिय/निष्क्रिय") —
+          removed rather than reworded again. */}
       <Chip icon={Zap} active={fastMode} color={WARN} onClick={()=>setFastMode(!fastMode)} style={{fontWeight:800}}>
         {fastMode?"छिटो मोड: सक्रिय":"छिटो मोड: निष्क्रिय"}
       </Chip>
@@ -3530,7 +3566,7 @@ function lessonToForm(l){
     sequence:(l.sequence||[]).join("\n"),
     key_questions:(l.key_questions||[]).map((q)=>q.includes("||")?q.slice(0,q.indexOf("||")):q).join("\n"),
     activities:(l.activities||[]).join("\n"),
-    homework:l.homework||"", notes:l.notes||"",
+    homework:(l.homework||[]).join("\n"), notes:l.notes||"",
   };
 }
 
@@ -4197,6 +4233,7 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
       sequence:form.sequence.split("\n").filter(Boolean),
       key_questions:form.key_questions.split("\n").filter(Boolean),
       activities:form.activities.split("\n").filter(Boolean),
+      homework:form.homework.split("\n").filter(Boolean),
     };
     if(!isEditing)delete payload.id; // let the database assign a new id for a fresh lesson
     const{error:err}=await db.upsertLesson(payload);
@@ -4332,10 +4369,10 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
             </button>
             {showDetails&&(
               <>
-                {[["homework","गृहकार्य"],["notes","नोट"]].map(([f,p])=>(
+                {[["notes","नोट"]].map(([f,p])=>(
                   <input key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
                 ))}
-                {[["objectives","उद्देश्यहरू (प्रत्येक नयाँ लाइनमा)"],["vocabulary","शब्दावली — यसरी लेख्नुहोस्: शब्द: अर्थ; अर्को शब्द: अर्थ"],["sequence","पढाउने क्रम (प्रत्येक नयाँ लाइनमा)"],["key_questions","मुख्य प्रश्नहरू (प्रत्येक नयाँ लाइनमा)"],["activities","क्रियाकलापहरू (प्रत्येक नयाँ लाइनमा)"]].map(([f,p])=>(
+                {[["objectives","उद्देश्यहरू (प्रत्येक नयाँ लाइनमा)"],["vocabulary","शब्दावली — यसरी लेख्नुहोस्: शब्द: अर्थ; अर्को शब्द: अर्थ"],["sequence","पढाउने क्रम (प्रत्येक नयाँ लाइनमा)"],["key_questions","मुख्य प्रश्नहरू (प्रत्येक नयाँ लाइनमा)"],["activities","क्रियाकलापहरू (प्रत्येक नयाँ लाइनमा)"],["homework","गृहकार्य (प्रत्येक नयाँ लाइनमा)"]].map(([f,p])=>(
                   <textarea key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} rows={3} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
                 ))}
                 {/* NEW — "तयार" (ready) status only makes sense once there's
@@ -5058,7 +5095,7 @@ function AIAssistant({ lessons, classContext, classLabel }) {
     const t=text.trim();if(!t||loading)return;
     setMessages((prev)=>[...prev,{role:"user",text:t}]);setInput("");setLoading(true);
     try{
-      const context=lesson?`पाठ: ${lesson.title}\nअध्याय: ${lesson.chapters?.title||lesson.chapter_title||""}\nउद्देश्य: ${(lesson.objectives||[]).join(", ")}\nशब्दावली: ${(lesson.vocabulary||[]).join(", ")}\nक्रियाकलाप: ${(lesson.activities||[]).join(", ")}\nगृहकार्य: ${lesson.homework||""}`: "कुनै पाठ छैन।";
+      const context=lesson?`पाठ: ${lesson.title}\nअध्याय: ${lesson.chapters?.title||lesson.chapter_title||""}\nउद्देश्य: ${(lesson.objectives||[]).join(", ")}\nशब्दावली: ${(lesson.vocabulary||[]).join(", ")}\nक्रियाकलाप: ${(lesson.activities||[]).join(", ")}\nगृहकार्य: ${(lesson.homework||[]).join(", ")}`: "कुनै पाठ छैन।";
       // NEW: pull in materials tagged to this lesson's chapter, alongside the global textbook
       const ctx=await getMaterialContext(chapterTitle,classLabel);
       const reply=await gemini.chatWithAI(t,context,ctx,classContext);
@@ -5079,7 +5116,7 @@ function AIAssistant({ lessons, classContext, classLabel }) {
     if(!target||target.role!=="ai")return;
     setElaboratingIdx(i);
     try{
-      const context=lesson?`पाठ: ${lesson.title}\nअध्याय: ${lesson.chapters?.title||lesson.chapter_title||""}\nउद्देश्य: ${(lesson.objectives||[]).join(", ")}\nशब्दावली: ${(lesson.vocabulary||[]).join(", ")}\nक्रियाकलाप: ${(lesson.activities||[]).join(", ")}\nगृहकार्य: ${lesson.homework||""}`: "कुनै पाठ छैन।";
+      const context=lesson?`पाठ: ${lesson.title}\nअध्याय: ${lesson.chapters?.title||lesson.chapter_title||""}\nउद्देश्य: ${(lesson.objectives||[]).join(", ")}\nशब्दावली: ${(lesson.vocabulary||[]).join(", ")}\nक्रियाकलाप: ${(lesson.activities||[]).join(", ")}\nगृहकार्य: ${(lesson.homework||[]).join(", ")}`: "कुनै पाठ छैन।";
       const ctx=await getMaterialContext(chapterTitle,classLabel);
       const prompt=`तलको आफ्नै जवाफलाई थप स्पष्ट र विस्तृत बनाउनुहोस् — थप उदाहरण, कक्षामा प्रयोग गर्न मिल्ने सरल भाषा, र आवश्यक भए चरणबद्ध विवरण थपेर। नयाँ विषय नथप्नुहोस्, यही जवाफलाई मात्र गहिरो बनाउनुहोस्:\n\n"${target.text}"`;
       const reply=await gemini.chatWithAI(prompt,context,ctx,classContext);
