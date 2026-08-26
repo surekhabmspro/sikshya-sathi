@@ -3595,6 +3595,38 @@ function groupLessonsByChapter(chapters, lessons) {
     titleMatches.forEach((l)=>matchedIds.add(l.id));
     return{ chapter:c, paths:[...idMatches, ...titleMatches] };
   });
+  // FIX — the real bug behind "अध्याय देखिन्छ हुँदा पनि तयार भएपछि नतोकिएको
+  // देखिन्छ": creating/generating a Path under a BRAND-NEW chapter name (one
+  // that doesn't already exist as a `chapters` row) correctly creates the
+  // chapter row and tags the lesson with its real chapter_id — see
+  // resolveChapterId/getOrCreateChapterId above, that part already works.
+  // But none of preparePath/getOrCreateLesson/addPath refresh this
+  // screen's own `chapters` list afterward (only addChapter/rename/delete
+  // do). So right after creation, `chapters` here is still the OLD list —
+  // missing the just-created chapter — and the map() above only ever
+  // builds one group per entry in THAT list. The lesson's chapter_id
+  // matches nothing in `chapters` yet, so it fell all the way into the
+  // orphan bucket below, even though it has a perfectly valid chapter_id
+  // and a real chapter row already sitting in the DB. It would silently
+  // "fix itself" on next reload (once loadChapters() catches up) — which
+  // is exactly the confusing part: looked broken, wasn't actually corrupt.
+  // getLessons() already joins `chapters(title)` (l.chapters?.title) for
+  // every row regardless of what's in the local `chapters` state, so
+  // rather than waiting on a refresh, synthesize a group right here for
+  // any chapter_id that shows up on a lesson but has no matching row in
+  // `chapters` yet, using that joined title. Keeps it out of "नतोकिएको"
+  // and under its real (correct) name immediately.
+  const knownIds=new Set((chapters||[]).map((c)=>c.id));
+  const unknownIdGroups=new Map(); // chapter_id -> {title, paths}
+  for(const [cid,ls] of byId){
+    if(knownIds.has(cid))continue;
+    const title=ls.map((l)=>l.chapters?.title).find(Boolean)||"";
+    if(!title)continue; // no title to go on either — genuinely unassigned, falls through to orphans below
+    ls.forEach((l)=>matchedIds.add(l.id));
+    if(!unknownIdGroups.has(cid))unknownIdGroups.set(cid,{title,paths:[]});
+    unknownIdGroups.get(cid).paths.push(...ls);
+  }
+  for(const[cid,{title,paths}]of unknownIdGroups)groups.push({chapter:{id:cid,title},paths});
   // FIX — a lesson whose chapter_id points at nothing (or nothing that
   // matched by title either) used to just silently vanish from this whole
   // screen: not in any chapter's group, no error, nothing. It still counted
