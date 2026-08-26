@@ -1161,19 +1161,18 @@ function applySimulationSafetyNets(html) {
 // relying purely on first-pass compliance. If this call fails for any
 // reason (timeout, rate limit, malformed output), the caller keeps the
 // original html — a working-but-imperfect simulation beats no simulation.
-// FIX — `fast` option: छिटो/fast mode used to skip this whole review pass
-// (see generateSimulation's skipReview param), which is exactly why fast
-// mode was the one reported to sometimes produce blank/empty cards and
-// meaningless, content-unrelated puzzles — this 13-point checklist is
-// the ONLY thing that ever catches those specific failures; the
-// deterministic string-based safety nets in applySimulationSafetyNets
-// can strip a stray <img> or a pre-checked box, but they can't judge
-// whether a card is blank or a puzzle item is nonsense — that needs
-// another look from the model. So fast mode no longer skips review
-// entirely; instead it runs this SAME call with a short, targeted
-// checklist (only the two failure modes actually reported) and a much
-// smaller time/retry budget, so it stays meaningfully faster than the
-// full 13-point pass while still catching the failures that matter most.
+// FIX — `fast` option: a short, targeted variant of this same review
+// call — only the two failure modes actually reported (blank cards,
+// meaningless/off-topic puzzle items) instead of the full 13-point
+// checklist, with a much smaller time/retry budget (see the call site
+// below). Used for छिटो mode's RETRY after a self-test failure (see
+// App.jsx's generate() and the `reviewMode` comment on generateSimulation
+// below) — not on छिटो mode's first attempt, which still skips review
+// entirely for real speed on the common, working case. The deterministic
+// string-based safety nets in applySimulationSafetyNets can strip a
+// stray <img> or a pre-checked box, but they can't judge whether a card
+// is blank or a puzzle item is nonsense — that needs another look from
+// the model, which is what this pass is for.
 async function reviewAndFixSimulation(html, type, chapterTitle, lessonTitle, { fast = false } = {}) {
   const prompt = fast ? `तपाईंले तलको एउटा इन्टरएक्टिभ सिमुलेसन/खेलको पूरा HTML पहिल्यै बनाइसक्नुभएको छ (अध्याय: "${chapterTitle}", पाठ: "${lessonTitle || chapterTitle}", ढाँचा: ${type.label})। यो छिटो जाँच हो — केवल तलका दुई समस्या मात्र खोजी सुधार्नुहोस्, अरू केही नबदल्नुहोस्:
 1. कुनै पनि कार्ड/वस्तु खाली देखिन्छ कि (इमोजी/आइकन र नेपाली लेबल कुनै पनि नभएको, वा टेक्स्ट/सामग्री पूरै हराएको) — भेटिएमा त्यसमा उपयुक्त इमोजी र स्पष्ट लेबल थप्नुहोस्।
@@ -1213,7 +1212,25 @@ ${html}`;
   return applySimulationSafetyNets(reviewed);
 }
 
-export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", simulationType = null, skipReview = false) => {
+// FIX — `reviewMode` replaces the old boolean `skipReview` ("नयाँ बनाउनुहोस्"
+// vs छिटो mode reported as barely faster + still occasionally producing
+// blank cards/meaningless puzzles). Three levels instead of an on/off
+// switch, because the two things teachers actually asked for — real speed
+// AND fewer broken generations — pull in opposite directions for a single
+// call, but not across the two calls a generation can take (see caller in
+// App.jsx's generate()):
+//   "none" — no review call at all. Used for छिटो mode's FIRST attempt,
+//            so the common case (which is not broken) stays genuinely
+//            fast — this is the speed teachers actually asked for back.
+//   "fast" — the short, targeted (blank-card / meaningless-puzzle only)
+//            review from reviewAndFixSimulation. Used for छिटो mode's
+//            SECOND attempt, only reached when the self-test in App.jsx
+//            already flagged the first attempt as bad — so the extra
+//            ~60s only gets spent in the rare case something actually
+//            needs fixing, not on every generation.
+//   "full" — the complete 13-point review. Always used for normal
+//            (non-छिटो) mode, both attempts.
+export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", simulationType = null, reviewMode = "full") => {
   const type = simulationType || pickNextSimulationType();
   const prompt = `तपाईं नेपालको ${classContext}का लागि एउटा इन्टरएक्टिभ (अन्तरक्रियात्मक) सिमुलेसन/खेल बनाउँदै हुनुहुन्छ।
 
@@ -1370,18 +1387,16 @@ export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, 
 
   // NEW — self-review pass (see reviewAndFixSimulation above). Failure
   // here is non-fatal: keep the already-valid, already-cleaned html.
-  // FIX — छिटो/fast mode (skipReview=true) used to skip this pass
-  // entirely to save time, but that's exactly what let blank cards and
-  // meaningless/off-topic puzzle items through uncaught — the 13-point
-  // checklist review is the only step that judges content quality rather
-  // than markup structure. Fast mode now still runs this pass, just the
-  // short, targeted `fast` variant (2 specific checks, ~60s budget, no
-  // retry) instead of the full 13-point audit (~90s budget) — still
-  // meaningfully faster than full mode, but no longer skipping content
-  // checking altogether.
-  try {
-    html = await reviewAndFixSimulation(html, type, chapterTitle, lessonTitle, { fast: skipReview });
-  } catch { /* keep the original, already-safety-netted html */ }
+  // FIX — see the `reviewMode` comment above generateSimulation's
+  // signature: "none" skips this entirely (छिटो mode's fast first
+  // attempt), "fast" runs the short targeted check (छिटो mode's retry
+  // after a self-test failure), "full" runs the complete checklist
+  // (normal mode, both attempts).
+  if (reviewMode !== "none") {
+    try {
+      html = await reviewAndFixSimulation(html, type, chapterTitle, lessonTitle, { fast: reviewMode === "fast" });
+    } catch { /* keep the original, already-safety-netted html */ }
+  }
 
   return { html, type };
 };

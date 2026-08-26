@@ -2793,16 +2793,41 @@ function selfTestSimulation(html, timeoutMs=1500){
       // visually blank (e.g. content that silently fails to get appended,
       // or a null querySelector swallowed by an internal try/catch).
       // window.onerror alone never sees this since nothing throws — this
-      // is exactly the failure mode fast mode is most exposed to, since it
-      // skips the AI review pass that would normally have caught it. So
-      // also do a cheap direct check here: does the page actually have a
-      // meaningful amount of real content in it?
+      // is exactly the failure mode छिटो mode is most exposed to on its
+      // first (no-review) attempt. So also do a cheap direct check here:
+      // does the page actually have a meaningful amount of real content?
       let contentOk=true;
       try{
         const body=iframe.contentDocument&&iframe.contentDocument.body;
         const text=(body&&body.innerText||"").trim();
         const elCount=body?body.querySelectorAll("*").length:0;
         if(!body||text.length<15||elCount<5)contentOk=false;
+        // FIX — reported bug: छिटो mode's one-shot (no-review) generation
+        // sometimes rendered structurally fine (passes the check above —
+        // plenty of elements, plenty of total text) but with individual
+        // item/card elements that are themselves empty — no emoji/icon,
+        // no label, nothing a student could read. The check above only
+        // looks at the page as a whole, so it never caught this. This is
+        // a pure DOM check (no extra Gemini call, so it costs nothing on
+        // the common non-blank case): grab anything that looks like one
+        // of the repeated item/card/tile/option elements these
+        // simulations are built from, and if a meaningful fraction of
+        // them are visibly sized but textually and visually empty, treat
+        // the whole generation as failed so it gets one retry.
+        if(contentOk&&body){
+          const cardish=body.querySelectorAll('[class*="card" i],[class*="item" i],[class*="tile" i],[class*="option" i],[class*="pair" i],[class*="chip" i]');
+          if(cardish.length>=4){
+            let blanks=0;
+            cardish.forEach((el)=>{
+              const t=(el.innerText||"").trim();
+              const hasSvg=el.querySelector("svg");
+              const rect=el.getBoundingClientRect();
+              const visible=rect.width>20&&rect.height>20;
+              if(visible&&!t&&!hasSvg)blanks++;
+            });
+            if(blanks/cardish.length>0.25)contentOk=false;
+          }
+        }
       }catch(e){ /* couldn't inspect it — don't fail the sim over that */ }
       finish(contentOk);
     },timeoutMs);
@@ -2821,10 +2846,18 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
   const [error,setError]=useState("");
   const [viewing,setViewing]=useState(null);
   const [deletingId,setDeletingId]=useState(null);
-  // NEW — opt-in fast mode: skips generateSimulation's AI self-review
-  // pass (see gemini.js), the single biggest time cost in a generation.
-  // Off by default since the review pass does catch real issues — this
-  // is for a teacher who needs something on screen right now.
+  // NEW — opt-in छिटो (fast) mode: skips generateSimulation's AI
+  // self-review pass on its first attempt (see gemini.js `reviewMode`),
+  // the single biggest time cost in a generation. Off by default since
+  // review does catch real issues — this is for a teacher who needs
+  // something on screen right now. FIX — if that fast first attempt
+  // comes back broken (per selfTestSimulation below), the one automatic
+  // retry now runs the short/targeted review instead of another
+  // no-review attempt, so छिटो mode stays genuinely fast on the common,
+  // working case but gets a real correction pass on the rare bad one —
+  // rather than either (a) always paying for review, which made छिटो
+  // barely faster than normal mode, or (b) never reviewing at all, which
+  // is what let blank cards/meaningless puzzles through uncaught.
   const [fastMode,setFastMode]=useState(false);
   const [usedCache,setUsedCache]=useState(false);
   const online=useOnlineStatus();
@@ -2883,13 +2916,20 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
       const usedTypes=[...globalAsc, ...lessonAsc];
       nextType=gemini.pickNextSimulationType(usedTypes);
     }
-    let{html,type}=await gemini.generateSimulation(chapterTitle,targetLesson.title,ctx,classContext,nextType,fastMode);
+    let{html,type}=await gemini.generateSimulation(chapterTitle,targetLesson.title,ctx,classContext,nextType,fastMode?"none":"full");
     // NEW — render self-test (see selfTestSimulation above). One silent
     // retry on failure, same "don't interrupt the classroom flow" pattern
     // already used for a truncated/cut-off response.
+    // FIX — the retry no longer repeats the exact same reviewMode as the
+    // first attempt. छिटो mode's first attempt used "none" for speed; if
+    // that's what just failed the self-test, the retry uses "fast"
+    // (short targeted review) instead of blindly trying "none" again,
+    // since repeating the same review-free attempt that just produced a
+    // blank/broken result is unlikely to fix it. Normal mode already
+    // used "full" the first time, so its retry stays "full".
     const ok=await selfTestSimulation(html);
     if(!ok){
-      const retry=await gemini.generateSimulation(chapterTitle,targetLesson.title,ctx,classContext,nextType,fastMode);
+      const retry=await gemini.generateSimulation(chapterTitle,targetLesson.title,ctx,classContext,nextType,fastMode?"fast":"full");
       html=retry.html; type=retry.type;
     }
     // NEW — 2-3 discussion questions for after the game ends, generated
@@ -2962,7 +3002,7 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
           review/check step outright (see gemini.js generateSimulation) —
           it now runs a shorter, targeted check instead — so the copy no
           longer claims it "skips" verification. */}
-      <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:600,flex:1,minWidth:170}}>छिटो मोड — छोटो जाँचसहित चाँडो बनाउनुहोस्:</div>
+      <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:600,flex:1,minWidth:170}}>छिटो मोड — जाँच-चरण नछोडी, चाँडो बनाउनुहोस् (आवश्यक परे मात्र छोटो जाँच हुन्छ):</div>
       <Chip icon={Zap} active={fastMode} color={WARN} onClick={()=>setFastMode(!fastMode)} style={{fontWeight:800}}>
         {fastMode?"छिटो मोड: सक्रिय":"छिटो मोड: निष्क्रिय"}
       </Chip>
