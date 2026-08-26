@@ -3671,7 +3671,7 @@ const emptyOfficialLesson = (title = "") => ({
 // a plan and rubric that no longer agree with each other, which isn't
 // what "separate flow" was asked for.
 function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContext, focusMode = "plan", onClose }) {
-  const [phase, setPhase] = useState("loading"); // loading | choose | drafting | review
+  const [phase, setPhase] = useState("loading"); // loading | choose | notify | drafting | review
   const [existingGroup, setExistingGroup] = useState(null);
   const [groupChapterTitles, setGroupChapterTitles] = useState([chapter.title]);
   const [groupReason, setGroupReason] = useState(null);
@@ -3682,6 +3682,22 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
   const [error, setError] = useState("");
   const [formatTemplateId, setFormatTemplateId] = useState(null);
   const [teacherGuideId, setTeacherGuideId] = useState(null);
+  // NEW — sequential drafting state. pendingOfficialUnits/guideClassText/
+  // materialCtx are found once during "detect" and reused for every
+  // per-lesson draftSingleOfficialLesson call afterwards (including a later
+  // single-lesson "फेरि बनाओस्" retry), so they're kept in refs rather than
+  // re-fetched each time. draftProgress drives the "पाठ 2/5" indicator.
+  const [pendingOfficialUnits, setPendingOfficialUnits] = useState([]);
+  const [draftProgress, setDraftProgress] = useState({ done: 0, total: 0, label: "" });
+  const [regeneratingIdx, setRegeneratingIdx] = useState(null);
+  const guideClassTextRef = useRef(null);
+  const materialCtxRef = useRef(null);
+  // NEW — mirrors `existingGroup` state but updates synchronously (no
+  // waiting for a re-render), so the per-lesson autosave loop in
+  // confirmAndDraft always knows the latest saved row id and upserts into
+  // it instead of accidentally inserting a fresh duplicate row on every
+  // lesson.
+  const existingGroupRef = useRef(null);
 
   // Classroom (Planner) lessons under the given chapter titles — used only
   // as REFERENCE context for the AI and as a helpful hint in the UI, never
@@ -3697,6 +3713,7 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
       const { data } = await db.getPlanGroupForChapter(chapter.id);
       if (data) {
         setExistingGroup(data);
+        existingGroupRef.current = data;
         setSource(data.source);
         const titles = (allChapters || []).filter((c) => (data.chapter_ids || []).includes(c.id)).map((c) => c.title);
         setGroupChapterTitles(titles);
@@ -3715,8 +3732,13 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
     setDraft({ lessons: [emptyOfficialLesson()] }); setOpenIdx(0); setPhase("review");
   };
 
-  const startAIDraft = async () => {
-    setPhase("drafting"); setBusy(true); setError("");
+  // STAGE 1 — Detect: cheap calls only (chapter grouping + official lesson
+  // count from the Guide). No lesson-plan content is generated here. Result
+  // is shown to the teacher (phase "notify") before any heavy drafting
+  // starts, so a merge the Guide suggests is a visible heads-up, not a
+  // silent decision.
+  const startDetect = async () => {
+    setPhase("detecting"); setBusy(true); setError("");
     try {
       const [{ data: guide }, { data: template }] = await Promise.all([
         db.getActiveTeacherGuide(classLabel), db.getActiveFormatTemplate(classLabel),
@@ -3724,33 +3746,84 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
       setFormatTemplateId(template?.id || null); setTeacherGuideId(guide?.id || null);
       const guidePart = await buildGuidePart(guide);
       const guideClassText = guidePart ? await gemini.extractGuideClassSection(guidePart, classLabel) : null;
+      guideClassTextRef.current = guideClassText;
       const allTitles = (allChapters || []).map((c) => c.title);
       const groups = await gemini.detectChapterGrouping(guideClassText, allTitles);
       const myGroup = groups.find((g) => g.chapter_titles.includes(chapter.title)) || { chapter_titles: [chapter.title], reason: null };
       setGroupChapterTitles(myGroup.chapter_titles); setGroupReason(myGroup.reason);
       const classroomTitles = classroomLessonsForChapterTitles(myGroup.chapter_titles).map((l) => l.title);
       const officialUnits = await gemini.detectOfficialLessons(guideClassText, myGroup.chapter_titles, classroomTitles);
-      const ctx = await getMaterialContext(chapter.title, classLabel, null);
-      const results = await gemini.draftPlanGroupLessons(myGroup.chapter_titles, officialUnits.map((u) => u.official_title), ctx, classContext, guideClassText);
-      setSource("ai_drafted");
-      const merged = officialUnits.map((u, i) => {
-        const r = results[i] || {};
-        return {
-          lesson_title: r.lesson_title || u.official_title,
-          source_lesson_titles: u.source_lesson_titles || [], source_reason: u.reason || null,
+      setPendingOfficialUnits(officialUnits);
+      materialCtxRef.current = await getMaterialContext(chapter.title, classLabel, null);
+      setPhase("notify");
+    } catch (e) {
+      setError(e.message || "मार्गदर्शन जाँच गर्न सकिएन।"); setPhase("choose");
+    }
+    setBusy(false);
+  };
+
+  // STAGE 2 — Generate ONE official lesson at a time (see gemini.
+  // draftSingleOfficialLesson), instead of one big JSON array covering the
+  // whole unit. draft.lessons is populated with empty placeholders up
+  // front so the review list/progress shows every official lesson right
+  // away; each placeholder is filled in as its own AI call completes. The
+  // group is saved to the database (as a "draft") after every single
+  // lesson too — so if generation stops partway (network drop, one
+  // lesson's call failing, closing the tab), everything drafted so far is
+  // already safe and the teacher can resume rather than starting over.
+  const confirmAndDraft = async () => {
+    setPhase("drafting"); setBusy(true); setError("");
+    const officialUnits = pendingOfficialUnits;
+    setSource("ai_drafted");
+    let lessonsAccum = officialUnits.map((u) => ({
+      ...emptyOfficialLesson(u.official_title),
+      source_lesson_titles: u.source_lesson_titles || [], source_reason: u.reason || null,
+    }));
+    setDraft({ lessons: lessonsAccum }); setOpenIdx(0);
+    const failedTitles = [];
+    for (let i = 0; i < officialUnits.length; i++) {
+      setDraftProgress({ done: i, total: officialUnits.length, label: officialUnits[i].official_title });
+      try {
+        const r = await gemini.draftSingleOfficialLesson(groupChapterTitles, officialUnits[i].official_title, materialCtxRef.current, classContext, guideClassTextRef.current);
+        lessonsAccum = lessonsAccum.map((l, idx) => idx === i ? {
+          ...l, lesson_title: r.lesson_title || l.lesson_title,
           major_learning_outcomes: r.major_learning_outcomes?.length ? r.major_learning_outcomes : [""],
           materials_required: r.materials_required?.length ? r.materials_required : [""],
           engage: r.engage || "", explore: r.explore || "", explain: r.explain || "",
           elaborate: r.elaborate || "", evaluate: r.evaluate || "",
           rubric: r.rubric?.length ? r.rubric : [emptyRubricRow()],
-        };
-      });
-      setDraft({ lessons: merged }); setOpenIdx(0);
-      setPhase("review");
-    } catch (e) {
-      setError(e.message || "मस्यौदा बनाउन सकिएन।"); setPhase("choose");
+        } : l);
+      } catch (e) {
+        failedTitles.push(officialUnits[i].official_title);
+      }
+      setDraft({ lessons: lessonsAccum });
+      try { await persistLessons(lessonsAccum, "draft"); } catch { /* autosave is best-effort; final save on review still retries */ }
     }
+    setDraftProgress({ done: officialUnits.length, total: officialUnits.length, label: "" });
+    setError(failedTitles.length ? `यी पाठको योजना बनाउन सकिएन, तल "फेरि बनाओस्" थिच्नुहोस्: ${failedTitles.join(", ")}` : "");
+    setPhase("review");
     setBusy(false);
+  };
+
+  // Retry ONE official lesson without redoing the rest of the unit —
+  // useful both for the failures above and any time later a teacher wants
+  // a fresh AI draft for just that lesson.
+  const regenerateLesson = async (li) => {
+    const title = draft.lessons[li]?.lesson_title;
+    if (!title || !title.trim()) return;
+    setRegeneratingIdx(li); setError("");
+    try {
+      if (!materialCtxRef.current) materialCtxRef.current = await getMaterialContext(chapter.title, classLabel, null);
+      const r = await gemini.draftSingleOfficialLesson(groupChapterTitles, title.trim(), materialCtxRef.current, classContext, guideClassTextRef.current);
+      setLesson(li, {
+        major_learning_outcomes: r.major_learning_outcomes?.length ? r.major_learning_outcomes : [""],
+        materials_required: r.materials_required?.length ? r.materials_required : [""],
+        engage: r.engage || "", explore: r.explore || "", explain: r.explain || "",
+        elaborate: r.elaborate || "", evaluate: r.evaluate || "",
+        rubric: r.rubric?.length ? r.rubric : [emptyRubricRow()],
+      });
+    } catch (e) { setError(`"${title}" फेरि बनाउन सकिएन: ` + (e.message || "")); }
+    setRegeneratingIdx(null);
   };
 
   const setLesson = (li, patch) => setDraft((d) => ({ ...d, lessons: d.lessons.map((l, idx) => idx === li ? { ...l, ...patch } : l) }));
@@ -3765,33 +3838,48 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
   const addOfficialLesson = () => setDraft((d) => ({ ...d, lessons: [...d.lessons, emptyOfficialLesson()] }));
   const removeOfficialLesson = (li) => { setDraft((d) => ({ ...d, lessons: d.lessons.filter((_, idx) => idx !== li) })); setOpenIdx(-1); };
 
+  // NEW — split out of the old persist() so both the manual save buttons
+  // AND the sequential autosave in confirmAndDraft share one door. Takes an
+  // explicit lessons array (rather than reading draft.lessons) so the
+  // drafting loop can save its own local accumulator without waiting for a
+  // React re-render to land in state first. Reads/writes existingGroupRef
+  // (not the `existingGroup` state) so repeated calls in a tight loop
+  // always target the same saved row instead of each inserting a new one.
+  const persistLessons = async (lessonsList, status) => {
+    const ids = [];
+    for (const title of groupChapterTitles) {
+      const id = await db.getChapterIdByTitle(title, classLabel);
+      if (id) ids.push(id);
+    }
+    if (!ids.includes(chapter.id)) ids.push(chapter.id);
+    const payload = {
+      class_label: classLabel, title: groupChapterTitles.join(" + "), chapter_ids: ids, source, status,
+      lessons: lessonsList.filter((l) => l.lesson_title.trim()).map((l) => ({
+        lesson_title: l.lesson_title.trim(),
+        source_lesson_titles: l.source_lesson_titles || [], source_reason: l.source_reason || null,
+        major_learning_outcomes: l.major_learning_outcomes.filter((v) => v.trim()),
+        materials_required: l.materials_required.filter((v) => v.trim()),
+        engage: l.engage, explore: l.explore, explain: l.explain, elaborate: l.elaborate, evaluate: l.evaluate,
+        rubric: l.rubric.filter((r) => r.criteria.trim()),
+      })),
+      format_template_id: formatTemplateId, teacher_guide_id: teacherGuideId,
+    };
+    if (!payload.lessons.length) return null;
+    const current = existingGroupRef.current;
+    const { data, error: err } = current
+      ? await db.updatePlanGroup(current.id, payload)
+      : await db.insertPlanGroup(payload);
+    if (err) throw err;
+    existingGroupRef.current = data;
+    setExistingGroup(data);
+    return data;
+  };
+
   const persist = async (status) => {
     setBusy(true); setError("");
     try {
-      const ids = [];
-      for (const title of groupChapterTitles) {
-        const id = await db.getChapterIdByTitle(title, classLabel);
-        if (id) ids.push(id);
-      }
-      if (!ids.includes(chapter.id)) ids.push(chapter.id);
-      const payload = {
-        class_label: classLabel, title: groupChapterTitles.join(" + "), chapter_ids: ids, source, status,
-        lessons: draft.lessons.filter((l) => l.lesson_title.trim()).map((l) => ({
-          lesson_title: l.lesson_title.trim(),
-          source_lesson_titles: l.source_lesson_titles || [], source_reason: l.source_reason || null,
-          major_learning_outcomes: l.major_learning_outcomes.filter((v) => v.trim()),
-          materials_required: l.materials_required.filter((v) => v.trim()),
-          engage: l.engage, explore: l.explore, explain: l.explain, elaborate: l.elaborate, evaluate: l.evaluate,
-          rubric: l.rubric.filter((r) => r.criteria.trim()),
-        })),
-        format_template_id: formatTemplateId, teacher_guide_id: teacherGuideId,
-      };
-      if (!payload.lessons.length) { setError("कम्तीमा एउटा आधिकारिक पाठको नाम राख्नुहोस्।"); setBusy(false); return; }
-      const { data, error: err } = existingGroup
-        ? await db.updatePlanGroup(existingGroup.id, payload)
-        : await db.insertPlanGroup(payload);
-      if (err) throw err;
-      setExistingGroup(data);
+      const data = await persistLessons(draft.lessons, status);
+      if (!data) { setError("कम्तीमा एउटा आधिकारिक पाठको नाम राख्नुहोस्।"); setBusy(false); return; }
       if (status === "approved") onClose(true);
     } catch (e) { setError(e.message || "सुरक्षित हुन सकेन।"); }
     setBusy(false);
@@ -3894,16 +3982,52 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
         {phase==="choose"&&(
           <div style={{display:"flex",flexDirection:"column",gap:12,marginTop:14}}>
             {error&&<div style={{fontSize:15,color:DANGER,background:DANGER_BG,borderRadius:10,padding:"10px 12px"}}>{error}</div>}
-            <div style={{fontSize:15.5,color:INK_SOFT,lineHeight:1.6}}>यो अध्यायको लागि अझै कुनै आधिकारिक पाठ योजना/रुब्रिक्स छैन। यहाँको "आधिकारिक पाठ" संख्या कक्षामा पढाइने पाठ्यपुस्तकका पाठ संख्यासँग बराबर नहुन सक्छ — विद्यार्थी मूल्याङ्कन मार्गदर्शनले साझा सिकाइ उपलब्धि भएका पाठहरू गाभेको हुन सक्छ। AI ले पाठ योजना र रुब्रिक्स दुवै एकैचोटि मस्यौदा बनाउँछ (दुवै एकअर्कासँग मिल्नुपर्ने भएकाले); त्यसपछि यहाँ तपाईं {focusMode==="rubric"?"रुब्रिक्स":"पाठ योजना"} मात्र हेर्न/सम्पादन गर्न सक्नुहुन्छ — अर्को भाग छुट्टै बटनबाट हेर्न मिल्छ।</div>
-            <AIButton label="✨ AI ले मस्यौदा बनाओस् (मार्गदर्शनअनुसार पाठ छुट्याएर)" onClick={startAIDraft} loading={busy} style={{width:"100%",justifyContent:"center",fontSize:16.5,padding:"13px"}}/>
+            <div style={{fontSize:15.5,color:INK_SOFT,lineHeight:1.6}}>यो अध्यायको लागि अझै कुनै आधिकारिक पाठ योजना/रुब्रिक्स छैन। यहाँको "आधिकारिक पाठ" संख्या कक्षामा पढाइने पाठ्यपुस्तकका पाठ संख्यासँग बराबर नहुन सक्छ — विद्यार्थी मूल्याङ्कन मार्गदर्शनले साझा सिकाइ उपलब्धि भएका पाठहरू गाभेको हुन सक्छ। पहिले मार्गदर्शन जाँची कति आधिकारिक पाठ बन्छन् भनी देखाउनेछौं, अनि तपाईंको सहमति लिएर एक-एक गरी मस्यौदा बनाउनेछौं (सबै एकैचोटि बनाउँदा ठूला एकाइमा टोकन सकिन सक्छ)।</div>
+            <AIButton label="✨ मार्गदर्शन जाँच्नुहोस्" onClick={startDetect} loading={busy} style={{width:"100%",justifyContent:"center",fontSize:16.5,padding:"13px"}}/>
             <button className="ss-btn" onClick={startManual} style={{width:"100%",padding:"12px",borderRadius:10,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontWeight:700,fontSize:16,cursor:"pointer"}}>आफैं लेख्नुहोस्</button>
           </div>
         )}
 
-        {phase==="drafting"&&(
+        {phase==="detecting"&&(
           <div style={{padding:"30px 0",display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
             <Spinner/>
-            <div style={{fontSize:15.5,color:INK_SOFT}}>मार्गदर्शनअनुसार पाठ छुट्याउँदै, हरेकको मस्यौदा तयार गर्दै...</div>
+            <div style={{fontSize:15.5,color:INK_SOFT}}>मार्गदर्शन जाँच्दै — कति आधिकारिक पाठ बन्छन्, कुनै अध्याय गाभिन्छ कि भनी हेर्दै...</div>
+          </div>
+        )}
+
+        {/* NEW — Stage 2 "notify": shows what the Guide implies (merged
+            chapters + reason, official lesson count/titles/merged source
+            lessons) BEFORE any heavy drafting starts, so a merge is a
+            visible heads-up the teacher confirms rather than a silent
+            decision buried in the result. */}
+        {phase==="notify"&&(
+          <div style={{display:"flex",flexDirection:"column",gap:12,marginTop:14}}>
+            {error&&<div style={{fontSize:15,color:DANGER,background:DANGER_BG,borderRadius:10,padding:"10px 12px"}}>{error}</div>}
+            {groupChapterTitles.length>1?(
+              <div style={{fontSize:14.5,color:ACCENT,background:ACCENT_LIGHT,borderRadius:10,padding:"9px 12px",lineHeight:1.6}}>
+                📎 मार्गदर्शनले यी {groupChapterTitles.length} वटा अध्याय गाभ्न सुझाव दिन्छ: {groupChapterTitles.join(", ")}{groupReason?` — ${groupReason}`:""}
+              </div>
+            ):(
+              <div style={{fontSize:14.5,color:INK_SOFT,background:SURFACE_2,borderRadius:10,padding:"9px 12px",lineHeight:1.6}}>यो अध्याय कुनै अरूसँग गाभिँदैन — एक्लै रहन्छ।</div>
+            )}
+            <div style={{fontSize:15.5,fontWeight:700,color:INK}}>मार्गदर्शनअनुसार {pendingOfficialUnits.length} वटा आधिकारिक पाठ बन्नेछन्:</div>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {pendingOfficialUnits.map((u, i) => (
+                <div key={i} style={{fontSize:14.5,color:INK,background:SURFACE_2,borderRadius:10,padding:"8px 12px",lineHeight:1.5}}>
+                  <span style={{fontWeight:700}}>{i+1}. {u.official_title}</span>
+                  {u.source_lesson_titles?.length>0&&<div style={{fontSize:13,color:INK_SOFT,marginTop:2}}>पाठ्यपुस्तकका पाठहरू: {u.source_lesson_titles.join(", ")}{u.reason?` — ${u.reason}`:""}</div>}
+                </div>
+              ))}
+            </div>
+            <div style={{fontSize:14,color:INK_SOFT,lineHeight:1.6}}>अब यी {pendingOfficialUnits.length} वटा पाठको मस्यौदा एक-एक गरी बनाइनेछ (हरेक बनेपछि स्वतः सुरक्षित हुन्छ) — रोकिए पनि बनिसकेको भाग सुरक्षित रहन्छ।</div>
+            <AIButton label={`✨ मस्यौदा बनाउन थाल्नुहोस् (${pendingOfficialUnits.length} पाठ, एक-एक गरी)`} onClick={confirmAndDraft} loading={busy} style={{width:"100%",justifyContent:"center",fontSize:16,padding:"13px"}}/>
+          </div>
+        )}
+
+        {phase==="drafting"&&(
+          <div style={{padding:"24px 0",display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
+            <Spinner/>
+            <div style={{fontSize:15.5,color:INK_SOFT,textAlign:"center"}}>पाठ {draftProgress.done+1}/{draftProgress.total} — मस्यौदा बनाउँदै...{draftProgress.label&&<div style={{fontWeight:700,color:INK,marginTop:4}}>{draftProgress.label}</div>}</div>
           </div>
         )}
 
@@ -3924,6 +4048,12 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
                   <div style={{display:"flex",alignItems:"center",gap:6,padding:"10px 10px 10px 14px",background:SURFACE_2}}>
                     <div style={{fontWeight:800,fontSize:14.5,color:INK_SOFT,flexShrink:0}}>{li+1}.</div>
                     <input value={lesson.lesson_title} onChange={(e)=>setLessonField(li,"lesson_title",e.target.value)} placeholder="आधिकारिक पाठको नाम" className="ss-field" style={{flex:1,borderRadius:8,padding:"7px 10px",fontSize:15.5,fontWeight:700,border:`1.5px solid ${BORDER}`,background:SURFACE}}/>
+                    {/* NEW — regenerate just THIS official lesson via
+                        gemini.draftSingleOfficialLesson, without redoing
+                        the rest of the unit. Same door the sequential
+                        drafting loop uses, so a failed/unsatisfying lesson
+                        never means starting the whole unit over. */}
+                    <IconButton icon={regeneratingIdx===li?Loader:RefreshCw} onClick={()=>regenerateLesson(li)} disabled={regeneratingIdx!==null} size={16} title="AI ले फेरि बनाओस्"/>
                     <IconButton icon={ChevronDown} onClick={()=>setOpenIdx(isOpen?-1:li)} size={18} style={{transform:isOpen?"rotate(180deg)":"none",transition:"transform 0.15s"}}/>
                     <IconButton icon={Trash2} onClick={()=>removeOfficialLesson(li)} size={16}/>
                   </div>
@@ -4008,8 +4138,141 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
 
 
 
+// NEW — reads the uploaded textbook PDF ONCE and auto-creates every अध्याय
+// (Unit) and its पाठ (Lesson) inside it, matching the textbook's own table
+// of contents — so a teacher doesn't have to type "+ नयाँ अध्याय"/"+ नयाँ
+// पाठ" one at a time for a whole book. Only asks for TITLES (gemini.
+// detectTextbookStructure), never full content, so this stays a small/fast
+// call even for a long textbook. Every checked item is created through the
+// same getOrCreateLesson() door everything else in the app uses, so a
+// re-run (or a title that already exists) safely skips duplicates instead
+// of creating copies.
+function ImportTextbookModal({ classLabel, classContext, lessons, onClose }) {
+  const [phase, setPhase] = useState("loading"); // loading | review | importing | done
+  const [units, setUnits] = useState([]); // [{ unit_title, lessons: [...], checked, lessonChecks: Set }]
+  const [error, setError] = useState("");
+  const [progress, setProgress] = useState({ done: 0, total: 0, label: "" });
+  const [summary, setSummary] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const result = await gemini.detectTextbookStructure(classLabel);
+        setUnits((result || []).map((u) => ({
+          unit_title: (u.unit_title || "").trim(),
+          lessons: (u.lessons || []).map((l) => (l || "").trim()).filter(Boolean),
+          checked: true,
+        })).filter((u) => u.unit_title));
+        setPhase("review");
+      } catch (e) {
+        setError(e.message || "पाठ्यपुस्तकको संरचना पत्ता लगाउन सकिएन।");
+        setPhase("review");
+      }
+    })();
+  }, [classLabel]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleUnit = (ui) => setUnits((us) => us.map((u, i) => i === ui ? { ...u, checked: !u.checked } : u));
+  const toggleLesson = (ui, li) => setUnits((us) => us.map((u, i) => {
+    if (i !== ui) return u;
+    const next = new Set(u.excludedLessons || []);
+    next.has(li) ? next.delete(li) : next.add(li);
+    return { ...u, excludedLessons: next };
+  }));
+
+  const totalLessons = units.reduce((n, u) => n + (u.checked ? u.lessons.filter((_, li) => !(u.excludedLessons || new Set()).has(li)).length : 0), 0);
+  const totalUnits = units.filter((u) => u.checked).length;
+
+  const runImport = async () => {
+    const checkedUnits = units.filter((u) => u.checked);
+    if (!checkedUnits.length) { setError("कम्तीमा एउटा एकाइ छान्नुहोस्।"); return; }
+    setPhase("importing"); setError("");
+    let createdUnits = 0, createdLessons = 0, skipped = 0;
+    setProgress({ done: 0, total: checkedUnits.length, label: "" });
+    for (let i = 0; i < checkedUnits.length; i++) {
+      const u = checkedUnits[i];
+      setProgress({ done: i, total: checkedUnits.length, label: u.unit_title });
+      try {
+        const chapterId = await resolveChapterId(u.unit_title, classLabel);
+        if (chapterId) createdUnits++;
+        const keepLessons = u.lessons.filter((_, li) => !(u.excludedLessons || new Set()).has(li));
+        for (const lessonTitle of keepLessons) {
+          const existing = findExistingLesson(lessons, u.unit_title, lessonTitle);
+          if (existing) { skipped++; continue; }
+          const created = await getOrCreateLesson({ lessons, chapterTitle: u.unit_title, pathTitle: lessonTitle, classLabel });
+          if (created) createdLessons++;
+        }
+      } catch { /* one unit failing shouldn't stop the rest */ }
+    }
+    setProgress({ done: checkedUnits.length, total: checkedUnits.length, label: "" });
+    setSummary({ units: createdUnits, lessons: createdLessons, skipped });
+    setPhase("done");
+  };
+
+  return (
+    <div className="no-print" onClick={onClose} style={{position:"fixed",inset:0,zIndex:88,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:16}}>
+      <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:"24px 26px",maxWidth:"min(94vw, 680px)",width:"100%",maxHeight:"88vh",overflowY:"auto",boxSizing:"border-box",boxShadow:SHADOW.lg}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+          <div style={{fontSize:19,fontWeight:800,color:INK,display:"flex",alignItems:"center",gap:8}}><BookMarked size={19} color={TEAL}/>पाठ्यपुस्तकबाट स्वतः अध्याय/पाठ</div>
+          <IconButton icon={X} onClick={onClose} size={20}/>
+        </div>
+
+        {phase==="loading"&&<div style={{padding:"30px 0",display:"flex",flexDirection:"column",alignItems:"center",gap:10}}><Spinner/><div style={{fontSize:15,color:INK_SOFT}}>पाठ्यपुस्तकको सूचीपत्र पढ्दै...</div></div>}
+
+        {error&&<div style={{marginTop:14,fontSize:15,color:DANGER,background:DANGER_BG,borderRadius:10,padding:"10px 12px"}}>{error}</div>}
+
+        {phase==="review"&&!error&&(
+          <div style={{marginTop:14}}>
+            <div style={{fontSize:15,color:INK_SOFT,marginBottom:14,lineHeight:1.6}}>पाठ्यपुस्तकको सूचीपत्रबाट यी एकाइ/पाठ भेटियो। नचाहिने भए हटाउनुहोस्, अनि "बनाउनुहोस्" थिच्नुहोस् — पहिले नै भएका अध्याय/पाठ दोहोरिने छैनन्।</div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              {units.map((u, ui) => (
+                <Card key={ui} style={{padding:12}}>
+                  <div onClick={()=>toggleUnit(ui)} style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
+                    {u.checked?<CheckSquare size={18} color={ACCENT}/>:<Square size={18} color={INK_SOFT}/>}
+                    <div style={{fontWeight:700,fontSize:16,color:INK,flex:1}}>{u.unit_title}</div>
+                    <span style={{fontSize:13,color:INK_SOFT,fontWeight:700}}>{u.lessons.length} पाठ</span>
+                  </div>
+                  {u.checked&&u.lessons.length>0&&(
+                    <div style={{marginTop:8,marginLeft:26,display:"flex",flexDirection:"column",gap:5}}>
+                      {u.lessons.map((l, li) => {
+                        const excluded = (u.excludedLessons || new Set()).has(li);
+                        return (
+                          <div key={li} onClick={()=>toggleLesson(ui, li)} style={{display:"flex",alignItems:"center",gap:7,cursor:"pointer",opacity:excluded?0.45:1}}>
+                            {excluded?<Square size={14} color={INK_SOFT}/>:<CheckSquare size={14} color={TEAL}/>}
+                            <div style={{fontSize:14.5,color:INK}}>{l}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </Card>
+              ))}
+            </div>
+            <div style={{marginTop:16,fontSize:14.5,color:INK_SOFT,fontWeight:600}}>{totalUnits} एकाइ, {totalLessons} पाठ छानिएको</div>
+            <button className="ss-btn" onClick={runImport} disabled={!totalUnits} style={{width:"100%",marginTop:12,padding:"13px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:SHADOW.accent}}>बनाउनुहोस्</button>
+          </div>
+        )}
+
+        {phase==="importing"&&(
+          <div style={{padding:"24px 0",display:"flex",flexDirection:"column",alignItems:"center",gap:10}}>
+            <Spinner/>
+            <div style={{fontSize:15,color:INK_SOFT,textAlign:"center"}}>{progress.done}/{progress.total} एकाइ बनाउँदै... {progress.label&&<div style={{fontWeight:700,color:INK,marginTop:4}}>{progress.label}</div>}</div>
+          </div>
+        )}
+
+        {phase==="done"&&summary&&(
+          <div style={{marginTop:14,display:"flex",flexDirection:"column",gap:12}}>
+            <div style={{fontSize:15.5,color:ACCENT,fontWeight:700,background:ACCENT_LIGHT,borderRadius:10,padding:"12px 14px"}}>✓ {summary.units} एकाइ, {summary.lessons} नयाँ पाठ बनियो{summary.skipped?` (${summary.skipped} पहिले नै भएकाले छाडियो)`:""}।</div>
+            <button className="ss-btn" onClick={onClose} style={{width:"100%",padding:"12px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:SHADOW.accent}}>ठीक छ</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Planner({ onOpenLesson, section, loading, onRefresh, classContext, classLabel, editLessonId, onEditConsumed, prefillChapter, onPrefillConsumed }) {
-  const { chapters, lessons, materials, addChapter, renameChapter: renameChapterCtx, deleteChapter: deleteChapterCtx, refreshLessons } = useData();
+  const { chapters, lessons, materials, addChapter, renameChapter: renameChapterCtx, deleteChapter: deleteChapterCtx, refreshLessons, refreshChapters } = useData();
+  const [importOpen, setImportOpen] = useState(false);
   const [showForm,setShowForm]=useState(false);
   const [form,setForm]=useState(EMPTY_LESSON_FORM);
   const [saving,setSaving]=useState(false);
@@ -4270,7 +4533,10 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
   return(
     <div className="ss-page" style={{padding:"20px 20px 130px",maxWidth:1040,margin:"0 auto"}}>
       <PageHeader icon={ClipboardList} title="पाठ योजना" color={ACCENT} action={
-        <Button size="sm" icon={Plus} onClick={()=>setAddingChapter(true)}>नयाँ अध्याय</Button>
+        <div style={{display:"flex",gap:8}}>
+          <Button size="sm" icon={BookMarked} variant="secondary" onClick={()=>setImportOpen(true)}>पाठ्यपुस्तकबाट</Button>
+          <Button size="sm" icon={Plus} onClick={()=>setAddingChapter(true)}>नयाँ अध्याय</Button>
+        </div>
       }/>
 
       {/* NEW — पहिले अध्याय (Unit), त्यसपछि त्यो भित्र धेरै पाठ (Path):
@@ -4450,6 +4716,7 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
       )}
       {planGroupChapter&&<PlanGroupModal chapter={planGroupChapter.chapter} focusMode={planGroupChapter.focusMode} allChapters={chapters} lessons={lessons} classLabel={classLabel} classContext={classContext} onClose={()=>setPlanGroupChapter(null)}/>}
       {yojanaLesson&&<YojanaSheet lesson={yojanaLesson} onClose={()=>setYojanaLesson(null)}/>}
+      {importOpen&&<ImportTextbookModal classLabel={classLabel} classContext={classContext} lessons={lessons} onClose={async()=>{setImportOpen(false);await refreshChapters();await onRefresh();}}/>}
     </div>
   );
 }

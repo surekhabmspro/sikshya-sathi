@@ -666,6 +666,30 @@ export async function extractChapterText(chapterTitle, classLabel) {
   return trimmed;
 }
 
+// NEW — reads the whole textbook PDF ONCE and returns its unit/lesson table
+// of contents (अध्याय/एकाइ → भित्रका पाठ), so chapters+lessons can be
+// auto-created in the app in one shot instead of the teacher typing each
+// "+ नयाँ अध्याय" / "+ नयाँ पाठ" by hand. This asks only for TITLES (no
+// content), so the output stays small even for a long book — no need to
+// chunk this call the way full lesson-plan drafting needs to be chunked.
+export async function detectTextbookStructure(classLabel) {
+  const part = await getTextbookPart(classLabel);
+  if (!part) return null;
+  const prompt = `यो नेपाली पाठ्यपुस्तक हेरी, यसको सूचीपत्र (table of contents) अनुसार भएका सबै एकाइ/अध्याय (Unit) र हरेक भित्रका पाठ (Lesson/Path) पत्ता लगाउनुहोस् — सुरुदेखि अन्त्यसम्म, कुनै एकाइ नछुटाई। हरेक अध्याय/एकाइको ठ्याक्कै त्यही नाम (पाठ्यपुस्तकमा जस्तो लेखिएको छ, त्यस्तै) र त्यसभित्रका हरेक पाठको नाम मात्र दिनुहोस् — कुनै विषयवस्तु, व्याख्या, वा सारांश नचाहिने, केवल संरचना (structure) मात्र।
+
+ठ्याक्कै यो JSON array मात्र जवाफ दिनुहोस्, अरू केही नलेखी:
+[{"unit_title":"एकाइ १: ...","lessons":["पाठ १: ...","पाठ २: ..."]}]
+
+यदि कुनै एकाइभित्र छुट्टै पाठ (उप-शीर्षक) छैनन् भने "lessons" खाली array [] राख्नुहोस्।${RAW_TEXT_LAYER_WARNING}`;
+  const text = await callGemini([part, { text: prompt }], { jsonMode: true, maxOutputTokens: 8192, timeoutMs: 90000 });
+  const result = parseJSON(text);
+  if (!Array.isArray(result) || !result.length) {
+    const preview = (text && text.trim()) ? text.trim().slice(0, 300) : "(खाली प्रतिक्रिया)";
+    throw new Error("Gemini ले पाठ्यपुस्तकको संरचना पत्ता लगाउन सकेन। जवाफको सुरुवात: " + preview);
+  }
+  return result; // [{ unit_title, lessons: [...] }]
+}
+
 // ─── Internal routers — pick the right call based on what's passed ──────────
 // `ctx` can be: null/undefined (plain prompt), a string (legacy — treated as
 // pdfBase64), or { pdfBase64, materialParts, textbookText }, built by
@@ -1612,6 +1636,49 @@ ${guideBlock}
   if (!Array.isArray(result) || !result.length) {
     const preview = (text && text.trim()) ? text.trim().slice(0, 300) : "(खाली प्रतिक्रिया)";
     throw new Error("Gemini ले सही ढाँचामा जवाफ दिएन। जवाफको सुरुवात: " + preview);
+  }
+  return result;
+};
+
+// NEW — same as draftPlanGroupLessons above, but drafts ONE official lesson
+// at a time instead of the whole group's array in one JSON response. A unit
+// with several official lessons used to need one giant JSON array back from
+// Gemini (every lesson's full 5E plan + rubric in a single response) — easy
+// to run past the output-token ceiling and come back truncated/unfinished
+// for a large unit. Calling this once per official lesson keeps each
+// response small and reliable, and lets the caller save progress after
+// every lesson instead of losing everything if one later lesson fails.
+export const draftSingleOfficialLesson = async (groupChapterTitles, officialTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", guideClassText = null) => {
+  const isMerged = groupChapterTitles.length > 1;
+  const chaptersLine = groupChapterTitles.map((t) => `"${t}"`).join(", ");
+  const mergedNote = isMerged
+    ? `यी ${groupChapterTitles.length} वटा अध्यायहरूको सिकाइ उपलब्धि समान भएकाले शिक्षक निर्देशिकाले एउटै समूहमा राखेको छ। यो भने ती अध्यायहरूअन्तर्गतको एउटै आधिकारिक पाठ मात्र हो — यसैसँग मात्र सान्दर्भिक सामग्री दिनुहोस्।`
+    : "";
+  const guideBlock = guideClassText ? `\n\nशिक्षक निर्देशिकाको मार्गदर्शन (यसैलाई मुख्य आधार बनाउनुहोस्):\n${guideClassText}` : "";
+  const prompt = `तपाईं नेपालको ${classContext}का लागि विद्यालयमा बुझाउनका लागि पाठ योजना र मूल्याङ्कन रुब्रिक्स तयार गर्दै हुनुहुन्छ, 5E मोडेल (Engage, Explore, Explain, Elaborate, Evaluate) मा।
+अध्याय: ${chaptersLine}
+${mergedNote}
+यो एउटै आधिकारिक पाठको लागि मात्र योजना बनाउनुहोस्: "${officialTitle}"
+${guideBlock}
+
+ठ्याक्कै यो JSON वस्तु (object) मात्र जवाफ दिनुहोस् — array होइन, एउटै वस्तु मात्र:
+{
+  "lesson_title": "${officialTitle}",
+  "major_learning_outcomes": ["उपलब्धि १","उपलब्धि २"],
+  "materials_required": ["सामग्री १","सामग्री २"],
+  "engage": "कक्षा प्रवेशको लागि छोटो, ठोस गतिविधि विवरण (प्रश्न/तस्बिर/उदाहरणबाट सुरु)",
+  "explore": "विद्यार्थीले आफैं छलफल/खोजी गर्ने गतिविधि विवरण",
+  "explain": "शिक्षकले वा विद्यार्थीले प्रस्तुत/स्पष्ट पार्ने गतिविधि विवरण",
+  "elaborate": "थप विस्तार/लागू गर्ने गतिविधि विवरण",
+  "evaluate": "मूल्याङ्कनका लागि प्रश्न/कार्य विवरण",
+  "rubric": [{"criteria":"मूल्याङ्कनको क्षेत्र","levels":[{"level":"उत्कृष्ट","desc":"विवरण"},{"level":"राम्रो","desc":"विवरण"},{"level":"सामान्य","desc":"विवरण"},{"level":"सुधार आवश्यक","desc":"विवरण"}]}]
+}
+महत्त्वपूर्ण: rubric मा कम्तीमा ३ वटा फरक-फरक मूल्याङ्कन क्षेत्र (जस्तै विषयवस्तु बुझाइ, सहभागिता, प्रस्तुति) समावेश गर्नुहोस्।`;
+  const text = await runPrompt(prompt, ctx, { jsonMode: true, maxOutputTokens: 8192, timeoutMs: 90000 });
+  const result = parseJSON(text);
+  if (!result || Array.isArray(result) || !result.lesson_title) {
+    const preview = (text && text.trim()) ? text.trim().slice(0, 300) : "(खाली प्रतिक्रिया)";
+    throw new Error(`"${officialTitle}" को लागि Gemini ले सही ढाँचामा जवाफ दिएन। जवाफको सुरुवात: ` + preview);
   }
   return result;
 };
