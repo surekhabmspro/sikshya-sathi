@@ -737,6 +737,13 @@ async function getOrCreateLesson({ lessons, chapterTitle, pathTitle, classLabel,
   const existing = findExistingLesson(lessons, chapterTitle, pathTitle, excludeId);
   if (existing) return existing;
   const chapter_id = await resolveChapterId(chapterTitle, classLabel);
+  // FIX — same silent-orphan gap as preparePath()/save() above, but for
+  // this door specifically (material-attach on a brand-new Path, bulk
+  // textbook import, quick-add) — a chapter-creation failure here used to
+  // just fall through and create the Path with chapter_id:null anyway, no
+  // error, no sign anything went wrong until it turned up in "अध्याय
+  // नतोकिएको" later. Fail loudly instead of creating an orphan quietly.
+  if (!chapter_id) throw new Error("अध्याय बचत गर्न सकिएन — इन्टरनेट जाँच्नुहोस् र फेरि प्रयास गर्नुहोस्।");
   const { data } = await db.upsertLesson({ title: pathTitle.trim(), chapter_id, status: "missing", class_label: classLabel, section_id: sectionId });
   return data || null;
 }
@@ -776,6 +783,21 @@ async function preparePath({ chapterTitle, chapterId, pathTitle, lessonId, secti
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const title = (pathTitle || "").trim() || chapterTitle;
   const cId = chapterId || await resolveChapterId(chapterTitle, classLabel);
+  // FIX — THE actual root cause of "अध्याय देखिन्थ्यो तर पाठ बनेपछि नतोकिएको
+  // हुन्छ": resolveChapterId() swallows ANY failure (network blip, RLS
+  // hiccup, whatever) and just returns null — silently, no error thrown.
+  // Before this check, that null flowed straight into chapter_id below and
+  // got saved with zero indication anything went wrong: the teacher had a
+  // real अध्याय name typed/picked, generation "succeeded", and the Path
+  // still ended up unassigned with no error on screen to explain why. A
+  // chapter title was given here, so a null id back means resolution
+  // genuinely failed this time — stop before burning an AI call on a
+  // lesson that would've been silently orphaned anyway, and surface it so
+  // the teacher can just retry instead of guessing what happened.
+  if (chapterTitle && chapterTitle.trim() && !cId) {
+    emit("plan", "error", "अध्याय बचत गर्न सकिएन — इन्टरनेट जाँच्नुहोस् र फेरि प्रयास गर्नुहोस्।");
+    throw new Error("अध्याय बचत गर्न सकिएन — इन्टरनेट जाँच्नुहोस् र फेरि प्रयास गर्नुहोस्।");
+  }
   const ctx = await getMaterialContext(chapterTitle, classLabel, lessonId);
 
   emit("plan", "loading");
@@ -1265,16 +1287,22 @@ function PathPicker({ value, onChange, chapterTitle }) {
   const [showAdd,setShowAdd]=useState(false);
   const [newTitle,setNewTitle]=useState("");
   const [adding,setAdding]=useState(false);
+  // NEW — addLesson (via getOrCreateLesson) now throws instead of silently
+  // creating a chapterless Path when chapter resolution fails; surface
+  // that here instead of letting it become an unhandled rejection with no
+  // sign on screen that the add didn't actually happen.
+  const [addError,setAddError]=useState("");
   const chapterPaths=(lessons||[]).filter((l)=>(l.chapters?.title||l.chapter_title)===chapterTitle);
 
   const submitNew=async()=>{
     if(!newTitle.trim()||!chapterTitle)return;
-    setAdding(true);
+    setAdding(true);setAddError("");
     try{
       const lesson=await addLesson(chapterTitle,newTitle.trim());
       if(lesson){onChange(lesson.id);}
       setShowAdd(false);setNewTitle("");
-    }finally{setAdding(false);}
+    }catch(e){setAddError(e.message);}
+    finally{setAdding(false);}
   };
 
   if(!chapterTitle||!chapterTitle.trim()){
@@ -1301,6 +1329,7 @@ function PathPicker({ value, onChange, chapterTitle }) {
           <button className="ss-btn" onClick={submitNew} disabled={adding||!newTitle.trim()} style={{background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:SHADOW.accent}}>{adding?"...":"थप्नुहोस्"}</button>
         </div>
       )}
+      {addError&&<div style={{color:DANGER,fontSize:13.5,fontWeight:600,marginTop:6}}>{addError}</div>}
     </div>
   );
 }
@@ -4441,7 +4470,12 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
     // FIX — now goes through the same getOrCreateLesson() door PathPicker
     // uses to tag a material, instead of its own separate dup-check +
     // insert. One implementation, so it can't drift from the other again.
-    const lesson=await getOrCreateLesson({lessons,chapterTitle:form.chapter_title,pathTitle:form.title,classLabel,sectionId:section?.id||null});
+    // getOrCreateLesson now throws instead of silently returning a
+    // chapterless Path when chapter resolution fails — catch that here so
+    // a failed attach shows an error instead of an unhandled rejection.
+    let lesson;
+    try{ lesson=await getOrCreateLesson({lessons,chapterTitle:form.chapter_title,pathTitle:form.title,classLabel,sectionId:section?.id||null}); }
+    catch(e){ setError(e.message); return null; }
     if(lesson){
       setForm((f)=>({...f,id:lesson.id}));
       // FIX — this created the Path row in the database but used to never
@@ -4522,6 +4556,17 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
     // saving, so this lesson is actually linked to its chapter everywhere
     // else in the app (materials list, AI matching, chapter hub).
     const chapter_id=await resolveChapterId(form.chapter_title,classLabel);
+    // FIX — same silent-orphan gap as preparePath() above: resolveChapterId
+    // returns null on ANY failure with no exception, so a chapter name typed
+    // right here could still save with chapter_id:null and no error shown,
+    // landing straight in "अध्याय नतोकिएको" with the teacher never told why.
+    // A title was actually entered here, so a null id means resolution
+    // genuinely failed — stop and say so instead of saving it unassigned.
+    if(form.chapter_title.trim()&&!chapter_id){
+      setSaving(false);
+      setError("अध्याय बचत गर्न सकिएन — इन्टरनेट जाँच्नुहोस् र फेरि प्रयास गर्नुहोस्।");
+      return;
+    }
     const payload={...form,chapter_id,section_id:section?.id||null,class_label:classLabel,
       objectives:form.objectives.split("\n").filter(Boolean),
       vocabulary:form.vocabulary.split(";").map((v)=>v.trim()).filter(Boolean),
