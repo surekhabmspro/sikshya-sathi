@@ -2846,18 +2846,16 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
   const [error,setError]=useState("");
   const [viewing,setViewing]=useState(null);
   const [deletingId,setDeletingId]=useState(null);
-  // NEW — opt-in छिटो (fast) mode: skips generateSimulation's AI
-  // self-review pass on its first attempt (see gemini.js `reviewMode`),
-  // the single biggest time cost in a generation. Off by default since
-  // review does catch real issues — this is for a teacher who needs
-  // something on screen right now. FIX — if that fast first attempt
-  // comes back broken (per selfTestSimulation below), the one automatic
-  // retry now runs the short/targeted review instead of another
-  // no-review attempt, so छिटो mode stays genuinely fast on the common,
-  // working case but gets a real correction pass on the rare bad one —
-  // rather than either (a) always paying for review, which made छिटो
-  // barely faster than normal mode, or (b) never reviewing at all, which
-  // is what let blank cards/meaningless puzzles through uncaught.
+  // NEW — opt-in छिटो (fast) mode. FIX — originally just skipped
+  // generateSimulation's review pass, but measured side-by-side that
+  // barely changed total time (review was never the dominant cost — the
+  // main generation call's own latency was). छिटो mode's first attempt
+  // now requests a genuinely lighter/faster AI model tier instead (see
+  // gemini.js's `reviewMode`/`model` handling) — an actual speed/quality
+  // tradeoff, which is what this toggle was always meant to offer. If
+  // that attempt fails the self-test below, the one automatic retry
+  // steps back up to the normal model plus a short, targeted review
+  // pass, trading speed for reliability just on that retry.
   const [fastMode,setFastMode]=useState(false);
   const [usedCache,setUsedCache]=useState(false);
   const online=useOnlineStatus();
@@ -3002,7 +3000,7 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
           review/check step outright (see gemini.js generateSimulation) —
           it now runs a shorter, targeted check instead — so the copy no
           longer claims it "skips" verification. */}
-      <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:600,flex:1,minWidth:170}}>छिटो मोड — जाँच-चरण नछोडी, चाँडो बनाउनुहोस् (आवश्यक परे मात्र छोटो जाँच हुन्छ):</div>
+      <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:600,flex:1,minWidth:170}}>छिटो मोड — हल्का AI मोडेल प्रयोग गरी चाँडो बनाउनुहोस् (गुणस्तर अलि कम हुन सक्छ):</div>
       <Chip icon={Zap} active={fastMode} color={WARN} onClick={()=>setFastMode(!fastMode)} style={{fontWeight:800}}>
         {fastMode?"छिटो मोड: सक्रिय":"छिटो मोड: निष्क्रिय"}
       </Chip>

@@ -380,7 +380,19 @@ async function fetchGeminiOnce(body, model, timeoutMs = CALL_TIMEOUT_MS) {
 // do the same thing again. Calls that already use a long per-attempt
 // timeout now pass a smaller `retries` so the retry budget scales down
 // as the per-attempt cost scales up, instead of multiplying both.
-async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, timeoutMs = CALL_TIMEOUT_MS, retries = 2 } = {}) {
+// FIX — `model` option added: `retries`/timeout tuning (above) turned out
+// NOT to be the real lever for छिटो mode's speed. Measured side-by-side,
+// a clean (no-retry) generation call takes ~150s on PRIMARY_MODEL
+// regardless of whether the review pass runs afterwards — the review
+// call is comparatively small, so skipping it barely moved the total.
+// The actual cost is PRIMARY_MODEL's own latency generating a long,
+// detailed HTML document. FALLBACK_MODEL (a lighter/faster model tier)
+// was already in this file, but only ever reached as an emergency
+// rate-limit fallback — it was never used for its actual latency
+// advantage. Letting a caller request it directly (see generateSimulation
+// below) is the first change in this whole effort that addresses the
+// real bottleneck instead of the retry/review bookkeeping around it.
+async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, timeoutMs = CALL_TIMEOUT_MS, retries = 2, model = PRIMARY_MODEL } = {}) {
   const generationConfig = { temperature: 0.7, maxOutputTokens };
   if (jsonMode) generationConfig.response_mime_type = "application/json";
   const body = { contents: [{ parts }], generationConfig };
@@ -390,7 +402,7 @@ async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, tim
   let usedFallback = false;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      res = await fetchGeminiOnce(body, PRIMARY_MODEL, timeoutMs);
+      res = await fetchGeminiOnce(body, model, timeoutMs);
     } catch (e) {
       lastError = e;
       // Network/timeout failures: also worth a retry, same backoff as a
@@ -416,7 +428,11 @@ async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, tim
   // user," which is exactly how a bad FALLBACK_MODEL name once masked the
   // real rate-limit error behind a confusing 404. A broken fallback should
   // never hide the original, actionable error.
-  if (res && res.status === 429) {
+  // FIX — skip this step entirely when `model` was ALREADY FALLBACK_MODEL
+  // (छिटो mode's first attempt): retrying the exact same model on the
+  // exact same request is pointless, there's no lighter tier left to
+  // fall back to.
+  if (res && res.status === 429 && model !== FALLBACK_MODEL) {
     try {
       const fallbackRes = await fetchGeminiOnce(body, FALLBACK_MODEL, timeoutMs);
       if (fallbackRes.ok) { res = fallbackRes; usedFallback = true; }
@@ -1355,25 +1371,23 @@ export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, 
   // at a 150s-per-attempt cost, 3 attempts (450s / 7.5min) before even
   // surfacing an error was the single biggest piece of the reported
   // "spins for minutes then fails" bug.
-  // FIX — the automatic retry-the-whole-thing-again loop below used to
-  // fire on ANY failure, including a network/rate-limit error that had
-  // ALREADY exhausted callGemini's own internal retries. Retrying an
-  // already-exhausted transient failure by starting a second full
-  // 150s-budget generation from scratch almost never helps (the same
-  // thing that just failed 2 times in a row is unlikely to succeed a
-  // 3rd time moments later) and was the largest single contributor to
-  // multi-minute waits before a failure was ever shown. Now it only
-  // retries when the failure is specifically tagged `.truncated` (a
-  // cut-off/incomplete document — see callGemini and extractHtmlDoc) —
-  // a genuine content problem that a fresh attempt can plausibly fix.
-  // Any other error (rate limit, timeout, network) surfaces immediately
-  // instead of silently doubling the wait for a retry that was very
-  // unlikely to succeed.
+  // FIX — measured छिटो mode side-by-side against normal mode: both took
+  // ~2.5 minutes with no retries needed on either side. That means the
+  // review pass was never the dominant cost — PRIMARY_MODEL's own
+  // latency generating this long/detailed a document is. So छिटो mode's
+  // first attempt now actually requests the lighter FALLBACK_MODEL tier
+  // (see callGemini's `model` option) instead of PRIMARY_MODEL — a
+  // genuinely faster model, not just "the same model with a step
+  // skipped afterwards". This is a real speed/quality tradeoff (a
+  // smaller model), which is what छिटो mode was always meant to offer;
+  // if it fails the self-test, the retry in App.jsx's generate() steps
+  // back up to PRIMARY_MODEL + the fast review, trading speed for
+  // reliability on that one retry.
   let html;
   let lastErr;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const raw = await runPrompt(prompt, ctx, { maxOutputTokens: 16000, timeoutMs: 150000, retries: 1 });
+      const raw = await runPrompt(prompt, ctx, { maxOutputTokens: 16000, timeoutMs: 150000, retries: 1, model: reviewMode === "none" ? FALLBACK_MODEL : PRIMARY_MODEL });
       html = extractHtmlDoc(raw);
       lastErr = null;
       break;
