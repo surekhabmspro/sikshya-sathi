@@ -1,6 +1,6 @@
 // context/DataContext.jsx
 //
-// THE single source of truth for अध्याय (chapters), पाठ (lessons), and
+// THE single source of truth for एकाइ (chapters), पाठ (lessons), and
 // सामग्री (materials) — and THE single door for every operation on them
 // (create, rename, delete, upload, tag/re-tag).
 //
