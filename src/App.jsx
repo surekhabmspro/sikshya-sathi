@@ -7510,7 +7510,34 @@ export default function App() {
 
         @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
         @keyframes ss-fade-up{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
-        .main-content > *{animation:ss-fade-up .32s cubic-bezier(.2,.7,.2,1) both;}
+        /* FIX (real root cause of the popup "tearing"/page-bleeding-through
+           bug — this was never actually a viewport-height problem; the
+           earlier useLockBodyScroll/useViewportHeightPx/100dvh fixes were
+           treating a symptom that only sometimes masked it). fill-mode
+           "both" meant that once this .32s entrance animation finished,
+           its ENDING keyframe style (transform:translateY(0)) kept being
+           applied to the element forever afterward — and per the CSS spec,
+           any element with a transform value other than the literal
+           keyword "none" (even a no-op like translateY(0)) becomes a new
+           containing block for every position:fixed descendant inside it,
+           no matter how deeply nested. Planner's (and every other
+           section's) top-level wrapper div is a direct child of
+           .main-content, so it permanently got this treatment — silently
+           hijacking position:fixed for EVERY modal rendered anywhere
+           inside that section (PlanGroupModal, chapter add/edit, import,
+           Yojana, etc.), confining their "fixed" backdrop to that wrapper
+           div's own box instead of the true viewport. That's exactly the
+           "page bleeding through below where the backdrop ends" symptom,
+           and it explains why re-uploading App.jsx with only backdrop-side
+           tweaks never changed anything — the backdrop code itself was
+           fine, its containing block was the bug. fill-mode "backwards"
+           (there's no animation-delay set, so it behaves identically to
+           "none" here — no visible change to the entrance animation
+           itself) drops the lingering post-animation transform, so
+           .main-content's children go back to transform:none once their
+           .32s fade-up finishes, restoring real fixed-to-viewport
+           positioning for every modal in the app. */
+        .main-content > *{animation:ss-fade-up .32s cubic-bezier(.2,.7,.2,1) backwards;}
 
         /* NEW — brief highlight so the सम्पादन/नयाँ पाठ form is obvious the
            moment it scrolls into view, instead of a teacher landing on a
