@@ -586,7 +586,7 @@ export const parseJSON = (text) => {
 // tagged materials are the primary, authoritative source (their structure,
 // order, and emphasis should be followed), and the textbook is there only
 // to fill gaps the materials don't cover, never to override them.
-const MATERIALS_PRIORITY_NOTE = `\n\n[स्रोत प्राथमिकता — महत्त्वपूर्ण]: माथि शिक्षकले आफैं यो अध्यायमा ट्याग गर्नुभएको सामग्री (लेसन प्लान/प्रस्तुति/प्रश्नोत्तर/आदि) र पाठ्यपुस्तक दुवै संलग्न छन्। शिक्षकको ट्याग गरिएको सामग्रीलाई नै मुख्य र भरपर्दो स्रोत मानी त्यसैको संरचना, क्रम र जोड पछ्याउनुहोस्। पाठ्यपुस्तक केवल त्यो सामग्रीले नसमेटेको तर अध्यायको लागि आवश्यक विषयवस्तु (जस्तै छुटेको उपशीर्षक वा तथ्य) थप्नकै लागि प्रयोग गर्नुहोस् — सामग्रीमा भएको कुरासँग नबाझी, नबदली।`;
+const MATERIALS_PRIORITY_NOTE = `\n\n[स्रोत प्राथमिकता — महत्त्वपूर्ण]: माथि शिक्षकले आफैं यो एकाइमा ट्याग गर्नुभएको सामग्री (लेसन प्लान/प्रस्तुति/प्रश्नोत्तर/आदि) र पाठ्यपुस्तक दुवै संलग्न छन्। शिक्षकको ट्याग गरिएको सामग्रीलाई नै मुख्य र भरपर्दो स्रोत मानी त्यसैको संरचना, क्रम र जोड पछ्याउनुहोस्। पाठ्यपुस्तक केवल त्यो सामग्रीले नसमेटेको तर एकाइको लागि आवश्यक विषयवस्तु (जस्तै छुटेको उपशीर्षक वा तथ्य) थप्नकै लागि प्रयोग गर्नुहोस् — सामग्रीमा भएको कुरासँग नबाझी, नबदली।`;
 
 // FIX — many Nepali government textbook/guide PDFs are typed in a legacy,
 // non-Unicode font (Preeti/Kantipur and similar): the file LOOKS like
@@ -647,7 +647,7 @@ function looksCorrupted(text) {
 export async function extractChapterText(chapterTitle, classLabel) {
   const part = await getTextbookPart(classLabel);
   if (!part) return null;
-  const prompt = `यो नेपाली पाठ्यपुस्तकबाट "${chapterTitle}" नामक अध्याय/पाठ पत्ता लगाउनुहोस् र त्यसको पूरा विषयवस्तु — नछोटाई, संक्षेप नगरी, कुनै तथ्य/वाक्य नछुटाई — सादा पाठको रूपमा मात्र फिर्ता दिनुहोस्। कुनै व्याख्या, शीर्षक, वा फर्म्याटिङ नथप्नुहोस्, केवल अध्यायको वास्तविक विषयवस्तु मात्र दिनुहोस्। यदि यस्तो नामको अध्याय ठ्याक्कै भेटिएन भने अरू केही नलेखी ठ्याक्कै यही शब्द मात्र लेख्नुहोस्: NOT_FOUND${RAW_TEXT_LAYER_WARNING}`;
+  const prompt = `यो नेपाली पाठ्यपुस्तकबाट "${chapterTitle}" नामक एकाइ/पाठ पत्ता लगाउनुहोस् र त्यसको पूरा विषयवस्तु — नछोटाई, संक्षेप नगरी, कुनै तथ्य/वाक्य नछुटाई — सादा पाठको रूपमा मात्र फिर्ता दिनुहोस्। कुनै व्याख्या, शीर्षक, वा फर्म्याटिङ नथप्नुहोस्, केवल एकाइको वास्तविक विषयवस्तु मात्र दिनुहोस्। यदि यस्तो नामको एकाइ ठ्याक्कै भेटिएन भने अरू केही नलेखी ठ्याक्कै यही शब्द मात्र लेख्नुहोस्: NOT_FOUND${RAW_TEXT_LAYER_WARNING}`;
   let text;
   // FIX — this was maxOutputTokens: 8192. An एकाइ (unit) with several पाठ
   // plus its own trailing अभ्यास section easily runs past that in Devanagari
@@ -667,15 +667,15 @@ export async function extractChapterText(chapterTitle, classLabel) {
 }
 
 // NEW — reads the whole textbook PDF ONCE and returns its unit/lesson table
-// of contents (अध्याय/एकाइ → भित्रका पाठ), so chapters+lessons can be
+// of contents (एकाइ/एकाइ → भित्रका पाठ), so chapters+lessons can be
 // auto-created in the app in one shot instead of the teacher typing each
-// "+ नयाँ अध्याय" / "+ नयाँ पाठ" by hand. This asks only for TITLES (no
+// "+ नयाँ एकाइ" / "+ नयाँ पाठ" by hand. This asks only for TITLES (no
 // content), so the output stays small even for a long book — no need to
 // chunk this call the way full lesson-plan drafting needs to be chunked.
 export async function detectTextbookStructure(classLabel) {
   const part = await getTextbookPart(classLabel);
   if (!part) return null;
-  const prompt = `यो नेपाली पाठ्यपुस्तक हेरी, यसको सूचीपत्र (table of contents) अनुसार भएका सबै एकाइ/अध्याय (Unit) र हरेक भित्रका पाठ (Lesson/Path) पत्ता लगाउनुहोस् — सुरुदेखि अन्त्यसम्म, कुनै एकाइ नछुटाई। हरेक अध्याय/एकाइको ठ्याक्कै त्यही नाम (पाठ्यपुस्तकमा जस्तो लेखिएको छ, त्यस्तै) र त्यसभित्रका हरेक पाठको नाम मात्र दिनुहोस् — कुनै विषयवस्तु, व्याख्या, वा सारांश नचाहिने, केवल संरचना (structure) मात्र।
+  const prompt = `यो नेपाली पाठ्यपुस्तक हेरी, यसको सूचीपत्र (table of contents) अनुसार भएका सबै एकाइ/एकाइ (Unit) र हरेक भित्रका पाठ (Lesson/Path) पत्ता लगाउनुहोस् — सुरुदेखि अन्त्यसम्म, कुनै एकाइ नछुटाई। हरेक एकाइ/एकाइको ठ्याक्कै त्यही नाम (पाठ्यपुस्तकमा जस्तो लेखिएको छ, त्यस्तै) र त्यसभित्रका हरेक पाठको नाम मात्र दिनुहोस् — कुनै विषयवस्तु, व्याख्या, वा सारांश नचाहिने, केवल संरचना (structure) मात्र।
 
 ठ्याक्कै यो JSON array मात्र जवाफ दिनुहोस्, अरू केही नलेखी:
 [{"unit_title":"एकाइ १: ...","lessons":["पाठ १: ...","पाठ २: ..."]}]
@@ -707,7 +707,7 @@ function contextParts(ctx) {
   // `inline_data` and Gemini already reads those visually, font-independent.
   // The warning only needs to apply to the text-layer kind.
   if (materialParts.some((p) => typeof p.text === "string")) parts.push({ text: MATERIAL_LEGACY_FONT_WARNING });
-  if (textbookText) parts.push({ text: `[पाठ्यपुस्तकको सान्दर्भिक अंश — यही अध्यायको लागि पहिले नै निकालिएको]\n${textbookText}` });
+  if (textbookText) parts.push({ text: `[पाठ्यपुस्तकको सान्दर्भिक अंश — यही एकाइको लागि पहिले नै निकालिएको]\n${textbookText}` });
   else { const p = toTextbookPart(pdfBase64); if (p) parts.push(p); }
   return parts;
 }
@@ -741,10 +741,10 @@ export const generateFromContextJSON = (prompt, ctx) => runPromptJSON(prompt, ct
 // ─── High-level generation helpers ───────────────────────────────────────────
 export const generateLessonPlan = async (chapterTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", pathTitle = null) => {
   const focusLine = (pathTitle && pathTitle.trim() && pathTitle.trim() !== chapterTitle.trim())
-    ? `यो अध्याय भित्रको यो खास पाठ (Path) का लागि मात्र योजना बनाउनुहोस्: "${pathTitle}"। अध्यायका अरू पाठहरूसँग दोहोरिने सामग्री नराख्नुहोस्।`
+    ? `यो एकाइ भित्रको यो खास पाठ (Path) का लागि मात्र योजना बनाउनुहोस्: "${pathTitle}"। एकाइका अरू पाठहरूसँग दोहोरिने सामग्री नराख्नुहोस्।`
     : "";
   const prompt = `तपाईं नेपालको ${classContext}का लागि पाठ योजना बनाउँदै हुनुहुन्छ।
-अध्याय (Unit): "${chapterTitle}"
+एकाइ (Unit): "${chapterTitle}"
 ${focusLine}
 यो ठ्याक्कै यो JSON संरचनामा मात्र जवाफ दिनुहोस्:
 {
@@ -777,10 +777,10 @@ ${focusLine}
 // semicolon-joined vocabulary field by word.
 export const generateVocabulary = async (chapterTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", pathTitle = null) => {
   const focusLine = (pathTitle && pathTitle.trim() && pathTitle.trim() !== chapterTitle.trim())
-    ? `यो अध्याय भित्रको यो खास पाठ (Path) का लागि मात्र शब्दावली दिनुहोस्: "${pathTitle}"। अध्यायका अरू पाठहरूसँग दोहोरिने शब्द नराख्नुहोस्।`
+    ? `यो एकाइ भित्रको यो खास पाठ (Path) का लागि मात्र शब्दावली दिनुहोस्: "${pathTitle}"। एकाइका अरू पाठहरूसँग दोहोरिने शब्द नराख्नुहोस्।`
     : "";
   const prompt = `तपाईं नेपालको ${classContext}का लागि शब्दावली सूची बनाउँदै हुनुहुन्छ।
-अध्याय (Unit): "${chapterTitle}"
+एकाइ (Unit): "${chapterTitle}"
 ${focusLine}
 यो पाठमा भएका कठिन/नयाँ शब्दहरूको सूची ठ्याक्कै यही JSON array संरचनामा मात्र दिनुहोस्, अरू कुनै व्याख्या वा पाठ नथप्नुहोस्:
 ["शब्द १: छोटो र सरल अर्थ","शब्द २: छोटो र सरल अर्थ","शब्द ३: छोटो र सरल अर्थ","शब्द ४: छोटो र सरल अर्थ","शब्द ५: छोटो र सरल अर्थ","शब्द ६: छोटो र सरल अर्थ","शब्द ७: छोटो र सरल अर्थ","शब्द ८: छोटो र सरल अर्थ","शब्द ९: छोटो र सरल अर्थ","शब्द १०: छोटो र सरल अर्थ"]
@@ -802,7 +802,7 @@ export const generateQuestions = async (chapterTitle, ctx = null, classContext =
   // SEPARATE "अभ्यास" block right after EACH individual पाठ's own content
   // (vocabulary/activities/exercise/project-work, then the next पाठ
   // starts) — NOT one combined block at the very end of the whole एकाइ.
-  // The old instruction told Gemini to look "ठ्याक्कै अध्यायको अन्त्यमा"
+  // The old instruction told Gemini to look "ठ्याक्कै एकाइको अन्त्यमा"
   // (right at the END OF THE CHAPTER) even when a specific पाठ was asked
   // for. For पाठ १ of a 4-पाठ chapter, that pointed Gemini at the LAST
   // पाठ's own exercise section instead — topically unrelated to पाठ १, so
@@ -812,9 +812,9 @@ export const generateQuestions = async (chapterTitle, ctx = null, classContext =
   // Now: for a specific पाठ, look for the exercise that follows THAT पाठ
   // specifically, not the chapter as a whole.
   const scopeLine = isWholeChapter
-    ? `यसमा "${chapterTitle}" नामको अध्याय पत्ता लगाउनुहोस् — त्यो अध्यायको सुरुदेखि अन्त्यसम्म राम्ररी हेर्नुहोस्, र अध्यायको ठ्याक्कै अन्त्यमा छापिएको आफ्नै "अभ्यास" (वा "प्रश्नोत्तर"/"अभ्यास प्रश्नहरू" जस्तो शीर्षक भएको) खण्ड पत्ता लगाउनुहोस्।`
-    : `यसमा "${chapterTitle}" नामको अध्याय भित्र "${pathTitle}" नामको खास पाठ (Path/पाठ) पत्ता लगाउनुहोस्। **महत्त्वपूर्ण**: धेरैजसो नेपाली पाठ्यपुस्तकमा एउटै अध्याय (एकाइ) भित्र धेरै पाठ (Path) हुन्छन्, र हरेक पाठको आफ्नै छुट्टै "अभ्यास" (वा "प्रश्नोत्तर") खण्ड सोही पाठको सामग्री (जस्तै शब्द भण्डार/वोकेब्लरी, क्रियाकलाप पछि) सकिएर, अर्को पाठ सुरु हुनुभन्दा ठ्याक्कै अगाडि नै छापिएको हुन्छ — अध्यायको सम्पूर्ण अन्त्यमा (पछिल्लो पाठको पछाडि) पुग्नु पर्दैन। त्यसैले अध्यायको अन्त्यसम्म नपुगी, "${pathTitle}" यही पाठको आफ्नै सामग्री सकिएपछि, ठ्याक्कै त्यसको ठीक पछाडि (अर्को पाठ सुरु हुनुभन्दा अगाडि) आफ्नै "अभ्यास"/"प्रश्नोत्तर" खण्ड छ कि भनेर पत्ता लगाउनुहोस् — यही नै सही ठाउँ हो, चाहे अध्याय अझै धेरै पाठ बाँकी भएर लामो नै किन नहोस्।`;
-  const focusLine = isWholeChapter ? "" : `\n\nयो अध्याय भित्र यो खास पाठ (Path) मात्र: "${pathTitle}"। यदि यो अध्याय बहु-पाठ (multiple paths/periods) मा बाँडिएको छ भने, अभ्यास खण्डका प्रश्नहरूमध्ये ठ्याक्कै यही पाठको विषयवस्तुसँग मिल्नेहरू मात्र छान्नुहोस् — अरू पाठसँग सम्बन्धित प्रश्न यहाँ नराख्नुहोस्। यदि प्रश्नहरू कुन उप-विषयसँग हो भन्ने छुट्याउन नमिल्ने खालका (चाहे जुनसुकै उप-विषयमा लागू हुने खालका, समग्र अध्यायकै हुन्) भए ती पनि समावेश गर्न सक्नुहुन्छ।`;
+    ? `यसमा "${chapterTitle}" नामको एकाइ पत्ता लगाउनुहोस् — त्यो एकाइको सुरुदेखि अन्त्यसम्म राम्ररी हेर्नुहोस्, र एकाइको ठ्याक्कै अन्त्यमा छापिएको आफ्नै "अभ्यास" (वा "प्रश्नोत्तर"/"अभ्यास प्रश्नहरू" जस्तो शीर्षक भएको) खण्ड पत्ता लगाउनुहोस्।`
+    : `यसमा "${chapterTitle}" नामको एकाइ भित्र "${pathTitle}" नामको खास पाठ (Path/पाठ) पत्ता लगाउनुहोस्। **महत्त्वपूर्ण**: धेरैजसो नेपाली पाठ्यपुस्तकमा एउटै एकाइ (एकाइ) भित्र धेरै पाठ (Path) हुन्छन्, र हरेक पाठको आफ्नै छुट्टै "अभ्यास" (वा "प्रश्नोत्तर") खण्ड सोही पाठको सामग्री (जस्तै शब्द भण्डार/वोकेब्लरी, क्रियाकलाप पछि) सकिएर, अर्को पाठ सुरु हुनुभन्दा ठ्याक्कै अगाडि नै छापिएको हुन्छ — एकाइको सम्पूर्ण अन्त्यमा (पछिल्लो पाठको पछाडि) पुग्नु पर्दैन। त्यसैले एकाइको अन्त्यसम्म नपुगी, "${pathTitle}" यही पाठको आफ्नै सामग्री सकिएपछि, ठ्याक्कै त्यसको ठीक पछाडि (अर्को पाठ सुरु हुनुभन्दा अगाडि) आफ्नै "अभ्यास"/"प्रश्नोत्तर" खण्ड छ कि भनेर पत्ता लगाउनुहोस् — यही नै सही ठाउँ हो, चाहे एकाइ अझै धेरै पाठ बाँकी भएर लामो नै किन नहोस्।`;
+  const focusLine = isWholeChapter ? "" : `\n\nयो एकाइ भित्र यो खास पाठ (Path) मात्र: "${pathTitle}"। यदि यो एकाइ बहु-पाठ (multiple paths/periods) मा बाँडिएको छ भने, अभ्यास खण्डका प्रश्नहरूमध्ये ठ्याक्कै यही पाठको विषयवस्तुसँग मिल्नेहरू मात्र छान्नुहोस् — अरू पाठसँग सम्बन्धित प्रश्न यहाँ नराख्नुहोस्। यदि प्रश्नहरू कुन उप-विषयसँग हो भन्ने छुट्याउन नमिल्ने खालका (चाहे जुनसुकै उप-विषयमा लागू हुने खालका, समग्र एकाइकै हुन्) भए ती पनि समावेश गर्न सक्नुहुन्छ।`;
   // NEW — "पाठ अभ्यास समाधान": earlier version generated its own fresh
   // quiz-style questions. That's wrong for this feature — the teacher
   // needs the EXACT exercise questions already printed at the end of this
@@ -828,8 +828,8 @@ export const generateQuestions = async (chapterTitle, ctx = null, classContext =
 
 अत्यन्तै महत्त्वपूर्ण नियमहरू:
 1. त्यो अभ्यास खण्डमा भएका प्रश्नहरू मात्र लिनुहोस् — शब्द, क्रम, संख्या, विकल्प (options) समेत ठ्याक्कै पाठ्यपुस्तकमा जस्तो छ त्यस्तै (verbatim) राख्नुहोस्। कुनै पनि हालतमा आफैं नयाँ प्रश्न नबनाउनुहोस्, नथप्नुहोस्, वा शब्द नबदल्नुहोस्।
-2. यदि "${chapterTitle}"${isWholeChapter ? "" : ` को "${pathTitle}"`} अध्याय/पाठ यो दिइएको स्रोतमा नै भेटिएन, वा भेटिए पनि त्यसको छुट्टै अभ्यास खण्ड ठम्याउन सकिएन भने, अरू केही नबनाई ठ्याक्कै खाली array मात्र फर्काउनुहोस्: []
-3. हरेक प्रश्नको लागि उत्तर/हल दिनुहोस् — त्यो उत्तर सधैं पहिले यही अध्यायको (माथि दिइएको) मुख्य पाठ्य-सामग्रीबाटै खोजी दिनुहोस्; त्यहाँ प्रस्ट उत्तर भेटिएमा "source":"textbook" राख्नुहोस्। अध्यायको सामग्रीमा साँच्चै उत्तर नभेटिएमा मात्र आफ्नै सामान्य ज्ञानले उत्तर दिनुहोस् र "source":"ai" राख्नुहोस्। कुनै प्रश्नको उत्तर खाली नछोड्नुहोस्।
+2. यदि "${chapterTitle}"${isWholeChapter ? "" : ` को "${pathTitle}"`} एकाइ/पाठ यो दिइएको स्रोतमा नै भेटिएन, वा भेटिए पनि त्यसको छुट्टै अभ्यास खण्ड ठम्याउन सकिएन भने, अरू केही नबनाई ठ्याक्कै खाली array मात्र फर्काउनुहोस्: []
+3. हरेक प्रश्नको लागि उत्तर/हल दिनुहोस् — त्यो उत्तर सधैं पहिले यही एकाइको (माथि दिइएको) मुख्य पाठ्य-सामग्रीबाटै खोजी दिनुहोस्; त्यहाँ प्रस्ट उत्तर भेटिएमा "source":"textbook" राख्नुहोस्। एकाइको सामग्रीमा साँच्चै उत्तर नभेटिएमा मात्र आफ्नै सामान्य ज्ञानले उत्तर दिनुहोस् र "source":"ai" राख्नुहोस्। कुनै प्रश्नको उत्तर खाली नछोड्नुहोस्।
 4. हरेक प्रश्नलाई तलका ६ चाहिँ "type" मध्ये सबैभन्दा मिल्दोमा वर्गीकरण गर्नुहोस् (पाठ्यपुस्तकमा जुन प्रकारका प्रश्न वास्तवमा छन् ती मात्र देखिनेछन् — सबै ६ प्रकार हुनैपर्छ भन्ने छैन, र नक्कली/थप प्रश्न बनाएर संख्या पूरा गर्न पनि पर्दैन):
    - "छोटो उत्तर" (पाठ्यपुस्तकमा "अति छोटो उत्तर" वा उस्तै उपशीर्षक भएका, एक/दुई वाक्यमै सकिने प्रश्नहरू — परिभाषा, नाम, सूची जस्ता)
    - "लामो उत्तर" (पाठ्यपुस्तकमा "लामो उत्तर दिनुहोस्" वा उस्तै उपशीर्षक भएका, बुँदागत/अनुच्छेदमा विस्तृत उत्तर चाहिने प्रश्नहरू)
@@ -866,7 +866,7 @@ export const generateQuestions = async (chapterTitle, ctx = null, classContext =
 };
 
 export const generateActivities = async (chapterTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", pathTitle = null) => {
-  const focus = (pathTitle && pathTitle.trim() && pathTitle.trim() !== chapterTitle.trim()) ? ` "${pathTitle}" पाठ (अध्याय: "${chapterTitle}")` : ` "${chapterTitle}"`;
+  const focus = (pathTitle && pathTitle.trim() && pathTitle.trim() !== chapterTitle.trim()) ? ` "${pathTitle}" पाठ (एकाइ: "${chapterTitle}")` : ` "${chapterTitle}"`;
   const prompt = `नेपाल ${classContext}${focus} का लागि ५ कक्षागत क्रियाकलाप भएको JSON array मात्र:
 [{"title":"नाम","type":"game","duration":"१५ मिनेट","competency":"क्षमता","description":"विवरण"}]
 प्रकार: game, roleplay, project, map, debate, presentation`;
@@ -891,7 +891,7 @@ export const generateActivities = async (chapterTitle, ctx = null, classContext 
 // tell it what already exists so it adds genuinely different ones instead
 // of near-duplicates of what's already on screen.
 export const generateMoreActivities = async (chapterTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", pathTitle = null, existing = []) => {
-  const focus = (pathTitle && pathTitle.trim() && pathTitle.trim() !== chapterTitle.trim()) ? ` "${pathTitle}" पाठ (अध्याय: "${chapterTitle}")` : ` "${chapterTitle}"`;
+  const focus = (pathTitle && pathTitle.trim() && pathTitle.trim() !== chapterTitle.trim()) ? ` "${pathTitle}" पाठ (एकाइ: "${chapterTitle}")` : ` "${chapterTitle}"`;
   const existingLine = existing.length ? `\nयी क्रियाकलाप पहिल्यै छन्, यिनीहरूसँग नमिल्ने/नदोहोरिने थप क्रियाकलाप मात्र दिनुहोस्:\n${existing.map((a) => `- ${a}`).join("\n")}` : "";
   const prompt = `नेपाल ${classContext}${focus} का लागि ३ थप कक्षागत क्रियाकलाप भएको JSON array मात्र, हरेक एउटा छोटो वाक्यमा (जस्तै लेसन योजनाको "activities" सूचीमा जस्तो, कुनै अतिरिक्त field नराखी):
 ["क्रियाकलाप विवरण १","क्रियाकलाप विवरण २","क्रियाकलाप विवरण ३"]${existingLine}`;
@@ -914,7 +914,7 @@ export const generateMoreActivities = async (chapterTitle, ctx = null, classCont
 // slots into the exact same "AI बाट थप्नुहोस्"/edit/delete list pattern
 // the activities tab already uses.
 export const generateMoreHomework = async (chapterTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", pathTitle = null, existing = []) => {
-  const focus = (pathTitle && pathTitle.trim() && pathTitle.trim() !== chapterTitle.trim()) ? ` "${pathTitle}" पाठ (अध्याय: "${chapterTitle}")` : ` "${chapterTitle}"`;
+  const focus = (pathTitle && pathTitle.trim() && pathTitle.trim() !== chapterTitle.trim()) ? ` "${pathTitle}" पाठ (एकाइ: "${chapterTitle}")` : ` "${chapterTitle}"`;
   const existingLine = existing.length ? `\nयी गृहकार्य पहिल्यै दिइसकिएका छन्, यिनीहरूसँग नमिल्ने/नदोहोरिने थप गृहकार्य मात्र दिनुहोस्:\n${existing.map((h) => `- ${h}`).join("\n")}` : "";
   const prompt = `नेपाल ${classContext}${focus} का लागि विद्यार्थीले घरमा गर्ने ३ वटा फरक-फरक गृहकार्य भएको JSON array मात्र दिनुहोस्, हरेक एउटा छोटो, स्पष्ट निर्देशनको वाक्यमा (जस्तै "आफ्नो नोटबुकमा ... लेखेर ल्याउनुहोस्", कुनै अतिरिक्त field नराखी):
 ["गृहकार्य विवरण १","गृहकार्य विवरण २","गृहकार्य विवरण ३"]${existingLine}`;
@@ -1237,14 +1237,14 @@ function applySimulationSafetyNets(html) {
 // is blank or a puzzle item is nonsense — that needs another look from
 // the model, which is what this pass is for.
 async function reviewAndFixSimulation(html, type, chapterTitle, lessonTitle, { fast = false } = {}) {
-  const prompt = fast ? `तपाईंले तलको एउटा इन्टरएक्टिभ सिमुलेसन/खेलको पूरा HTML पहिल्यै बनाइसक्नुभएको छ (अध्याय: "${chapterTitle}", पाठ: "${lessonTitle || chapterTitle}", ढाँचा: ${type.label})। यो छिटो जाँच हो — केवल तलका दुई समस्या मात्र खोजी सुधार्नुहोस्, अरू केही नबदल्नुहोस्:
+  const prompt = fast ? `तपाईंले तलको एउटा इन्टरएक्टिभ सिमुलेसन/खेलको पूरा HTML पहिल्यै बनाइसक्नुभएको छ (एकाइ: "${chapterTitle}", पाठ: "${lessonTitle || chapterTitle}", ढाँचा: ${type.label})। यो छिटो जाँच हो — केवल तलका दुई समस्या मात्र खोजी सुधार्नुहोस्, अरू केही नबदल्नुहोस्:
 1. कुनै पनि कार्ड/वस्तु खाली देखिन्छ कि (इमोजी/आइकन र नेपाली लेबल कुनै पनि नभएको, वा टेक्स्ट/सामग्री पूरै हराएको) — भेटिएमा त्यसमा उपयुक्त इमोजी र स्पष्ट लेबल थप्नुहोस्।
 2. कुनै वस्तु/जोडी/प्रश्न अर्थहीन, अस्पष्ट, वा पाठ्यसामग्रीसँग सम्बन्धित नभएको छ कि (जस्तै दुई कोठामा उत्तिकै मिल्ने वस्तु, वा वास्तविक तथ्यमा आधारित नभएको काल्पनिक वस्तु) — भेटिएमा त्यसलाई पाठ्यसामग्रीको वास्तविक तथ्यमा आधारित स्पष्ट, निर्विवाद वस्तुले प्रतिस्थापन गर्नुहोस्।
 
 माथिका दुई समस्यामध्ये कुनै नभेटिएमा, दिइएको HTML लाई जस्ताको त्यस्तै फिर्ता दिनुहोस्। जवाफमा कुनै व्याख्या, markdown फेन्स, वा अगाडि/पछाडिको वाक्य नथप्नुहोस् — ठ्याक्कै <!DOCTYPE html> बाट सुरु भएर </html> मा सकिने एउटै पूर्ण दस्तावेज मात्र दिनुहोस्।
 
 जाँच गर्नुपर्ने HTML:
-${html}` : `तपाईंले तलको एउटा इन्टरएक्टिभ सिमुलेसन/खेलको पूरा HTML पहिल्यै बनाइसक्नुभएको छ (अध्याय: "${chapterTitle}", पाठ: "${lessonTitle || chapterTitle}", ढाँचा: ${type.label})। अब एक जना कडा समीक्षकको रूपमा तलका जाँच-सूचीका हरेक बुँदा विरुद्ध जाँच्नुहोस्:
+${html}` : `तपाईंले तलको एउटा इन्टरएक्टिभ सिमुलेसन/खेलको पूरा HTML पहिल्यै बनाइसक्नुभएको छ (एकाइ: "${chapterTitle}", पाठ: "${lessonTitle || chapterTitle}", ढाँचा: ${type.label})। अब एक जना कडा समीक्षकको रूपमा तलका जाँच-सूचीका हरेक बुँदा विरुद्ध जाँच्नुहोस्:
 
 1. निर्देशन/शीर्षक-पाठ ठ्याक्कै एकै ठाउँमा (माथि) मात्र छ, तल वा अरू कतै दोहोरिएको छैन।
 2. माथिको निर्देशन-पट्टी र तलको नियन्त्रण-पट्टी (भए) दुवै सामान्य flex-column को normal-flow भाग हुन् — कतै position:fixed/absolute/sticky छैन, र कुनै पट्टीले अर्को सामग्री ढाकेको छैन।
@@ -1303,11 +1303,11 @@ export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, 
 - टाढाबाट पढ्न सकिने गरी ठूलो फन्ट-साइज राख्नुहोस्: मुख्य पाठ कम्तिमा 22px, शीर्षक कम्तिमा 34px, महत्त्वपूर्ण लेबल/संख्या कम्तिमा 26px। सानो/पातलो फन्ट प्रोजेक्टरबाट पछाडिको सिटबाट देखिँदैन।
 - मुख्य अन्तरक्रिया माउस क्लिक र ड्र्याग हो, औंलाको टच होइन (यद्यपि टच काम गरे नराम्रो हुँदैन)।
 
-अध्याय: "${chapterTitle}"
+एकाइ: "${chapterTitle}"
 पाठ: "${lessonTitle || chapterTitle}"
 
 अनिवार्य ढाँचा: ${type.instruction}
-यो विषयवस्तुसँग प्रत्यक्ष सान्दर्भिक बनाउनुहोस् — सामान्य वा फितलो होइन, ठ्याक्कै यही अध्यायका तथ्य/अवधारणाहरूमा आधारित। माथि दिइएको पाठ्यसामग्री/सन्दर्भबाट वास्तविक तथ्य, नाम, स्थान, र उदाहरणहरू निकालेर प्रयोग गर्नुहोस् — काल्पनिक वा सामान्य उदाहरण नबनाउनुहोस्।
+यो विषयवस्तुसँग प्रत्यक्ष सान्दर्भिक बनाउनुहोस् — सामान्य वा फितलो होइन, ठ्याक्कै यही एकाइका तथ्य/अवधारणाहरूमा आधारित। माथि दिइएको पाठ्यसामग्री/सन्दर्भबाट वास्तविक तथ्य, नाम, स्थान, र उदाहरणहरू निकालेर प्रयोग गर्नुहोस् — काल्पनिक वा सामान्य उदाहरण नबनाउनुहोस्।
 यदि पाठको विषय अमूर्त छ (जस्तै अधिकार, कर्तव्य, मूल्य-मान्यता, भावना, नियम, सुशासन) र सीधै चित्रमा देखाउन गाह्रो छ भने, त्यसलाई कुनै खाली प्रतीकात्मक आकार (जस्तै अस्पष्ट त्रिकोण/वृत्त वा चिन्ह) ले नजनाई, एउटा चिनिने साधारण दृश्य/घटनाको रूपमा देखाउनुहोस् — जस्तै "शिक्षा पाउने अधिकार" जनाउन "किताब बोकेर स्कुल जाँदै गरेको बच्चा 🧑‍🎓📖" को दृश्य र छेउमा सोझो लेबल राख्नुहोस्। विद्यार्थीले अमूर्त प्रतीक हेरेर अर्थ अड्कल्न सक्दैनन्, तर आफूले दैनिक देखेजस्तो परिचित दृश्य/कार्य हेरेर तुरुन्तै बुझ्छन् — हरेक अमूर्त अवधारणालाई यसरी नै कुनै न कुनै ठोस, परिचित दृश्यमा बदलेर मात्र प्रयोग गर्नुहोस्।
 महत्त्वपूर्ण: साधारण "प्रश्न सोध्ने र विकल्पमध्ये एउटा क्लिक गर्ने" बहुविकल्पीय प्रश्नोत्तर (MCQ quiz) कहिल्यै नबनाउनुहोस् — माथि तोकिएको ढाँचामै बनाउनुहोस्, अर्को ढाँचामा होइन।
 
@@ -1347,7 +1347,7 @@ export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, 
    - उदाहरणका लागि, एउटा राम्रोसँग बनेको घर यस्तो देखिन्छ (यही शैली अनुसरण गर्नुहोस्):
      \`<svg viewBox="0 0 120 110" width="100" height="90"><polygon points="60,10 10,50 110,50" fill="#c0392b" stroke="#2a2a2a" stroke-width="3"/><rect x="20" y="50" width="80" height="50" fill="#f5deb3" stroke="#2a2a2a" stroke-width="3"/><rect x="50" y="70" width="20" height="30" fill="#6b4226" stroke="#2a2a2a" stroke-width="2"/><rect x="28" y="60" width="16" height="16" fill="#a3d5ff" stroke="#2a2a2a" stroke-width="2"/><rect x="76" y="60" width="16" height="16" fill="#a3d5ff" stroke="#2a2a2a" stroke-width="2"/></svg>\`
      — यसरी हरेक भाग (छानो, भित्ता, ढोका, झ्याल) छुट्टाछुट्टै आकार भएर, बोल्ड आउटलाइनसहित, मिलेर एउटा तुरुन्तै चिनिने घर बन्छ। यही तहको स्पष्टता र सुन्दरता हरेक वस्तुमा लागू गर्नुहोस्।
-   - **यो नियम कुनै एक विषय (जस्तै सुरक्षा/नागरिक शिक्षा) मा मात्र सीमित छैन — पाठ जुनसुकै अध्याय/विषयको भए पनि (भूगोल, इतिहास, कृषि, विज्ञान, अर्थशास्त्र, संस्कृति, जनसंख्या, यातायात, आदि) सम्बन्धित वस्तुका लागि उही तहको ठूलो इमोजी वा बहु-आकार SVG प्रयोग गर्नुहोस्, कहिल्यै खाली आयत/वृत्तले जनाउनु हुँदैन। तलका उदाहरण जुन-जुन पाठसँग मिल्छ त्यही प्रयोग गर्नुहोस्, र नमिलेको वस्तुका लागि पनि यसै तहको स्पष्ट इमोजी/लेबल आफैं छान्नुहोस्:**
+   - **यो नियम कुनै एक विषय (जस्तै सुरक्षा/नागरिक शिक्षा) मा मात्र सीमित छैन — पाठ जुनसुकै एकाइ/विषयको भए पनि (भूगोल, इतिहास, कृषि, विज्ञान, अर्थशास्त्र, संस्कृति, जनसंख्या, यातायात, आदि) सम्बन्धित वस्तुका लागि उही तहको ठूलो इमोजी वा बहु-आकार SVG प्रयोग गर्नुहोस्, कहिल्यै खाली आयत/वृत्तले जनाउनु हुँदैन। तलका उदाहरण जुन-जुन पाठसँग मिल्छ त्यही प्रयोग गर्नुहोस्, र नमिलेको वस्तुका लागि पनि यसै तहको स्पष्ट इमोजी/लेबल आफैं छान्नुहोस्:**
      - भूगोल/प्राकृतिक बनावट: पहाड/हिमाल → 🏔️/⛰️, नदी → 🌊 वा तल दिइएको जिग-ज्याग-रेखा जस्तै नीलो लहरिने SVG, जंगल/रुख → 🌳/🌲, समुद्र/ताल → 🌊, मरुभूमि → 🏜️।
      - मौसम/ऋतु: घाम → ☀️, बादल/वर्षा → ☁️/🌧️, हिउँ → ❄️, हावा → 🌬️।
      - कृषि/ग्रामीण जीवन: किसान → 🧑‍🌾, हल/जोत्ने → 🚜 वा साना-साना आकार जोडेर बनाइएको हलो (काठको दस्ता + धातुको फाली), धान/बाली → 🌾, तरकारी/फलफूल → 🥕/🍎, गाई/भैंसी/बाख्रा → 🐄/🐃/🐐।
@@ -1375,7 +1375,7 @@ export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, 
    - कुनै पनि तत्व अर्को तत्वमाथि ओभरल्याप भएर लुक्नु हुँदैन, र कुनै पनि पाठ/बटन काटिएर वा आधा मात्र देखिएर रहनु हुँदैन।
    - **माथिको स्थिर/sticky निर्देशन-पट्टीले तलको सामग्री (कार्ड/वस्तुहरू) लाई कहिल्यै ढाकेर/ओभरल्याप गरेर लुकाउनु हुँदैन** — यो धेरै पटक भेटिने गल्ती हो, ध्यान दिनुहोस्। सम्पूर्ण पेजको सबैभन्दा बाहिरी कन्टेनरलाई "display:flex; flex-direction:column; height:100vh;" बनाउनुहोस्, अनि निर्देशन-पट्टी/शीर्षक/स्कोरलाई यसैको पहिलो सामान्य (normal document flow) flex-child राख्नुहोस् — "position:fixed" वा "position:absolute" कहिल्यै नराख्नुहोस् (त्यसले पछाडिको सामग्रीमाथि तैरिएर ढाक्छ)। सामग्री/कार्ड-ग्रिड भएको भाग यो निर्देशन-पट्टीपछि आउने दोस्रो flex-child बनाउनुहोस् जसमा "flex:1; min-height:0; overflow-y:auto;" राख्नुहोस् — यसरी निर्देशन-पट्टीले आफ्नो वास्तविक उचाइ जति ठाउँ ओगट्छ र बाँकी ठाउँमा मात्र सामग्री बस्छ, माथिको पंक्ति कहिल्यै ढाकिँदैन/लुक्दैन।
    - **निर्देशन/शीर्षक-पट्टी सिर्फ एकै ठाउँमा, माथि मात्र, एक पटक मात्र राख्नुहोस्** — त्यही निर्देशन/शीर्षकको पाठ (वा हुबहु मिल्दोजुल्दो अर्को प्रति) तलपट्टि (नियन्त्रण/बटन-पट्टीमा वा अरू कतै) दोहोर्याएर नराख्नुहोस्। नियन्त्रण-बटनको पट्टी (रिस्टार्ट/अघिल्लो/अर्को बटन भएको, नियम ९ हेर्नुहोस्) माथिकै निर्देशन-पट्टीको एउटा छुट्टै, फरक तल्लो flex-child हुनुपर्छ (माथिकै पट्टीको नक्कल वा दोस्रो प्रति होइन), र त्यो पनि यसै flex-column को सामान्य (normal-flow) तेस्रो/अन्तिम flex-child बनाउनुहोस् — कहिल्यै "position:fixed; bottom:0" वा "position:sticky" प्रयोग नगर्नुहोस्, किनकि त्यसले तल्लो पट्टी सामग्री-क्षेत्रमाथि तैरिएर अन्तिम पङ्क्तिका कार्ड/वस्तुलाई छोपिदिन्छ। बरु flex-column संरचनाले नै तल्लो पट्टीलाई आफ्नो ठाउँ स्वतः दिन्छ (त्यो अन्तिम स्थिर height को flex-child भएकाले), बीचको सामग्री-क्षेत्र (flex:1; overflow-y:auto) ले बाँकी ठाउँ मिलाउँछ।
-   - **कुनै पनि शीर्षक/निर्देशन/स्कोर-पट्टीको ब्याकग्राउन्ड र त्यसमाथिको पाठ/आइकनको रङ स्पष्ट रूपमा फरक (उच्च कन्ट्रास्ट) हुनैपर्छ** — फिका/सेतोमाथि सेतो, वा हल्का रङमाथि हल्का पाठ कहिल्यै नराख्नुहोस् (यस्तो भए पाठ/आइकन पूर्णतः अदृश्य हुन्छ)। सुरक्षित विकल्पका रूपमा गाढा रङ (जस्तै #1a2744, #2d1b0e, वा अध्यायसँग मिल्ने कुनै गाढा रङ) को ब्याकग्राउन्डमा सेतो (#ffffff) पाठ, वा एकदमै हल्का ब्याकग्राउन्डमा गाढा (#1a1a1a जस्तो) पाठ प्रयोग गर्नुहोस् — दुवैतिर मध्यम-टोनका मिल्दाजुल्दा रङ कहिल्यै नराख्नुहोस्।
+   - **कुनै पनि शीर्षक/निर्देशन/स्कोर-पट्टीको ब्याकग्राउन्ड र त्यसमाथिको पाठ/आइकनको रङ स्पष्ट रूपमा फरक (उच्च कन्ट्रास्ट) हुनैपर्छ** — फिका/सेतोमाथि सेतो, वा हल्का रङमाथि हल्का पाठ कहिल्यै नराख्नुहोस् (यस्तो भए पाठ/आइकन पूर्णतः अदृश्य हुन्छ)। सुरक्षित विकल्पका रूपमा गाढा रङ (जस्तै #1a2744, #2d1b0e, वा एकाइसँग मिल्ने कुनै गाढा रङ) को ब्याकग्राउन्डमा सेतो (#ffffff) पाठ, वा एकदमै हल्का ब्याकग्राउन्डमा गाढा (#1a1a1a जस्तो) पाठ प्रयोग गर्नुहोस् — दुवैतिर मध्यम-टोनका मिल्दाजुल्दा रङ कहिल्यै नराख्नुहोस्।
    - **वस्तुहरू कहिल्यै एउटै लामो ठाडो (vertical) स्तम्भमा नथाप्नुहोस्** (जस्तै १२ वटा कार्ड एकपछि अर्को तल-तल थुपार्नु) — त्यसले पेज धेरै लामो बनाई तल स्क्रोल नगरी बाँकी भाग (विशेष गरी लक्ष्य/कोठाहरू) देखिँदैन। बरु multi-column grid प्रयोग गर्नुहोस् (जस्तै display:grid; grid-template-columns: repeat(auto-fit, minmax(120px,1fr)); वा 3-4 स्तम्भको flex-wrap) ताकि धेरै वस्तु पनि थोरै उचाइमा फैलिएर अटून्।
    - **स्रोत-वस्तु र लक्ष्य/कोठा दुवै एकैचोटि, सँगै देखिनुपर्छ** — जुन ढाँचामा वस्तुहरू कुनै समूह/कोठा/लक्ष्यमा तान्ने वा राख्ने हो (जस्तै मिलाउने, वर्गीकरण, लेबल गर्ने, नक्सा रङ्ग भर्ने, संरचना जोड्ने), त्यहाँ स्रोत-वस्तुहरू र तिनका लक्ष्य/कोठा/श्रेणीहरू पहिलो नजरमै एउटै स्क्रिनमा देखिनुपर्छ — लक्ष्यहरू तल धेरै टाढा राखेर विद्यार्थीले पहिले स्क्रोल गरेर मात्र भेट्टाउनुपर्ने बनाउनु हुँदैन। यसका लागि स्क्रिनलाई दुई भागमा छुट्याउनुहोस् (जस्तै माथि/तल दुई पट्टी, वा देब्रे-दायाँ दुई स्तम्भ): एक भागमा सानो-सानो स्रोत-कार्डको ग्रिड, अर्को भागमा स्पष्ट लेबल भएका लक्ष्य/कोठाहरू। दुवै भाग सँगै नअटे भने वस्तु संख्या कम गरेर राउन्डमा बाँड्नुहोस् (माथि नै भनिएझैं), तर हरेक राउन्डमा त्यो राउन्डका स्रोत र लक्ष्य दुवै सँगै देखिनैपर्छ।
    - **हरेक लक्ष्य/कोठा/श्रेणीमा स्पष्ट, छोटो नेपाली नाम/शीर्षक लेखिएकै हुनुपर्छ** — खाली वा लेबल नभएको कोठा कहिल्यै नराख्नुहोस्।
@@ -1470,7 +1470,7 @@ export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, 
 // one response is exactly the "large HTML document inside a JSON string"
 // fragility generateSimulation's own comment above already avoids.
 export const generateDiscussionTips = async (chapterTitle, lessonTitle, type, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन") => {
-  const focus = lessonTitle && lessonTitle.trim() && lessonTitle.trim() !== chapterTitle.trim() ? `"${lessonTitle}" पाठ (अध्याय: "${chapterTitle}")` : `"${chapterTitle}"`;
+  const focus = lessonTitle && lessonTitle.trim() && lessonTitle.trim() !== chapterTitle.trim() ? `"${lessonTitle}" पाठ (एकाइ: "${chapterTitle}")` : `"${chapterTitle}"`;
   const prompt = `नेपाल ${classContext}का लागि ${focus} बारे "${type || "इन्टरएक्टिभ सिमुलेसन"}" खेल्नु सकिएपछि शिक्षकले कक्षालाई सोध्न मिल्ने २-३ वटा छोटो छलफल-प्रश्न भएको JSON array मात्र दिनुहोस् — हरेक प्रश्न एक वाक्यमा, ${classContext}का विद्यार्थीले सजिलै बुझ्ने सरल भाषामा, खेलमा भर्खर सिकेको कुरालाई वास्तविक जीवन/अनुभवसँग जोड्ने खालको होस्:
 ["प्रश्न १","प्रश्न २","प्रश्न ३"]`;
   const text = await runPromptJSON(prompt, ctx);
@@ -1530,15 +1530,15 @@ export async function detectChapterGrouping(guideClassText, chapterTitles = []) 
   if (!guideClassText || !chapterTitles.length) {
     return chapterTitles.map((t) => ({ chapter_titles: [t], reason: null }));
   }
-  const prompt = `तलको शिक्षक निर्देशिकाको अंश हेरी, यी अध्यायहरूमध्ये कुन-कुनलाई निर्देशिकाले एउटै/समान सिकाइ उपलब्धि (learning outcome) अन्तर्गत गाभेर एउटै पाठ योजना बनाउन सुझाव दिन्छ, र कुन-कुन अलग-अलग नै हुन् पत्ता लगाउनुहोस्।
+  const prompt = `तलको शिक्षक निर्देशिकाको अंश हेरी, यी एकाइहरूमध्ये कुन-कुनलाई निर्देशिकाले एउटै/समान सिकाइ उपलब्धि (learning outcome) अन्तर्गत गाभेर एउटै पाठ योजना बनाउन सुझाव दिन्छ, र कुन-कुन अलग-अलग नै हुन् पत्ता लगाउनुहोस्।
 
-अध्यायहरू: ${JSON.stringify(chapterTitles)}
+एकाइहरू: ${JSON.stringify(chapterTitles)}
 
 निर्देशिकाको अंश:
 ${guideClassText}
 
-ठ्याक्कै यो JSON संरचनामा मात्र जवाफ दिनुहोस् — दिइएको हरेक अध्याय ठ्याक्कै एउटा समूहमा मात्र पर्नुपर्छ (एक्लै भए पनि एउटा समूह मानिन्छ):
-[{"chapter_titles":["अध्याय १"],"reason":null},{"chapter_titles":["अध्याय २","अध्याय ३"],"reason":"दुवैको सिकाइ उपलब्धि समान भएकाले निर्देशिकाले गाभेको"}]`;
+ठ्याक्कै यो JSON संरचनामा मात्र जवाफ दिनुहोस् — दिइएको हरेक एकाइ ठ्याक्कै एउटा समूहमा मात्र पर्नुपर्छ (एक्लै भए पनि एउटा समूह मानिन्छ):
+[{"chapter_titles":["एकाइ १"],"reason":null},{"chapter_titles":["एकाइ २","एकाइ ३"],"reason":"दुवैको सिकाइ उपलब्धि समान भएकाले निर्देशिकाले गाभेको"}]`;
   // FIX — this used to slice guideClassText to its first 12,000 characters
   // before it ever reached this prompt. If a class's guide section runs
   // longer than that (or the relevant chapter's part falls later in the
@@ -1599,7 +1599,7 @@ export const draftPlanGroupLessons = async (groupChapterTitles, officialTitles, 
   const isMerged = groupChapterTitles.length > 1;
   const chaptersLine = groupChapterTitles.map((t) => `"${t}"`).join(", ");
   const mergedNote = isMerged
-    ? `यी ${groupChapterTitles.length} वटा अध्यायहरूको सिकाइ उपलब्धि समान भएकाले शिक्षक निर्देशिकाले एउटै समूहमा राखेको छ, तर तलका हरेक आधिकारिक पाठको लागि छुट्टाछुट्टै योजना/रुब्रिक्स नै चाहिन्छ — कुनै दुईलाई एउटै बनाउनु हुँदैन।`
+    ? `यी ${groupChapterTitles.length} वटा एकाइहरूको सिकाइ उपलब्धि समान भएकाले शिक्षक निर्देशिकाले एउटै समूहमा राखेको छ, तर तलका हरेक आधिकारिक पाठको लागि छुट्टाछुट्टै योजना/रुब्रिक्स नै चाहिन्छ — कुनै दुईलाई एउटै बनाउनु हुँदैन।`
     : "";
   // FIX — was guideClassText.slice(0, 10000); combined with the two
   // upstream truncations above, this was the main reason a chapter's real
@@ -1608,7 +1608,7 @@ export const draftPlanGroupLessons = async (groupChapterTitles, officialTitles, 
   const guideBlock = guideClassText ? `\n\nशिक्षक निर्देशिकाको मार्गदर्शन (यसैलाई मुख्य आधार बनाउनुहोस्):\n${guideClassText}` : "";
   const lessonsLine = officialTitles.map((t, i) => `${i + 1}. "${t}"`).join("\n");
   const prompt = `तपाईं नेपालको ${classContext}का लागि विद्यालयमा बुझाउनका लागि पाठ योजना र मूल्याङ्कन रुब्रिक्स तयार गर्दै हुनुहुन्छ, 5E मोडेल (Engage, Explore, Explain, Elaborate, Evaluate) मा।
-अध्याय: ${chaptersLine}
+एकाइ: ${chaptersLine}
 ${mergedNote}
 यी आधिकारिक पाठ योजनाहरू बनाउनुहोस् (क्रमैसँग, हरेकको लागि छुट्टै योजना चाहिन्छ):
 ${lessonsLine}
@@ -1652,11 +1652,11 @@ export const draftSingleOfficialLesson = async (groupChapterTitles, officialTitl
   const isMerged = groupChapterTitles.length > 1;
   const chaptersLine = groupChapterTitles.map((t) => `"${t}"`).join(", ");
   const mergedNote = isMerged
-    ? `यी ${groupChapterTitles.length} वटा अध्यायहरूको सिकाइ उपलब्धि समान भएकाले शिक्षक निर्देशिकाले एउटै समूहमा राखेको छ। यो भने ती अध्यायहरूअन्तर्गतको एउटै आधिकारिक पाठ मात्र हो — यसैसँग मात्र सान्दर्भिक सामग्री दिनुहोस्।`
+    ? `यी ${groupChapterTitles.length} वटा एकाइहरूको सिकाइ उपलब्धि समान भएकाले शिक्षक निर्देशिकाले एउटै समूहमा राखेको छ। यो भने ती एकाइहरूअन्तर्गतको एउटै आधिकारिक पाठ मात्र हो — यसैसँग मात्र सान्दर्भिक सामग्री दिनुहोस्।`
     : "";
   const guideBlock = guideClassText ? `\n\nशिक्षक निर्देशिकाको मार्गदर्शन (यसैलाई मुख्य आधार बनाउनुहोस्):\n${guideClassText}` : "";
   const prompt = `तपाईं नेपालको ${classContext}का लागि विद्यालयमा बुझाउनका लागि पाठ योजना र मूल्याङ्कन रुब्रिक्स तयार गर्दै हुनुहुन्छ, 5E मोडेल (Engage, Explore, Explain, Elaborate, Evaluate) मा।
-अध्याय: ${chaptersLine}
+एकाइ: ${chaptersLine}
 ${mergedNote}
 यो एउटै आधिकारिक पाठको लागि मात्र योजना बनाउनुहोस्: "${officialTitle}"
 ${guideBlock}
@@ -1693,9 +1693,9 @@ export const draftYojanaForChapter = async (chapterTitle, planGroup, ctx = null,
   const siblingChapters = (planGroup.chapter_ids_titles || []).filter((t) => t !== chapterTitle);
   const groupIsMerged = siblingChapters.length > 0;
   const splitNote = groupIsMerged
-    ? `यो साझा पाठ योजना ${siblingChapters.length + 1} वटा अध्यायहरू (${[chapterTitle, ...siblingChapters].join(", ")}) ले मिलेर प्रयोग गर्छन्। यहाँ केवल "${chapterTitle}" का लागि मात्र उपयुक्त हुने भाग/गतिविधिहरू छानी, यस अध्यायको आफ्नै दिनगत (day-wise) कक्षा अनुक्रम बनाउनुहोस् — अरू अध्यायसँग दोहोरिने नराखी, समूहको योजनालाई तर्कसंगत रूपमा बाँडेर।`
+    ? `यो साझा पाठ योजना ${siblingChapters.length + 1} वटा एकाइहरू (${[chapterTitle, ...siblingChapters].join(", ")}) ले मिलेर प्रयोग गर्छन्। यहाँ केवल "${chapterTitle}" का लागि मात्र उपयुक्त हुने भाग/गतिविधिहरू छानी, यस एकाइको आफ्नै दिनगत (day-wise) कक्षा अनुक्रम बनाउनुहोस् — अरू एकाइसँग दोहोरिने नराखी, समूहको योजनालाई तर्कसंगत रूपमा बाँडेर।`
     : "";
-  const prompt = `तपाईं ${classContext}को "${chapterTitle}" अध्यायको लागि कक्षा-कोठामा पढाउने दिनगत योजना (Yojana) बनाउँदै हुनुहुन्छ, स्वीकृत पाठ योजनाबाट।
+  const prompt = `तपाईं ${classContext}को "${chapterTitle}" एकाइको लागि कक्षा-कोठामा पढाउने दिनगत योजना (Yojana) बनाउँदै हुनुहुन्छ, स्वीकृत पाठ योजनाबाट।
 ${splitNote}
 
 स्वीकृत साझा पाठ योजना:

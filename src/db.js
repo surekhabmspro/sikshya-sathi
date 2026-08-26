@@ -214,7 +214,7 @@ export const getOrCreateChapterId = async (title, classLabel = null) => {
 // NEW — rename/delete, THE single door for both. Previously Planner and
 // Materials each had their own copy of this (raw supabase calls straight in
 // the component, two slightly different implementations that could drift).
-// Every screen that lets a teacher rename or delete an अध्याय now calls these
+// Every screen that lets a teacher rename or delete an एकाइ now calls these
 // two functions — nothing else touches the chapters table directly.
 export const renameChapter = async (id, title) => {
   const clean = normalizeChapterTitle(title);
@@ -345,7 +345,7 @@ export const getMaterialsByChapter = async (chapterId) => {
   return { data, error };
 };
 
-// NEW — materials scoped to one पाठ (Path), not the whole अध्याय. Used by
+// NEW — materials scoped to one पाठ (Path), not the whole एकाइ. Used by
 // the Planner Path form and by AI generation so a file uploaded for one
 // Path doesn't bleed into another Path's context.
 export const getMaterialsByLesson = async (lessonId) => {
@@ -576,7 +576,7 @@ export const repairDuplicateChapters = async (onProgress) => {
   // assessment tagged to a chapter that turned out to be a duplicate
   // would get silently orphaned the moment the duplicate was deleted
   // below — its chapter_id pointing at a row that no longer exists,
-  // making it fall out of "यो अध्यायसँग जोडिएको" counts everywhere.
+  // making it fall out of "यो एकाइसँग जोडिएको" counts everywhere.
   const tables = ["materials", "lessons", "questions", "activities", "assessments"];
   let merged = 0, rowsUpdated = 0;
 
