@@ -2917,6 +2917,13 @@ function selfTestSimulation(html, timeoutMs=1500){
         const text=(body&&body.innerText||"").trim();
         const elCount=body?body.querySelectorAll("*").length:0;
         if(!body||text.length<15||elCount<5)contentOk=false;
+        // NEW — reuses gemini.hasStrayScript (see gemini.js) on the same
+        // rendered text this self-test already extracts, for free: a
+        // simulation whose visible text has stray-script contamination
+        // (the "random font" bug) fails the self-test and gets the same
+        // one-shot retry as a blank/crashed generation, instead of ever
+        // reaching a teacher's screen.
+        if(contentOk&&text&&gemini.hasStrayScript(text))contentOk=false;
         // FIX — reported bug: छिटो mode's one-shot (no-review) generation
         // sometimes rendered structurally fine (passes the check above —
         // plenty of elements, plenty of total text) but with individual
@@ -7429,7 +7436,13 @@ export default function App() {
              have the Linux/older-Mac substitute installed. */
           font-family:'SSText';
           src:local('Times New Roman'),local('Times'),local('Liberation Serif'),local('Nimbus Roman');
-          unicode-range:U+0000-024F,U+0300-036F,U+2000-206F,U+2070-209F;
+          /* FIX — see matching comment in index.html: U+2000-206F used to
+             be one unbroken range, which accidentally claimed U+200C/200D
+             (ZWNJ/ZWJ) — the invisible joiners Devanagari conjuncts (क्ष,
+             ज्ञ, त्र, etc.) rely on. That split the shaping run mid-word and
+             broke the conjunct. Carved the joiners back out for the
+             Devanagari face above. */
+          unicode-range:U+0000-024F,U+0300-036F,U+2000-200B,U+200E-206F,U+2070-209F;
           font-display:swap;
         }
         .ss-display{font-family:'SSText','Kalimati','Times New Roman',serif;}

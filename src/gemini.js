@@ -638,6 +638,46 @@ function looksCorrupted(text) {
   return latinLetters / (devanagari + latinLetters) > 0.25;
 }
 
+// NEW — a stricter, script-based sibling to looksCorrupted() above, for
+// the "random font, especially Urdu-type" symptom reported in short
+// AI-generated fields (vocabulary words, quiz answers, activity titles —
+// content nowhere near looksCorrupted's 60-letter minimum). Root cause:
+// Gemini occasionally drops in a handful of characters from an unrelated
+// script (confirmed example: Vietnamese-script diacritic letters,
+// e.g. "गुượngार") into otherwise correct Devanagari — visually close
+// enough to go unnoticed in review, but a script the app's two @font-face
+// rules don't cover. The browser/OS then falls back to whatever generic
+// font it has for that script for just that spot — commonly an
+// Arabic/Urdu-capable system font — which is the "random font" a teacher
+// sees mid-word. Unlike looksCorrupted's Latin-ratio heuristic, this
+// looks for ANY letter outside what's actually expected (Devanagari +
+// its extension blocks, or plain ASCII) — no minimum length, since even
+// one stray character is the whole bug.
+const STRAY_SCRIPT_ALLOWED = /[\u0900-\u097F\u0980-\u09FF\u1CD0-\u1CFF\uA8E0-\uA8FF\u0000-\u007F\s]/gu;
+export function hasStrayScript(text) {
+  if (!text) return false;
+  const stripped = String(text).replace(STRAY_SCRIPT_ALLOWED, "");
+  return /\p{L}/u.test(stripped);
+}
+
+// NEW — one silent retry (same shape as the app's existing
+// truncation-retry pattern) when a generated result trips
+// hasStrayScript() above. Runs against JSON.stringify(result) rather than
+// any one field, so it catches contamination anywhere in the object
+// without each call site needing to know its own shape — the JSON
+// punctuation (quotes/braces/commas) is plain ASCII and never trips the
+// check. Only surfaces an error after the retry ALSO comes back
+// contaminated, so a bad generation never gets silently saved.
+async function withStrayScriptRetry(run) {
+  let result = await run();
+  if (!hasStrayScript(JSON.stringify(result))) return result;
+  result = await run();
+  if (hasStrayScript(JSON.stringify(result))) {
+    throw new Error("Gemini ले फर्काएको सामग्रीमा नमिल्दो/फरक स्क्रिप्टका अक्षरहरू मिसिएका छन्। फेरि प्रयास गर्नुहोस्।");
+  }
+  return result;
+}
+
 // NEW — pulls one chapter's plain text out of the textbook PDF, once. This
 // itself costs one full-book read (same token cost as before), but it's
 // the ONLY time that cost is paid for a given chapter: App.jsx's
@@ -777,13 +817,15 @@ ${focusLine}
   "rubric": [{"level":"उत्कृष्ट","desc":"विवरण"},{"level":"राम्रो","desc":"विवरण"},{"level":"सामान्य","desc":"विवरण"},{"level":"सुधार आवश्यक","desc":"विवरण"}]
 }
 महत्त्वपूर्ण: "vocabulary" मा हरेक शब्दसँग अनिवार्य रूपमा छोटो अर्थ ":" चिन्हले छुट्याएर दिनुहोस् (जस्तै "अनुभूति: महसुस भएको कुरा")। शब्द वा अर्थमा अल्पविराम (,) कहिल्यै नराख्नुहोस्। माथिको उदाहरणमा १० वटा शब्द देखाइए पनि, यो पाठमा जति पनि साँच्चै कठिन/नयाँ शब्दहरू छन् ती सबै समावेश गर्नुहोस् — १० मा सीमित नराख्नुहोस्, र १० भन्दा कम भए पनि कृत्रिम रूपमा नथप्नुहोस्।`;
-  const text = await runPromptJSON(prompt, ctx);
-  const result = parseJSON(text);
-  if (!result) {
-    const preview = (text && text.trim()) ? text.trim().slice(0, 300) : "(खाली प्रतिक्रिया — Gemini बाट केही फर्केन)";
-    throw new Error("Gemini ले सही ढाँचामा जवाफ दिएन। जवाफको सुरुवात: " + preview);
-  }
-  return result;
+  return withStrayScriptRetry(async () => {
+    const text = await runPromptJSON(prompt, ctx);
+    const result = parseJSON(text);
+    if (!result) {
+      const preview = (text && text.trim()) ? text.trim().slice(0, 300) : "(खाली प्रतिक्रिया — Gemini बाट केही फर्केन)";
+      throw new Error("Gemini ले सही ढाँचामा जवाफ दिएन। जवाफको सुरुवात: " + preview);
+    }
+    return result;
+  });
 };
 
 // NEW — regenerates ONLY the vocabulary list for a lesson (see App.jsx's
@@ -804,13 +846,15 @@ ${focusLine}
 यो पाठमा भएका कठिन/नयाँ शब्दहरूको सूची ठ्याक्कै यही JSON array संरचनामा मात्र दिनुहोस्, अरू कुनै व्याख्या वा पाठ नथप्नुहोस्:
 ["शब्द १: छोटो र सरल अर्थ","शब्द २: छोटो र सरल अर्थ","शब्द ३: छोटो र सरल अर्थ","शब्द ४: छोटो र सरल अर्थ","शब्द ५: छोटो र सरल अर्थ","शब्द ६: छोटो र सरल अर्थ","शब्द ७: छोटो र सरल अर्थ","शब्द ८: छोटो र सरल अर्थ","शब्द ९: छोटो र सरल अर्थ","शब्द १०: छोटो र सरल अर्थ"]
 महत्त्वपूर्ण: हरेक शब्दसँग अनिवार्य रूपमा छोटो अर्थ ":" चिन्हले छुट्याएर दिनुहोस् (जस्तै "अनुभूति: महसुस भएको कुरा")। शब्द वा अर्थमा अल्पविराम (,) कहिल्यै नराख्नुहोस्। माथिको उदाहरणमा १० वटा शब्द देखाइए पनि, यो पाठमा जति पनि साँच्चै कठिन/नयाँ शब्दहरू छन् ती सबै समावेश गर्नुहोस् — १० मा सीमित नराख्नुहोस्, र १० भन्दा कम भए पनि कृत्रिम रूपमा नथप्नुहोस्।`;
-  const text = await runPromptJSON(prompt, ctx);
-  const result = parseJSON(text);
-  if (!result || !Array.isArray(result)) {
-    const preview = (text && text.trim()) ? text.trim().slice(0, 300) : "(खाली प्रतिक्रिया — Gemini बाट केही फर्केन)";
-    throw new Error("Gemini ले सही ढाँचामा जवाफ दिएन। जवाफको सुरुवात: " + preview);
-  }
-  return result;
+  return withStrayScriptRetry(async () => {
+    const text = await runPromptJSON(prompt, ctx);
+    const result = parseJSON(text);
+    if (!result || !Array.isArray(result)) {
+      const preview = (text && text.trim()) ? text.trim().slice(0, 300) : "(खाली प्रतिक्रिया — Gemini बाट केही फर्केन)";
+      throw new Error("Gemini ले सही ढाँचामा जवाफ दिएन। जवाफको सुरुवात: " + preview);
+    }
+    return result;
+  });
 };
 
 export const generateQuestions = async (chapterTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", pathTitle = null) => {
@@ -875,13 +919,15 @@ export const generateQuestions = async (chapterTitle, ctx = null, classContext =
 ]
 माथिको उदाहरणमा सत्य/असत्यका २ वटा मात्र देखाइए पनि, पाठ्यपुस्तकमा जति कथन छन् ती सबैका लागि त्यत्तिकै छुट्टाछुट्टै item बनाउनुहोस्।
 "source" ठ्याक्कै "textbook" वा "ai" मात्र हुनुपर्छ।`;
-  const text = await runPromptJSON(prompt, ctx);
-  const result = parseJSON(text);
-  if (!result) {
-    const preview = (text && text.trim()) ? text.trim().slice(0, 300) : "(खाली प्रतिक्रिया)";
-    throw new Error("Gemini ले सही ढाँचामा जवाफ दिएन। जवाफको सुरुवात: " + preview);
-  }
-  return result;
+  return withStrayScriptRetry(async () => {
+    const text = await runPromptJSON(prompt, ctx);
+    const result = parseJSON(text);
+    if (!result) {
+      const preview = (text && text.trim()) ? text.trim().slice(0, 300) : "(खाली प्रतिक्रिया)";
+      throw new Error("Gemini ले सही ढाँचामा जवाफ दिएन। जवाफको सुरुवात: " + preview);
+    }
+    return result;
+  });
 };
 
 export const generateActivities = async (chapterTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", pathTitle = null) => {
@@ -889,13 +935,15 @@ export const generateActivities = async (chapterTitle, ctx = null, classContext 
   const prompt = `नेपाल ${classContext}${focus} का लागि ५ कक्षागत क्रियाकलाप भएको JSON array मात्र:
 [{"title":"नाम","type":"game","duration":"१५ मिनेट","competency":"क्षमता","description":"विवरण"}]
 प्रकार: game, roleplay, project, map, debate, presentation`;
-  const text = await runPromptJSON(prompt, ctx);
-  const result = parseJSON(text);
-  if (!result) {
-    const preview = (text && text.trim()) ? text.trim().slice(0, 300) : "(खाली प्रतिक्रिया)";
-    throw new Error("Gemini ले सही ढाँचामा जवाफ दिएन। जवाफको सुरुवात: " + preview);
-  }
-  return result;
+  return withStrayScriptRetry(async () => {
+    const text = await runPromptJSON(prompt, ctx);
+    const result = parseJSON(text);
+    if (!result) {
+      const preview = (text && text.trim()) ? text.trim().slice(0, 300) : "(खाली प्रतिक्रिया)";
+      throw new Error("Gemini ले सही ढाँचामा जवाफ दिएन। जवाफको सुरुवात: " + preview);
+    }
+    return result;
+  });
 };
 
 // NEW — the lesson plan's own "activities" field (see generateLessonPlan
