@@ -1,24 +1,110 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import {
-  BookOpen, CalendarDays, CheckCircle2, ClipboardList, ArrowLeft,
-  Sparkles, FileText, Users, MessageSquare, PenSquare, Layers, Clock,
-  X, Home, NotebookPen, Search, Image as ImageIcon, Video, Music,
-  FileSpreadsheet, Presentation, Tag, Eye, EyeOff, HelpCircle, CheckSquare,
-  Square, Printer, Shuffle, Bot, Send, Lock, ListChecks, Plus, Smile,
-  Meh, Frown, Heart, Gamepad2, FolderKanban, Map as MapIcon, Wand2,
-  Brain, Copy, ArrowRight, LogOut, User, AlertCircle, Loader,
-  Settings as SettingsIcon, Trash2, RefreshCw, BookMarked, Zap,
-  Sun, Moon, Lightbulb, Paperclip, ArrowDown, Pin, RotateCw,
-  GraduationCap, PartyPopper, Bell, Palmtree, Megaphone, AlertTriangle, Download,
-  Upload, ChevronDown, WifiOff, Play, Pause, Dices, UsersRound,
-  Volume2, VolumeX,
-} from "lucide-react";
 import { supabase } from "./lib/supabase";
 import * as db from "./db";
 import * as gemini from "./gemini";
 import { extractTextFromFile } from "./lib/extract";
 import { fillLessonPlanDocx, fillRubricDocx, downloadBlob, zipFiles } from "./lib/docxFill";
 import { DataProvider, useData } from "./context/DataContext";
+
+// SWAPPED — the app used to pull every icon from lucide-react (flat
+// outline glyphs). Replaced with real colourful emoji of the actual
+// object each icon represents (a real book, a real alarm clock, real
+// dice...) via a small factory that keeps the exact same component API
+// lucide used (size/style/className props, usable as `<Name size={16}/>`
+// or stored as `icon: Name` and rendered generically as `<tab.icon/>`),
+// so every call site across the app kept working unchanged — only this
+// block and the old lucide-react import changed.
+function ssMakeEmojiIcon(glyph){
+  const IconComp=({size=18,color,style,className,title,...rest})=>(
+    <span
+      role="img"
+      aria-hidden={title?undefined:true}
+      aria-label={title}
+      className={className}
+      style={{display:"inline-block",fontSize:size,lineHeight:1,fontStyle:"normal",...style}}
+      {...rest}
+    >{glyph}</span>
+  );
+  IconComp.displayName=`EmojiIcon(${glyph})`;
+  return IconComp;
+}
+const BookOpen=ssMakeEmojiIcon("📖");
+const CalendarDays=ssMakeEmojiIcon("📅");
+const CheckCircle2=ssMakeEmojiIcon("✅");
+const ClipboardList=ssMakeEmojiIcon("📋");
+const ArrowLeft=ssMakeEmojiIcon("⬅️");
+const Sparkles=ssMakeEmojiIcon("✨");
+const FileText=ssMakeEmojiIcon("📄");
+const Users=ssMakeEmojiIcon("👥");
+const MessageSquare=ssMakeEmojiIcon("💬");
+const PenSquare=ssMakeEmojiIcon("✏️");
+const Layers=ssMakeEmojiIcon("📚");
+const Clock=ssMakeEmojiIcon("⏰");
+const X=ssMakeEmojiIcon("❌");
+const Home=ssMakeEmojiIcon("🏠");
+const NotebookPen=ssMakeEmojiIcon("📔");
+const Search=ssMakeEmojiIcon("🔍");
+const ImageIcon=ssMakeEmojiIcon("🖼️");
+const Video=ssMakeEmojiIcon("🎥");
+const Music=ssMakeEmojiIcon("🎵");
+const FileSpreadsheet=ssMakeEmojiIcon("📊");
+const Presentation=ssMakeEmojiIcon("📽️");
+const Tag=ssMakeEmojiIcon("🏷️");
+const Eye=ssMakeEmojiIcon("👁️");
+const EyeOff=ssMakeEmojiIcon("🙈");
+const HelpCircle=ssMakeEmojiIcon("❓");
+const CheckSquare=ssMakeEmojiIcon("☑️");
+const Square=ssMakeEmojiIcon("⬜");
+const Printer=ssMakeEmojiIcon("🖨️");
+const Shuffle=ssMakeEmojiIcon("🔀");
+const Bot=ssMakeEmojiIcon("🤖");
+const Send=ssMakeEmojiIcon("✉️");
+const Lock=ssMakeEmojiIcon("🔒");
+const ListChecks=ssMakeEmojiIcon("🧾");
+const Plus=ssMakeEmojiIcon("➕");
+const Smile=ssMakeEmojiIcon("😊");
+const Meh=ssMakeEmojiIcon("😐");
+const Frown=ssMakeEmojiIcon("☹️");
+const Heart=ssMakeEmojiIcon("❤️");
+const Gamepad2=ssMakeEmojiIcon("🎮");
+const FolderKanban=ssMakeEmojiIcon("🗂️");
+const MapIcon=ssMakeEmojiIcon("🗺️");
+const Wand2=ssMakeEmojiIcon("🪄");
+const Brain=ssMakeEmojiIcon("🧠");
+const Copy=ssMakeEmojiIcon("🗒️");
+const ArrowRight=ssMakeEmojiIcon("➡️");
+const LogOut=ssMakeEmojiIcon("🚪");
+const User=ssMakeEmojiIcon("👤");
+const AlertCircle=ssMakeEmojiIcon("❗");
+const Loader=ssMakeEmojiIcon("⏳");
+const SettingsIcon=ssMakeEmojiIcon("⚙️");
+const Trash2=ssMakeEmojiIcon("🗑️");
+const RefreshCw=ssMakeEmojiIcon("🔄");
+const BookMarked=ssMakeEmojiIcon("🔖");
+const Zap=ssMakeEmojiIcon("⚡");
+const Sun=ssMakeEmojiIcon("☀️");
+const Moon=ssMakeEmojiIcon("🌙");
+const Lightbulb=ssMakeEmojiIcon("💡");
+const Paperclip=ssMakeEmojiIcon("📎");
+const ArrowDown=ssMakeEmojiIcon("⬇️");
+const Pin=ssMakeEmojiIcon("📌");
+const RotateCw=ssMakeEmojiIcon("🔃");
+const GraduationCap=ssMakeEmojiIcon("🎓");
+const PartyPopper=ssMakeEmojiIcon("🎉");
+const Bell=ssMakeEmojiIcon("🔔");
+const Palmtree=ssMakeEmojiIcon("🌴");
+const Megaphone=ssMakeEmojiIcon("📣");
+const AlertTriangle=ssMakeEmojiIcon("⚠️");
+const Download=ssMakeEmojiIcon("📥");
+const Upload=ssMakeEmojiIcon("📤");
+const ChevronDown=ssMakeEmojiIcon("🔽");
+const WifiOff=ssMakeEmojiIcon("📵");
+const Play=ssMakeEmojiIcon("▶️");
+const Pause=ssMakeEmojiIcon("⏸️");
+const Dices=ssMakeEmojiIcon("🎲");
+const UsersRound=ssMakeEmojiIcon("🧑‍🤝‍🧑");
+const Volume2=ssMakeEmojiIcon("🔊");
+const VolumeX=ssMakeEmojiIcon("🔇");
 
 // NEW — every color below is a CSS custom property, not a hardcoded hex.
 // That's what makes dark/light mode possible without rewriting every
