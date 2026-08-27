@@ -996,8 +996,8 @@ function IconButton({ icon:Icon, onClick, title, disabled, color, size=19, varia
   // alone for contrast.
   const variants = {
     ghost:   { background:"none", border:"none", color:color||INK_SOFT, padding:6 },
-    surface: { background:SURFACE_2, border:`1px solid ${BORDER}`, borderRadius:10, color:color||INK_SOFT, padding:9 },
-    hero:    { background:"rgba(255,255,255,0.22)", border:"1px solid rgba(255,255,255,0.35)", borderRadius:10, color:"#fff", padding:10, boxShadow:"0 1px 4px rgba(0,0,0,0.18)" },
+    surface: { background:`linear-gradient(180deg, var(--surface-2) 0%, color-mix(in srgb, var(--surface-2) 82%, var(--ink) 8%) 100%)`, border:`1px solid ${BORDER}`, borderRadius:10, color:color||INK_SOFT, padding:9, boxShadow:"0 1px 0 rgba(255,255,255,0.15) inset, 0 2px 6px rgba(var(--shadow-rgb),0.14)" },
+    hero:    { background:"linear-gradient(180deg, rgba(255,255,255,0.34) 0%, rgba(255,255,255,0.16) 100%)", border:"1px solid rgba(255,255,255,0.4)", borderRadius:10, color:"#fff", padding:10, boxShadow:"0 1px 0 rgba(255,255,255,0.4) inset, 0 3px 8px rgba(0,0,0,0.22)" },
   };
   return (
     <button type={type} className="ss-icon-btn" onClick={onClick} disabled={disabled} title={title} style={{
@@ -1043,9 +1043,18 @@ function PinBadge() {
   return null;
 }
 const STATUS_META = { ready:{label:"तयार",bg:ACCENT_LIGHT,color:ACCENT}, prep:{label:"तयारी चाहिने",bg:WARN_BG,color:WARN}, missing:{label:"सुरु नभएको",bg:DANGER_BG,color:DANGER} };
+// NEW — was a flat tinted rectangle. Now a small raised, glassy 3D badge
+// (gradient fill + inset top highlight + real drop shadow) with a status
+// dot that gently pulses instead of sitting static, so "तयार"/"सुरु
+// नभएको" reads as a live status indicator rather than printed text.
 function StatusPill({ status }) {
   const s = STATUS_META[status]||STATUS_META.prep;
-  return <span style={{ display:"inline-flex",alignItems:"center",gap:6, background:s.bg, color:s.color, fontSize:15.5, fontWeight:700, padding:"4px 12px", borderRadius:999 }}><span style={{width:7,height:7,borderRadius:"50%",background:s.color,flexShrink:0,boxShadow:`0 0 0 3px color-mix(in srgb, ${s.color} 22%, transparent)`}}/>{s.label}</span>;
+  return (
+    <span style={{ display:"inline-flex",alignItems:"center",gap:6, background:`linear-gradient(180deg, color-mix(in srgb, ${s.color} 20%, ${s.bg}) 0%, ${s.bg} 100%)`, color:s.color, fontSize:15.5, fontWeight:700, padding:"4px 12px", borderRadius:999, border:`1px solid color-mix(in srgb, ${s.color} 30%, transparent)`, boxShadow:`0 1px 0 rgba(255,255,255,0.3) inset, 0 2px 5px color-mix(in srgb, ${s.color} 20%, transparent)` }}>
+      <span style={{width:7,height:7,borderRadius:"50%",background:s.color,flexShrink:0,boxShadow:`0 0 0 3px color-mix(in srgb, ${s.color} 22%, transparent)`,animation:"ss-pulse-dot 2.2s ease-in-out infinite"}}/>
+      {s.label}
+    </span>
+  );
 }
 function Spinner({ small }) {
   return <div style={{ display:"flex", justifyContent:"center", alignItems:"center", padding:small?0:40 }}><Loader size={small?18:28} color={ACCENT} style={{ animation:"spin 1s linear infinite" }} /><style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style></div>;
@@ -3636,7 +3645,7 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoMaterials, onGoAITools, onG
               <div style={{display:"inline-flex",fontSize:12.5,opacity:0.95,fontWeight:700,letterSpacing:"0.04em",textTransform:"uppercase",background:"rgba(255,255,255,0.18)",padding:"3px 10px",borderRadius:999}}>आजको पाठ · {today.chapters?.title||today.chapter_title||""}</div>
               {/* NEW — was previously impossible to change; this is the fix. */}
               {lessons.length>1&&(
-                <button className="ss-btn" onClick={()=>setPickingToday((v)=>!v)} style={{background:"rgba(255,255,255,0.2)",border:"none",color:"#fff",borderRadius:999,padding:"4px 11px",fontSize:13,fontWeight:700,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"}}>बदल्नुहोस्</button>
+                <button className="ss-btn" onClick={()=>setPickingToday((v)=>!v)} style={{background:"linear-gradient(180deg, rgba(255,255,255,0.32) 0%, rgba(255,255,255,0.14) 100%)",border:"1px solid rgba(255,255,255,0.4)",color:"#fff",borderRadius:999,padding:"4px 11px",fontSize:13,fontWeight:700,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap",boxShadow:"0 1px 0 rgba(255,255,255,0.35) inset, 0 2px 6px rgba(0,0,0,0.18)"}}>बदल्नुहोस्</button>
               )}
             </div>
             <div style={{fontSize:21,fontWeight:800,margin:"8px 0 14px",letterSpacing:"-0.01em",overflowWrap:"break-word",fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}>{today.title}</div>
@@ -4682,7 +4691,14 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
   const [linkedCounts,setLinkedCounts]=useState(null);
   const [showDetails,setShowDetails]=useState(false);
   const [changingChapter,setChangingChapter]=useState(false);
-  const [expanded,setExpanded]=useState(()=>new Set());
+  // FIX — एकाइ groups used a Set of expanded ids, which let more than one
+  // unit stay open at the same time: tapping एकाइ ४ never closed एकाइ ३, so
+  // the list kept growing (visible in the report — two units both open,
+  // one directly under the other, with no way to tell where one's lessons
+  // ended and the next began). A single "which one is open" value gives
+  // real accordion behaviour instead: opening a unit now always collapses
+  // whichever one was open before, so the list only ever shows one at a time.
+  const [expandedId,setExpandedId]=useState(null);
   // FIX — an एकाइ left expanded here stayed expanded even after switching
   // सेक्सन (or कक्षा) from the top bar, so a teacher moving from 5A to 5B
   // (or fresh लोड for a different class) would land on a Planner screen
@@ -4690,7 +4706,7 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
   // section — confusing since the lessons under it now belong to the new
   // section entirely. Collapse everything the moment the section/class
   // actually changes, so each section always starts closed.
-  useEffect(()=>{ setExpanded(new Set()); },[section?.id,classLabel]);
+  useEffect(()=>{ setExpandedId(null); },[section?.id,classLabel]);
   const [editingChapterId,setEditingChapterId]=useState(null);
   const [chapterEditValue,setChapterEditValue]=useState("");
   const [chapterBusy,setChapterBusy]=useState(null);
@@ -4703,7 +4719,7 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
   // fresh mount to reset it and just sat there open no matter where you
   // navigated to and back from. Collapse everything the moment Planner
   // goes inactive.
-  useEffect(()=>{ if(!active){ setExpanded(new Set()); setYojanaLesson(null); setPlanGroupChapter(null); } },[active]);
+  useEffect(()=>{ if(!active){ setExpandedId(null); setYojanaLesson(null); setPlanGroupChapter(null); } },[active]);
 
   // NEW — generates (or reopens) this chapter's own day-wise Yojana from
   // its APPROVED Plan Group, splitting a merged group's shared plan across
@@ -4906,7 +4922,7 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
     await db.deleteLesson(id);onRefresh();
   };
 
-  const toggleExpand=(id)=>setExpanded((prev)=>{const next=new Set(prev);next.has(id)?next.delete(id):next.add(id);return next;});
+  const toggleExpand=(id)=>setExpandedId((prev)=>prev===id?null:id);
 
   // NEW — quick inline "+ नयाँ एकाइ", so a fresh Unit can be created right
   // from this screen and immediately shown as an (empty) group ready for
@@ -4970,7 +4986,7 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
                     <div style={{fontSize:12.5,color:INK_SOFT,fontWeight:700,marginBottom:1}}>एकाइ</div>
                     <div style={{fontSize:16.5,fontWeight:700,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{form.chapter_title}</div>
                   </div>
-                  <button className="ss-icon-btn" type="button" onClick={()=>setChangingChapter(true)} style={{background:"none",border:"none",color:ACCENT,fontWeight:700,fontSize:14.5,cursor:"pointer",flexShrink:0}}>बदल्नुहोस्</button>
+                  <button className="ss-icon-btn" type="button" onClick={()=>setChangingChapter(true)} style={{background:`linear-gradient(180deg, color-mix(in srgb, ${ACCENT} 16%, ${ACCENT_LIGHT}) 0%, ${ACCENT_LIGHT} 100%)`,border:`1px solid color-mix(in srgb, ${ACCENT} 30%, transparent)`,color:ACCENT,fontWeight:700,fontSize:14,cursor:"pointer",flexShrink:0,borderRadius:999,padding:"6px 13px"}}>बदल्नुहोस्</button>
                 </div>
               ):(
                 <>
@@ -5051,21 +5067,21 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
       {loading?<Spinner/>:groups.length===0?<EmptyState icon={ClipboardList} text="अझै कुनै एकाइ छैन।" actionLabel="पहिलो एकाइ थप्नुहोस्" onAction={()=>setAddingChapter(true)}/>:(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {groups.map(({chapter,paths,unassigned},gi)=>{
-            const isOpen=expanded.has(chapter.id);
+            const isOpen=expandedId===chapter.id;
             const chapColor=unassigned?DANGER:PALETTE[gi%PALETTE.length];
             return(
               <Card key={chapter.id} accentColor={unassigned?DANGER:chapColor} style={unassigned?{padding:0,overflow:"hidden",border:`1.5px dashed ${DANGER}`}:{padding:0,overflow:"hidden"}}>
-                <div onClick={()=>editingChapterId!==chapter.id&&toggleExpand(chapter.id)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"14px 16px",cursor:"pointer"}}>
+                <div className="ss-btn" onClick={()=>editingChapterId!==chapter.id&&toggleExpand(chapter.id)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"14px 16px",cursor:"pointer"}}>
                   {editingChapterId===chapter.id?(
                     <div style={{display:"flex",gap:6,flex:1,minWidth:0}} onClick={(e)=>e.stopPropagation()}>
                       <input autoFocus value={chapterEditValue} onChange={(e)=>setChapterEditValue(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&renameChapter(chapter)} className="ss-field" style={{flex:1,minWidth:0,borderRadius:10,padding:"7px 10px",fontSize:16,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
-                      <button className="ss-btn" onClick={()=>renameChapter(chapter)} disabled={chapterBusy===chapter.id} style={{padding:"7px 12px",borderRadius:999,border:"none",background:ACCENT,color:"#fff",fontWeight:700,cursor:"pointer"}}>✓</button>
-                      <button className="ss-btn" onClick={()=>setEditingChapterId(null)} style={{padding:"7px 12px",borderRadius:999,border:`1px solid ${BORDER}`,background:SURFACE,cursor:"pointer"}}>✕</button>
+                      <button className="ss-btn" onClick={()=>renameChapter(chapter)} disabled={chapterBusy===chapter.id} style={{padding:"7px 12px",borderRadius:999,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}>✓</button>
+                      <button className="ss-btn" onClick={()=>setEditingChapterId(null)} style={{padding:"7px 12px",borderRadius:999,border:`1px solid ${BORDER}`,background:SURFACE,cursor:"pointer",boxShadow:SHADOW.sm}}>✕</button>
                     </div>
                   ):(
                     <>
                       <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0,flex:1}}>
-                        <div style={{width:30,height:30,borderRadius:10,flexShrink:0,background:`linear-gradient(155deg, ${chapColor} 0%, color-mix(in srgb, ${chapColor} 65%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",transform:"rotate(-3deg)"}}>{isOpen?<ArrowDown size={15} color="#fff" style={{transform:"rotate(3deg)"}}/>:<ArrowRight size={15} color="#fff" style={{transform:"rotate(3deg)"}}/>}</div>
+                        <div style={{width:30,height:30,borderRadius:10,flexShrink:0,background:`linear-gradient(155deg, ${chapColor} 0%, color-mix(in srgb, ${chapColor} 65%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",transform:isOpen?"rotate(0deg) scale(1.05)":"rotate(-3deg)",boxShadow:`0 1px 0 rgba(255,255,255,0.3) inset, 0 3px 8px color-mix(in srgb, ${chapColor} 45%, transparent)`,transition:"transform .25s cubic-bezier(.34,1.56,.64,1)"}}>{isOpen?<ArrowDown size={15} color="#fff"/>:<ArrowRight size={15} color="#fff" style={{transform:"rotate(3deg)"}}/>}</div>
                         <div style={{fontWeight:700,fontSize:17,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}>{chapter.title}</div>
                       </div>
                       <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
@@ -5077,7 +5093,7 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
                   )}
                 </div>
                 {isOpen&&(
-                  <div style={{padding:"0 16px 16px",display:"flex",flexDirection:"column",gap:8}}>
+                  <div style={{padding:"0 16px 16px",display:"flex",flexDirection:"column",gap:8,animation:"ss-fade-up .22s cubic-bezier(.2,.7,.2,1) backwards"}}>
                     {unassigned&&<div style={{fontSize:13.5,color:DANGER,background:"color-mix(in srgb, "+DANGER+" 12%, transparent)",borderRadius:8,padding:"8px 10px"}}>यी पाठहरू कुनै एकाइसँग जोडिएका छैनन् (पुरानो डाटा)। प्रत्येक खोलेर सम्पादन गर्नुहोस् र सही एकाइ छान्नुहोस्, अनि सुरक्षित गर्नुहोस् — त्यसपछि यो माथिको ठीक एकाइ समूहमा सर्नेछ।</div>}
                     {paths.length===0&&<div style={{fontSize:14.5,color:INK_SOFT,padding:"4px 0 8px"}}>यो एकाइमा अझै कुनै पाठ छैन।</div>}
                     {paths.map((l)=>(
@@ -5091,9 +5107,9 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
                       </div>
                     ))}
                     {/* FIX — "+ नयाँ पाठ थप्नुहोस्" (which is where "AI ले यो पाठ बनाओस्" per-classroom-lesson lives) now comes first, per confirmed layout order; the official-plan/rubric buttons come below it. The old single combined "आधिकारिक पाठ योजना / रुब्रिक्स" button is split into two separate buttons/flows (पाठ योजना vs रुब्रिक्स), each opening PlanGroupModal with a different focusMode. */}
-                    {!unassigned&&<button className="ss-btn" onClick={()=>startNew(chapter.title)} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:"none",border:`1.5px dashed ${BORDER}`,color:ACCENT,borderRadius:10,padding:"10px",fontWeight:700,fontSize:15,cursor:"pointer"}}><Plus size={14}/>नयाँ पाठ थप्नुहोस्</button>}
-                    {!unassigned&&<button className="ss-btn" onClick={()=>setPlanGroupChapter({chapter,focusMode:"plan"})} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:VIOLET_LIGHT,border:"none",color:VIOLET,borderRadius:10,padding:"10px",fontWeight:700,fontSize:15,cursor:"pointer"}}><ClipboardList size={14}/>आधिकारिक पाठ योजना</button>}
-                    {!unassigned&&<button className="ss-btn" onClick={()=>setPlanGroupChapter({chapter,focusMode:"rubric"})} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:"color-mix(in srgb, "+MARIGOLD_DARK+" 16%, transparent)",border:"none",color:MARIGOLD_DARK,borderRadius:10,padding:"10px",fontWeight:700,fontSize:15,cursor:"pointer"}}><CheckSquare size={14}/>रुब्रिक्स</button>}
+                    {!unassigned&&<button className="ss-btn" onClick={()=>startNew(chapter.title)} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:`linear-gradient(180deg, color-mix(in srgb, ${ACCENT} 8%, transparent) 0%, color-mix(in srgb, ${ACCENT} 4%, transparent) 100%)`,border:`1.5px dashed color-mix(in srgb, ${ACCENT} 45%, ${BORDER})`,color:ACCENT,borderRadius:10,padding:"10px",fontWeight:700,fontSize:15,cursor:"pointer"}}><Plus size={14}/>नयाँ पाठ थप्नुहोस्</button>}
+                    {!unassigned&&<button className="ss-btn" onClick={()=>setPlanGroupChapter({chapter,focusMode:"plan"})} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:`linear-gradient(180deg, color-mix(in srgb, ${VIOLET} 20%, ${VIOLET_LIGHT}) 0%, ${VIOLET_LIGHT} 100%)`,border:`1px solid color-mix(in srgb, ${VIOLET} 25%, transparent)`,color:VIOLET,borderRadius:10,padding:"10px",fontWeight:700,fontSize:15,cursor:"pointer",boxShadow:`0 1px 0 rgba(255,255,255,0.25) inset, 0 3px 8px color-mix(in srgb, ${VIOLET} 18%, transparent)`}}><ClipboardList size={14}/>आधिकारिक पाठ योजना</button>}
+                    {!unassigned&&<button className="ss-btn" onClick={()=>setPlanGroupChapter({chapter,focusMode:"rubric"})} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:`linear-gradient(180deg, color-mix(in srgb, ${MARIGOLD_DARK} 22%, transparent) 0%, color-mix(in srgb, ${MARIGOLD_DARK} 12%, transparent) 100%)`,border:`1px solid color-mix(in srgb, ${MARIGOLD_DARK} 28%, transparent)`,color:MARIGOLD_DARK,borderRadius:10,padding:"10px",fontWeight:700,fontSize:15,cursor:"pointer",boxShadow:`0 1px 0 rgba(255,255,255,0.2) inset, 0 3px 8px color-mix(in srgb, ${MARIGOLD_DARK} 18%, transparent)`}}><CheckSquare size={14}/>रुब्रिक्स</button>}
                   </div>
                 )}
               </Card>
@@ -5387,18 +5403,18 @@ function Materials({ classLabel }) {
                     {row.categoryEditing?(
                       <CategoryPicker value={row.category} onChange={(v)=>updatePendingRow(row._key,{category:v,categoryAuto:false,categoryEditing:false})}/>
                     ):(
-                      <div onClick={()=>updatePendingRow(row._key,{categoryEditing:true})} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,background:SURFACE_2,borderRadius:10,padding:"9px 12px",cursor:"pointer"}}>
+                      <div className="ss-btn" onClick={()=>updatePendingRow(row._key,{categoryEditing:true})} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,background:SURFACE_2,borderRadius:10,padding:"9px 12px",cursor:"pointer"}}>
                         <span style={{fontSize:15,fontWeight:600,color:INK,display:"flex",alignItems:"center",gap:5}}>{CATEGORY_META[row.category]?.label||row.category}{row.categoryAuto&&<Sparkles size={12} color={ACCENT}/>}</span>
-                        <span style={{fontSize:13.5,color:ACCENT,fontWeight:700,flexShrink:0}}>बदल्नुहोस्</span>
+                        <span style={{fontSize:13,color:ACCENT,fontWeight:700,flexShrink:0,background:ACCENT_LIGHT,borderRadius:999,padding:"3px 10px",border:`1px solid color-mix(in srgb, ${ACCENT} 25%, transparent)`}}>बदल्नुहोस्</span>
                       </div>
                     )}
                   </div>
                   <div>
                     <div style={{fontSize:12.5,fontWeight:700,color:INK_SOFT,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.03em"}}>एकाइ</div>
                     {row.chapterTitle&&!row.chapterEditing?(
-                      <div onClick={()=>updatePendingRow(row._key,{chapterEditing:true})} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,background:SURFACE_2,borderRadius:10,padding:"9px 12px",cursor:"pointer"}}>
+                      <div className="ss-btn" onClick={()=>updatePendingRow(row._key,{chapterEditing:true})} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,background:SURFACE_2,borderRadius:10,padding:"9px 12px",cursor:"pointer"}}>
                         <span style={{fontSize:15,fontWeight:600,color:INK,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:5}}>{row.chapterTitle}{row.chapterAuto&&<Sparkles size={12} color={ACCENT} style={{flexShrink:0}}/>}</span>
-                        <span style={{fontSize:13.5,color:ACCENT,fontWeight:700,flexShrink:0}}>बदल्नुहोस्</span>
+                        <span style={{fontSize:13,color:ACCENT,fontWeight:700,flexShrink:0,background:ACCENT_LIGHT,borderRadius:999,padding:"3px 10px",border:`1px solid color-mix(in srgb, ${ACCENT} 25%, transparent)`}}>बदल्नुहोस्</span>
                       </div>
                     ):(
                       <ChapterPicker value={row.chapterTitle} onChange={(v)=>updatePendingRow(row._key,{chapterTitle:v,chapterAuto:false,chapterEditing:false,pathId:null})} placeholder="एकाइ छान्नुहोस् *"/>
@@ -7568,6 +7584,10 @@ export default function App() {
 
         @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
         @keyframes ss-fade-up{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+        /* NEW — gentle "alive" breathing glow for status dots (StatusPill)
+           and the expand-arrow badge on an open एकाइ, so small state
+           indicators don't sit completely static on screen. */
+        @keyframes ss-pulse-dot{0%,100%{opacity:1;transform:scale(1);}50%{opacity:0.55;transform:scale(0.82);}}
         /* FIX (real root cause of the popup "tearing"/page-bleeding-through
            bug — this was never actually a viewport-height problem; the
            earlier useLockBodyScroll/useViewportHeightPx/100dvh fixes were
@@ -7615,33 +7635,35 @@ export default function App() {
         .ss-card{transition:box-shadow .2s ease, transform .2s ease, background .2s ease, border-color .2s ease;}
         .ss-card-hover:hover{box-shadow:${SHADOW.raisedHover};transform:translateY(-3px);border-color:color-mix(in srgb, ${ACCENT} 25%, var(--border));}
         .ss-card-hover:active{transform:translateY(1px) scale(0.99);box-shadow:${SHADOW.sm};}
-        .ss-btn{transition:transform .15s ease, box-shadow .15s ease, filter .15s ease;}
-        .ss-btn:hover{filter:brightness(1.04);}
-        .ss-btn:active{transform:translateY(1px) scale(0.98);}
 
-        /* Buttons — real hover/active feedback via CSS, not just JS */
-        .ss-btn{transition:transform .12s ease, box-shadow .12s ease, filter .12s ease; -webkit-tap-highlight-color:transparent;}
-        .ss-btn:hover:not(:disabled){transform:translateY(-1px);filter:brightness(1.05);}
-        .ss-btn:active:not(:disabled){transform:translateY(0px) scale(0.97);filter:brightness(0.98);}
+        /* NEW — every button in the app (146 uses of .ss-btn) now gets a
+           real tactile, "pressable" feel instead of a flat rectangle that
+           only ever darkened slightly. A soft inset highlight along the
+           top edge reads as a raised surface catching light; hovering
+           lifts the button toward the viewer with a springy overshoot
+           (cubic-bezier with a slight bounce, not a linear ease); pressing
+           drives it back down past its resting position with a dimmed
+           inset shadow, like a real key bottoming out. !important on the
+           hover/active shadow only (never at rest) is needed because many
+           callers pass their own inline boxShadow (SHADOW.accent etc.) for
+           the resting look — inline styles otherwise block a stylesheet
+           rule from ever taking over on interaction. */
+        .ss-btn{transition:transform .18s cubic-bezier(.34,1.56,.64,1), box-shadow .18s ease, filter .15s ease; -webkit-tap-highlight-color:transparent; will-change:transform;}
+        .ss-btn:hover:not(:disabled){transform:translateY(-2px) scale(1.015);filter:brightness(1.07) saturate(1.05);box-shadow:0 1px 0 rgba(255,255,255,0.16) inset, 0 8px 18px rgba(var(--shadow-rgb),0.28) !important;}
+        .ss-btn:active:not(:disabled){transform:translateY(1px) scale(0.96);filter:brightness(0.93);box-shadow:0 1px 3px rgba(var(--shadow-rgb),0.35) inset !important;transition-duration:.06s;}
         .ss-btn:focus-visible{outline:2px solid ${MARIGOLD};outline-offset:2px;}
+        .ss-btn:disabled{filter:saturate(0.7);}
 
         /* Icon-only utility buttons (edit/delete/print/close on cards) —
            these previously had zero feedback at all: same pixel before and
-           after a tap. A soft round hover/press background makes them read
-           as interactive instead of static glyphs. */
-        {/* FIX — this class previously had NO background at rest, only on
-            hover/active — fine with a mouse, but on a touchscreen (no
-            hover state) every icon-only button using this class rendered
-            as a bare colored glyph with nothing anchoring it visually.
-            Against a gradient hero header or a dark-theme card, that made
-            back/edit/delete/expand buttons hard to spot (reported: back
-            chevron and the edit/delete/dropdown cluster both "not
-            prominent"). A subtle permanent pill + border now gives every
-            such button a visible boundary on any background, in both
-            themes, with or without hover. */}
-        .ss-icon-btn{border-radius:8px;padding:6px;transition:background .15s ease, transform .12s ease, border-color .15s ease; -webkit-tap-highlight-color:transparent; display:inline-flex; background:color-mix(in srgb, var(--ink) 6%, transparent); border:1px solid color-mix(in srgb, var(--ink) 10%, transparent);}
-        .ss-icon-btn:hover:not(:disabled){background:var(--surface-2);border-color:var(--border);}
-        .ss-icon-btn:active:not(:disabled){transform:scale(0.92);background:var(--border);}
+           after a tap. Now a small raised "chip" — subtle top highlight +
+           drop shadow at rest — that pops up and brightens on hover and
+           genuinely dents inward on press, so every edit/print/delete/
+           expand glyph throughout the app reads as a real modern 3D
+           control instead of a flat icon sitting on a tinted square. */
+        .ss-icon-btn{border-radius:10px;padding:6px;transition:transform .18s cubic-bezier(.34,1.56,.64,1), background .15s ease, border-color .15s ease, box-shadow .15s ease; -webkit-tap-highlight-color:transparent; display:inline-flex; background:linear-gradient(180deg, color-mix(in srgb, var(--ink) 3%, transparent) 0%, color-mix(in srgb, var(--ink) 9%, transparent) 100%); border:1px solid color-mix(in srgb, var(--ink) 12%, transparent); box-shadow:0 1px 0 rgba(255,255,255,0.12) inset, 0 1px 2px rgba(var(--shadow-rgb),0.15);}
+        .ss-icon-btn:hover:not(:disabled){background:linear-gradient(180deg, var(--surface-2) 0%, color-mix(in srgb, var(--surface-2) 80%, var(--ink) 8%) 100%);border-color:var(--border);transform:translateY(-1px) scale(1.08);box-shadow:0 1px 0 rgba(255,255,255,0.16) inset, 0 5px 10px rgba(var(--shadow-rgb),0.22);}
+        .ss-icon-btn:active:not(:disabled){transform:scale(0.88);background:var(--border);box-shadow:0 2px 4px rgba(var(--shadow-rgb),0.3) inset;transition-duration:.06s;}
 
         /* NEW — every screen (Home, AI chat, Homework, Diary, Search,
            Settings, question/activity/assessment builders...) was wrapped
