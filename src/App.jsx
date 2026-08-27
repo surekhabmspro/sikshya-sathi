@@ -3645,7 +3645,7 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoMaterials, onGoAITools, onG
                 {lessons.length>6&&(
                   <div style={{display:"flex",alignItems:"center",gap:7,padding:"9px 10px",borderBottom:`1px solid ${BORDER}`,flexShrink:0}}>
                     <Search size={15} color={INK_SOFT} style={{flexShrink:0}}/>
-                    <input autoFocus value={todaySearch} onChange={(e)=>setTodaySearch(e.target.value)} placeholder="पाठ वा एकाइ खोज्नुहोस्..." style={{flex:1,minWidth:0,border:"none",outline:"none",background:"transparent",fontSize:14.5,color:INK}}/>
+                    <input autoFocus autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false" value={todaySearch} onChange={(e)=>setTodaySearch(e.target.value)} placeholder="पाठ वा एकाइ खोज्नुहोस्..." style={{flex:1,minWidth:0,border:"none",outline:"none",boxShadow:"none",WebkitAppearance:"none",appearance:"none",background:"transparent",fontSize:14.5,color:INK}}/>
                     {todaySearch&&<button onClick={()=>setTodaySearch("")} style={{background:"none",border:"none",color:INK_SOFT,cursor:"pointer",padding:2,display:"flex",flexShrink:0}}><X size={14}/></button>}
                   </div>
                 )}
@@ -5433,7 +5433,7 @@ function Materials({ classLabel }) {
       <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
         <div style={{flex:1,minWidth:180,display:"flex",alignItems:"center",gap:8,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"11px 14px"}}>
           <Search size={16} color={INK_SOFT}/>
-          <input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="फाइल खोज्नुहोस्..." style={{border:"none",outline:"none",fontSize:16.5,flex:1,minWidth:0,background:"transparent",color:INK,caretColor:ACCENT,fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}/>
+          <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false" value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="फाइल खोज्नुहोस्..." style={{border:"none",outline:"none",boxShadow:"none",WebkitAppearance:"none",appearance:"none",fontSize:16.5,flex:1,minWidth:0,background:"transparent",color:INK,caretColor:ACCENT,fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}/>
         </div>
         {/* NEW — browse materials by chapter, same concept the Planner now
             uses, instead of only being able to filter by file category. */}
