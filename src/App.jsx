@@ -3538,13 +3538,29 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoMaterials, onGoAITools, onG
     try{return localStorage.getItem(`ss-today-lesson::${classLabel||"default"}`)||null;}catch{return null;}
   });
   const [pickingToday,setPickingToday]=useState(false);
+  // NEW — बदल्नुहोस् used to dump every lesson in one flat list in
+  // whatever order the DB happened to return them (no chapter grouping,
+  // no number ordering) — fine with a handful of lessons, unusable once a
+  // teacher has built up a full year's worth. Now grouped by एकाइ (reusing
+  // the same sortChaptersByUnitNumber/groupLessonsByChapter already used
+  // by Planner, so ordering matches what the teacher sees everywhere
+  // else), with a search box to jump straight to a lesson by name instead
+  // of scrolling.
+  const [todaySearch,setTodaySearch]=useState("");
   useEffect(()=>{
     try{setTodayOverrideId(localStorage.getItem(`ss-today-lesson::${classLabel||"default"}`)||null);}catch{}
   },[classLabel]);
   const chooseToday=(l)=>{
-    setTodayOverrideId(l.id);setPickingToday(false);
+    setTodayOverrideId(l.id);setPickingToday(false);setTodaySearch("");
     try{localStorage.setItem(`ss-today-lesson::${classLabel||"default"}`,l.id);}catch{}
   };
+  const todayGroups=useMemo(()=>{
+    const grouped=groupLessonsByChapter(sortChaptersByUnitNumber(chapters||[]),lessons||[]);
+    const q=todaySearch.trim().toLowerCase();
+    return grouped
+      .map((g)=>({...g,paths:!q?g.paths:g.paths.filter((l)=>(l.title||"").toLowerCase().includes(q)||(g.chapter.title||"").toLowerCase().includes(q))}))
+      .filter((g)=>g.paths.length>0);
+  },[chapters,lessons,todaySearch]);
   const today=lessons.find((l)=>l.id===todayOverrideId)||lessons.find((l)=>l.status==="ready")||lessons[0];
   // FIX — this used to be its own separate fetch (mount-only), so
   // uploading a file elsewhere never updated the dashboard count until the
@@ -3618,13 +3634,27 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoMaterials, onGoAITools, onG
             </div>
             <div style={{fontSize:21,fontWeight:800,margin:"8px 0 14px",letterSpacing:"-0.01em",overflowWrap:"break-word",fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}>{today.title}</div>
             {pickingToday?(
-              <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:16,padding:8,marginBottom:4,maxHeight:220,overflowY:"auto",boxShadow:SHADOW.lg}}>
-                {lessons.map((l)=>(
-                  <div key={l.id} onClick={()=>chooseToday(l)} style={{padding:"9px 10px",borderRadius:10,cursor:"pointer",background:l.id===today.id?ACCENT_LIGHT:"transparent"}}>
-                    <div style={{fontSize:13.5,color:INK_SOFT,fontWeight:600}}>{l.chapters?.title||l.chapter_title||""}</div>
-                    <div style={{fontSize:15.5,color:INK,fontWeight:700}}>{l.title}</div>
+              <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:16,marginBottom:4,maxHeight:320,display:"flex",flexDirection:"column",boxShadow:SHADOW.lg,overflow:"hidden"}}>
+                {lessons.length>6&&(
+                  <div style={{display:"flex",alignItems:"center",gap:7,padding:"9px 10px",borderBottom:`1px solid ${BORDER}`,flexShrink:0}}>
+                    <Search size={15} color={INK_SOFT} style={{flexShrink:0}}/>
+                    <input autoFocus value={todaySearch} onChange={(e)=>setTodaySearch(e.target.value)} placeholder="पाठ वा एकाइ खोज्नुहोस्..." style={{flex:1,minWidth:0,border:"none",outline:"none",background:"transparent",fontSize:14.5,color:INK}}/>
+                    {todaySearch&&<button onClick={()=>setTodaySearch("")} style={{background:"none",border:"none",color:INK_SOFT,cursor:"pointer",padding:2,display:"flex",flexShrink:0}}><X size={14}/></button>}
                   </div>
-                ))}
+                )}
+                <div style={{padding:8,overflowY:"auto"}}>
+                  {todayGroups.length===0&&<div style={{padding:"14px 10px",fontSize:14,color:INK_SOFT,textAlign:"center"}}>कुनै पाठ फेला परेन</div>}
+                  {todayGroups.map((g)=>(
+                    <div key={g.chapter.id} style={{marginBottom:6}}>
+                      <div style={{position:"sticky",top:0,background:SURFACE,fontSize:12,fontWeight:700,color:g.unassigned?WARN:ACCENT_DARK,textTransform:"uppercase",letterSpacing:"0.03em",padding:"6px 10px 4px"}}>{g.chapter.title}</div>
+                      {g.paths.map((l)=>(
+                        <div key={l.id} onClick={()=>chooseToday(l)} style={{padding:"9px 10px",borderRadius:10,cursor:"pointer",background:l.id===today.id?ACCENT_LIGHT:"transparent"}}>
+                          <div style={{fontSize:15.5,color:INK,fontWeight:700}}>{l.title}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
               </div>
             ):(
               // FIX — "print/display in class" is one of the two things
