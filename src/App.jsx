@@ -6071,6 +6071,50 @@ function ssPlayWinChime(){
     setTimeout(()=>ctx.close(),1300);
   }catch{ /* audio unavailable — silent no-op */ }
 }
+// Continuous "whirring" sound for while the wheel is physically spinning.
+// Built from filtered white noise (not a plain tone) so it reads as a
+// spinning mechanical object rather than a beep, with the filter gliding
+// downward over the same ~4.5s the CSS spin transition takes, mimicking a
+// real wheel's deceleration. Node references live on the ref passed in so
+// spin()/onWheelTransitionEnd/resetRound/unmount can all stop it cleanly.
+function ssStartSpinSound(ref){
+  try{
+    ssStopSpinSound(ref); // guard against overlap if one is already running
+    const Ctx=window.AudioContext||window.webkitAudioContext;
+    if(!Ctx)return;
+    const ctx=new Ctx();
+    const bufferSize=ctx.sampleRate*2;
+    const buffer=ctx.createBuffer(1,bufferSize,ctx.sampleRate);
+    const data=buffer.getChannelData(0);
+    for(let i=0;i<bufferSize;i++)data[i]=Math.random()*2-1;
+    const noise=ctx.createBufferSource();
+    noise.buffer=buffer;
+    noise.loop=true;
+    const filter=ctx.createBiquadFilter();
+    filter.type="bandpass";
+    filter.Q.value=0.85;
+    filter.frequency.setValueAtTime(1500,ctx.currentTime);
+    filter.frequency.linearRampToValueAtTime(420,ctx.currentTime+4.5); // matches the 4.5s spin transition
+    const gain=ctx.createGain();
+    gain.gain.setValueAtTime(0.0001,ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.16,ctx.currentTime+0.15);
+    noise.connect(filter);filter.connect(gain);gain.connect(ctx.destination);
+    noise.start();
+    ref.current={ctx,noise,gain};
+  }catch{ /* audio unavailable — silent no-op, wheel still spins visually */ }
+}
+function ssStopSpinSound(ref){
+  const state=ref.current;
+  if(!state)return;
+  ref.current=null;
+  try{
+    const{ctx,noise,gain}=state;
+    gain.gain.cancelScheduledValues(ctx.currentTime);
+    gain.gain.setValueAtTime(gain.gain.value,ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+0.12);
+    setTimeout(()=>{try{noise.stop();ctx.close();}catch{}},220);
+  }catch{ /* already stopped/unavailable — nothing to clean up */ }
+}
 // Speaks the winning student's full name aloud via the browser's built-in
 // text-to-speech. Devanagari is read far more naturally by a Hindi voice
 // than the default English one, so a Hindi voice is preferred when the
@@ -6102,11 +6146,13 @@ function RandomPicker({ roster }){
   const [burstKey,setBurstKey]=useState(0);
   const pendingRef=useRef(null);
   const holdTimeoutRef=useRef(null);
+  const spinAudioRef=useRef(null);
   useEffect(()=>{
     if(holdTimeoutRef.current)clearTimeout(holdTimeoutRef.current);
+    ssStopSpinSound(spinAudioRef);
     setPool(shuffleArr(roster));setPicked(null);setRotation(0);setPhase("idle");
   },[roster.join("|")]);
-  useEffect(()=>()=>{if(holdTimeoutRef.current)clearTimeout(holdTimeoutRef.current);},[]);
+  useEffect(()=>()=>{if(holdTimeoutRef.current)clearTimeout(holdTimeoutRef.current);ssStopSpinSound(spinAudioRef);},[]);
 
   const spinning = phase!=="idle";
   // True once the winner is locked in and visible (through the 3s hold and
@@ -6120,22 +6166,28 @@ function RandomPicker({ roster }){
   // keyed off burstKey so every win gets a fresh random shower. Each piece
   // bursts outward first, then keeps drifting/falling like real confetti
   // settling under gravity.
+  // FIX — the shower used to be sized/positioned relative to the small
+  // wheel graphic itself (max ~300px box), so most of the burst was
+  // invisible: it was cropped to that tiny circle instead of covering the
+  // card. Distances widened here so it visibly spreads across the whole
+  // card; the overlay it renders into (below) was moved to cover the
+  // whole card instead of just the wheel.
   const confetti=useMemo(()=>{
     if(!burstKey)return [];
-    return Array.from({length:26}).map((_,i)=>{
-      const angle=Math.random()*360, dist=45+Math.random()*55;
+    return Array.from({length:36}).map((_,i)=>{
+      const angle=Math.random()*360, dist=70+Math.random()*170;
       const rad=(angle*Math.PI)/180;
       return{
         key:i,
         tx:Math.round(Math.sin(rad)*dist),
         ty:Math.round(-Math.cos(rad)*dist),
-        dx:Math.round(Math.random()*50-25),
-        dy:Math.round(70+Math.random()*90),
+        dx:Math.round(Math.random()*100-50),
+        dy:Math.round(150+Math.random()*190),
         color:WHEEL_COLORS[i%WHEEL_COLORS.length],
-        size:5+Math.round(Math.random()*6),
+        size:6+Math.round(Math.random()*7),
         shape:i%3,
-        delay:Math.round(Math.random()*180),
-        duration:1100+Math.round(Math.random()*500),
+        delay:Math.round(Math.random()*220),
+        duration:1300+Math.round(Math.random()*700),
       };
     });
   },[burstKey]);
@@ -6148,6 +6200,7 @@ function RandomPicker({ roster }){
     const extraTurns=5+Math.floor(Math.random()*3); // 5–7 full spins
     setPicked(null);
     setPhase("spinning");
+    ssStartSpinSound(spinAudioRef);
     setRotation((prev)=>{
       const prevMod=((prev%360)+360)%360;
       // Pointer is fixed at the top (global 0deg); after rotating by R,
@@ -6171,6 +6224,7 @@ function RandomPicker({ roster }){
     if(phase==="settling"){
       const p=pendingRef.current;
       if(!p)return;
+      ssStopSpinSound(spinAudioRef); // wheel has physically landed — cut the whir before the chime
       setPicked(p.winner);
       setPhase("holding"); // freeze — nothing changes for a few seconds
       setBurstKey((k)=>k+1);
@@ -6187,6 +6241,7 @@ function RandomPicker({ roster }){
   };
   const resetRound=()=>{
     if(holdTimeoutRef.current)clearTimeout(holdTimeoutRef.current);
+    ssStopSpinSound(spinAudioRef);
     setPool(shuffleArr(roster));setPicked(null);setRotation(0);setPhase("idle");
   };
 
@@ -6204,7 +6259,7 @@ function RandomPicker({ roster }){
         @keyframes ss-confetti-burst{0%{transform:translate(-50%,-50%) scale(0.5) rotate(0deg);opacity:1;}45%{transform:translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(1) rotate(140deg);opacity:1;}100%{transform:translate(calc(-50% + var(--tx) + var(--dx)), calc(-50% + var(--ty) + var(--dy))) scale(0.85) rotate(320deg);opacity:0;}}
         @keyframes ss-ribbon-shine{0%{transform:translateX(-130%) skewX(-18deg);}100%{transform:translateX(230%) skewX(-18deg);}}
       `}</style>
-      <div style={{textAlign:"center",padding:"6px 4px 4px"}}>
+      <div style={{textAlign:"center",padding:"6px 4px 4px",position:"relative"}}>
         {/* THE WHEEL */}
         <div style={{position:"relative",width:"clamp(230px, 68vw, 300px)",aspectRatio:"1",margin:"10px auto 0"}}>
           {/* Ambient glow behind the whole wheel */}
@@ -6276,14 +6331,6 @@ function RandomPicker({ roster }){
           }}>
             <Dices size={24} style={spinning?{animation:"spin 0.9s linear infinite"}:undefined}/>
           </button>
-          {/* Colour shower — bursts outward then rains/drifts down like real confetti */}
-          {revealed&&(
-            <div key={burstKey} style={{position:"absolute",inset:0,pointerEvents:"none",zIndex:6,overflow:"visible"}}>
-              {confetti.map((c)=>(
-                <span key={c.key} style={{position:"absolute",left:"50%",top:"50%",width:c.size,height:c.size,borderRadius:c.shape===0?"50%":"2px",background:c.color,"--tx":`${c.tx}px`,"--ty":`${c.ty}px`,"--dx":`${c.dx}px`,"--dy":`${c.dy}px`,animation:`ss-confetti-burst ${c.duration}ms cubic-bezier(0.2,0.7,0.3,1) ${c.delay}ms forwards`}}/>
-              ))}
-            </div>
-          )}
         </div>
 
         {/* Winner banner — attached directly under the wheel (with a small
@@ -6313,6 +6360,23 @@ function RandomPicker({ roster }){
           <Button size="sm" onClick={spin} disabled={spinning}>{spinning?"घुम्दैछ...":"पाङ्ग्रा घुमाउनुहोस्"}</Button>
           <Chip onClick={resetRound} color={INK_SOFT}>नयाँ चक्र</Chip>
         </div>
+
+        {/* Colour shower — moved to cover the WHOLE card (this whole
+            relative block, wheel+banner+buttons) instead of just the
+            small wheel graphic, so the burst reads as a shower filling
+            the popup/card and isn't cropped to a ~300px circle. Anchored
+            at the wheel's own center so it still visibly originates from
+            the wheel. pointerEvents:none so it never blocks the spin
+            button/hub or the buttons below it. */}
+        {revealed&&(
+          <div key={burstKey} style={{position:"absolute",inset:0,pointerEvents:"none",zIndex:20,overflow:"visible"}}>
+            <div style={{position:"absolute",left:"50%",top:"calc(10px + clamp(230px, 68vw, 300px) / 2)"}}>
+              {confetti.map((c)=>(
+                <span key={c.key} style={{position:"absolute",left:0,top:0,width:c.size,height:c.size,borderRadius:c.shape===0?"50%":"2px",background:c.color,"--tx":`${c.tx}px`,"--ty":`${c.ty}px`,"--dx":`${c.dx}px`,"--dy":`${c.dy}px`,animation:`ss-confetti-burst ${c.duration}ms cubic-bezier(0.2,0.7,0.3,1) ${c.delay}ms forwards`}}/>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </Card>
   );
