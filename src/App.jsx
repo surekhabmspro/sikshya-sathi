@@ -3550,6 +3550,13 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoMaterials, onGoAITools, onG
   useEffect(()=>{
     try{setTodayOverrideId(localStorage.getItem(`ss-today-lesson::${classLabel||"default"}`)||null);}catch{}
   },[classLabel]);
+  // FIX — this screen never actually unmounts when you switch tabs (it's
+  // kept alive behind display:none so scroll position survives), so
+  // बदल्नुहोस् staying open never got a fresh mount to reset it on. Closing
+  // it explicitly the moment this screen goes inactive (active turns
+  // false) is what makes leaving and coming back show the card collapsed
+  // again — same as the एकाइ-expand fix in Planner below.
+  useEffect(()=>{ if(!active){ setPickingToday(false); setTodaySearch(""); } },[active]);
   const chooseToday=(l)=>{
     setTodayOverrideId(l.id);setPickingToday(false);setTodaySearch("");
     try{localStorage.setItem(`ss-today-lesson::${classLabel||"default"}`,l.id);}catch{}
@@ -3768,6 +3775,27 @@ function sortChaptersByUnitNumber(chapters) {
     .map((x) => x.c);
 }
 
+// NEW — Paths inside a chapter used to keep whatever order getLessons()
+// returned them in (sorted by scheduled_date, which is null for most
+// lessons until they're actually taught) — so पाठ ११, पाठ ९, पाठ ३, पाठ १
+// showed up in a different, effectively random order every load. Same
+// digit-extraction trick as extractUnitNumber/sortChaptersByUnitNumber
+// above, just applied to lesson titles instead of chapter titles, so
+// पाठ १, पाठ ३, पाठ ९, पाठ ११ now sort numerically within each एकाइ.
+// Lessons with no leading number (or a title that doesn't parse) fall to
+// the end, in their original order, instead of erroring out.
+function sortPathsByLessonNumber(paths) {
+  return (paths || [])
+    .map((l, i) => ({ l, i, n: extractUnitNumber(l.title) }))
+    .sort((a, b) => {
+      if (a.n === null && b.n === null) return a.i - b.i;
+      if (a.n === null) return 1;
+      if (b.n === null) return -1;
+      return a.n !== b.n ? a.n - b.n : a.i - b.i;
+    })
+    .map((x) => x.l);
+}
+
 function groupLessonsByChapter(chapters, lessons) {
   const norm=(s)=>(s||"").trim().toLowerCase().replace(/\s+/g," ");
   const byId=new Map();
@@ -3784,7 +3812,7 @@ function groupLessonsByChapter(chapters, lessons) {
     const titleMatches=byTitle.get(norm(c.title))||[];
     idMatches.forEach((l)=>matchedIds.add(l.id));
     titleMatches.forEach((l)=>matchedIds.add(l.id));
-    return{ chapter:c, paths:[...idMatches, ...titleMatches] };
+    return{ chapter:c, paths:sortPathsByLessonNumber([...idMatches, ...titleMatches]) };
   });
   // FIX — the real bug behind "एकाइ देखिन्छ हुँदा पनि तयार भएपछि नतोकिएको
   // देखिन्छ": creating/generating a Path under a BRAND-NEW chapter name (one
@@ -3817,7 +3845,7 @@ function groupLessonsByChapter(chapters, lessons) {
     if(!unknownIdGroups.has(cid))unknownIdGroups.set(cid,{title,paths:[]});
     unknownIdGroups.get(cid).paths.push(...ls);
   }
-  for(const[cid,{title,paths}]of unknownIdGroups)groups.push({chapter:{id:cid,title},paths});
+  for(const[cid,{title,paths}]of unknownIdGroups)groups.push({chapter:{id:cid,title},paths:sortPathsByLessonNumber(paths)});
   // FIX — a lesson whose chapter_id points at nothing (or nothing that
   // matched by title either) used to just silently vanish from this whole
   // screen: not in any chapter's group, no error, nothing. It still counted
@@ -4627,7 +4655,7 @@ function ImportTextbookModal({ classLabel, classContext, lessons, onClose }) {
   );
 }
 
-function Planner({ onOpenLesson, section, loading, onRefresh, classContext, classLabel, editLessonId, onEditConsumed, prefillChapter, onPrefillConsumed }) {
+function Planner({ onOpenLesson, section, loading, onRefresh, classContext, classLabel, editLessonId, onEditConsumed, prefillChapter, onPrefillConsumed, active }) {
   const { chapters, lessons, materials, addChapter, renameChapter: renameChapterCtx, deleteChapter: deleteChapterCtx, refreshLessons, refreshChapters } = useData();
   const [importOpen, setImportOpen] = useState(false);
   const [showForm,setShowForm]=useState(false);
@@ -4669,6 +4697,13 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
   const [planGroupChapter,setPlanGroupChapter]=useState(null);
   const [yojanaLesson,setYojanaLesson]=useState(null);
   const [yojanaBusyId,setYojanaBusyId]=useState(null);
+  // FIX — same root cause as the बदल्नुहोस् fix on Home: this screen is
+  // kept mounted behind display:none when you switch tabs (not actually
+  // unmounted), so an expanded एकाइ — or an open Yojana sheet — had no
+  // fresh mount to reset it and just sat there open no matter where you
+  // navigated to and back from. Collapse everything the moment Planner
+  // goes inactive.
+  useEffect(()=>{ if(!active){ setExpanded(new Set()); setYojanaLesson(null); setPlanGroupChapter(null); } },[active]);
 
   // NEW — generates (or reopens) this chapter's own day-wise Yojana from
   // its APPROVED Plan Group, splitting a merged group's shared plan across
@@ -7790,7 +7825,7 @@ export default function App() {
           <HomeScreen onOpenLesson={openLesson} onGoPlanner={goPlanner} onGoMaterials={()=>setScreen("materials")} onGoAITools={goAITools} onGoSettings={()=>setSettingsOpen(true)} section={currentSection} homework={homework} hwLoading={hwLoading} onRefreshHomework={loadHomework} loading={lessonsLoading} teacherName={teacherName} classContext={classContext} classLabel={classLabel} initialPanel={homePanel} onInitialPanelConsumed={()=>setHomePanel(null)} active={screen==="dashboard"}/>
         </div>}
         {visitedScreens.has("planner")&&<div style={{display:screen==="planner"?undefined:"none"}}>
-          <Planner onOpenLesson={openLesson} section={currentSection} loading={lessonsLoading} onRefresh={loadLessons} classContext={classContext} classLabel={classLabel} editLessonId={editLessonId} onEditConsumed={()=>setEditLessonId(null)} prefillChapter={prefillChapter} onPrefillConsumed={()=>setPrefillChapter(null)}/>
+          <Planner onOpenLesson={openLesson} section={currentSection} loading={lessonsLoading} onRefresh={loadLessons} classContext={classContext} classLabel={classLabel} editLessonId={editLessonId} onEditConsumed={()=>setEditLessonId(null)} prefillChapter={prefillChapter} onPrefillConsumed={()=>setPrefillChapter(null)} active={screen==="planner"}/>
         </div>}
         {visitedScreens.has("materials")&&<div style={{display:screen==="materials"?undefined:"none"}}>
           <Materials classLabel={classLabel}/>
