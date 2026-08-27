@@ -100,6 +100,16 @@ export const setSectionClass = async (id, classLabel) => {
   return { data, error };
 };
 
+// NEW — backs RosterEditor's save button (App.jsx). Was being called as
+// db.setSectionRoster but was never actually added here, so every save
+// threw "db.setSectionRoster is not a function" — an unhandled rejection
+// inside RosterEditor's save(), which never reached setSaving(false),
+// leaving the button stuck on "बचत गर्दै..." forever with no visible error.
+export const setSectionRoster = async (id, roster) => {
+  const { data, error } = await supabase.from("sections").update({ roster }).eq("id", id).select().single();
+  return { data, error };
+};
+
 export const deleteSection = async (id) => {
   await supabase.from("lessons").update({ section_id: null }).eq("section_id", id);
   await supabase.from("homework").update({ section_id: null }).eq("section_id", id);
