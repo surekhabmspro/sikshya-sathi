@@ -2036,21 +2036,9 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
     }
     return ()=>{cancelled=true;};
   },[chapterTitle,classLabel]);
-  // NEW — मूल्याङ्कनका आधारहरू: replaced the earlier 6-way rubric-type
-  // split (अवलोकन/मौखिक/व्यावहारिक/प्रोजेक्ट/क्रियाकलाप/पोर्टफोलियो) with
-  // the full 10-factor set the actual rubric rules call for.
-  const RUBRIC_TYPES=[
-    {id:"checklist",label:"रुजु सूची"},
-    {id:"performance",label:"कार्यसम्पादन तथा प्रदर्शन"},
-    {id:"discussion",label:"कुराकानी तथा छलफल"},
-    {id:"self",label:"विद्यार्थी स्व मूल्याङ्कन"},
-    {id:"project",label:"परियोजना तथा प्रयोगात्मक कार्य मूल्याङ्कन"},
-    {id:"rating",label:"श्रेणी मापन"},
-    {id:"parent",label:"अभिभावकको प्रतिक्रिया"},
-    {id:"oral",label:"मौखिक कार्य मूल्याङ्कन"},
-    {id:"peer",label:"सहपाठी मूल्याङ्कन"},
-    {id:"participation",label:"कक्षाकोठा सहभागिता मूल्याङ्कन"},
-  ];
+  // NEW — मूल्याङ्कनका आधारहरू list now lives at module scope (see
+  // RUBRIC_TYPES above LessonMode) so this tab and the आधिकारिक रुब्रिक्स
+  // flow in PlanGroupModal both pick from the exact same set.
   // NEW — मूल्याङ्कन तह चार वटा (उत्कृष्ट/राम्रो/सामान्य/सुधार आवश्यक) मा
   // तय भयो — AI प्रोम्प्ट, प्लेसहोल्डर, र प्रदर्शन रङ सबैतिर एउटै सूची
   // प्रयोग हुन्छ ताकि जहाँ पनि तह मिल्दो देखियोस्।
@@ -3990,12 +3978,28 @@ function useViewportHeightPx() {
 }
 
 const RUBRIC_LEVELS = ["उत्कृष्ट", "राम्रो", "सामान्य", "सुधार आवश्यक"];
+// NEW — मूल्याङ्कनका आधारहरू (assessment basis types), hoisted to module
+// scope so both the quick per-lesson रुब्रिक्स tab (LessonMode) AND the
+// आधिकारिक पाठ योजना → रुब्रिक्स flow (PlanGroupModal) share the exact
+// same selectable list instead of drifting into two different sets.
+const RUBRIC_TYPES = [
+  {id:"checklist",label:"रुजु सूची"},
+  {id:"performance",label:"कार्यसम्पादन तथा प्रदर्शन"},
+  {id:"discussion",label:"कुराकानी तथा छलफल"},
+  {id:"self",label:"विद्यार्थी स्व मूल्याङ्कन"},
+  {id:"project",label:"परियोजना तथा प्रयोगात्मक कार्य मूल्याङ्कन"},
+  {id:"rating",label:"श्रेणी मापन"},
+  {id:"parent",label:"अभिभावकको प्रतिक्रिया"},
+  {id:"oral",label:"मौखिक कार्य मूल्याङ्कन"},
+  {id:"peer",label:"सहपाठी मूल्याङ्कन"},
+  {id:"participation",label:"कक्षाकोठा सहभागिता मूल्याङ्कन"},
+];
 const emptyRubricRow = () => ({ criteria: "", levels: RUBRIC_LEVELS.map((level) => ({ level, desc: "" })) });
 const emptyOfficialLesson = (title = "") => ({
   lesson_title: title, source_lesson_titles: [], source_reason: null,
   major_learning_outcomes: [""], materials_required: [""],
   engage: "", explore: "", explain: "", elaborate: "", evaluate: "",
-  rubric: [emptyRubricRow()],
+  rubric: [emptyRubricRow()], rubric_type: "checklist",
 });
 
 // focusMode: "plan" (आधिकारिक पाठ योजना) | "rubric" (रुब्रिक्स) — per the
@@ -4214,7 +4218,7 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
         major_learning_outcomes: l.major_learning_outcomes.filter((v) => v.trim()),
         materials_required: l.materials_required.filter((v) => v.trim()),
         engage: l.engage, explore: l.explore, explain: l.explain, elaborate: l.elaborate, evaluate: l.evaluate,
-        rubric: l.rubric.filter((r) => r.criteria.trim()),
+        rubric: l.rubric.filter((r) => r.criteria.trim()), rubric_type: l.rubric_type || "checklist",
       })),
       format_template_id: formatTemplateId, teacher_guide_id: teacherGuideId,
     };
@@ -4515,6 +4519,18 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
                       {focusMode==="rubric"&&(
                       <div>
                         <SectionLabel icon={CheckSquare} color={MARIGOLD_DARK}>मूल्याङ्कन रुब्रिक्स</SectionLabel>
+                        {/* NEW — same मूल्याङ्कनका आधार (assessment basis)
+                            selection grid as the quick per-lesson रुब्रिक्स
+                            tab (रुजु सूची / कार्यसम्पादन तथा प्रदर्शन /
+                            ...), so an आधिकारिक रुब्रिक्स can be tagged
+                            with which basis it's built on too — one
+                            selection per आधिकारिक पाठ, stored alongside its
+                            criteria rows below. */}
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:12}}>
+                          {RUBRIC_TYPES.map((t,ti)=>{const c=PALETTE[ti%PALETTE.length];const rActive=(lesson.rubric_type||"checklist")===t.id;return(
+                            <button key={t.id} className="ss-btn" onClick={()=>setLessonField(li,"rubric_type",t.id)} style={{padding:"9px 8px",borderRadius:10,border:`1.5px solid ${rActive?c:`color-mix(in srgb, ${c} 25%, ${BORDER})`}`,background:rActive?`color-mix(in srgb, ${c} 14%, ${SURFACE})`:SURFACE,color:rActive?c:INK,fontWeight:600,fontSize:13.5,lineHeight:1.3,cursor:"pointer",boxShadow:rActive?`0 1px 0 rgba(255,255,255,0.2) inset, 0 3px 8px color-mix(in srgb, ${c} 25%, transparent)`:"none"}}>{t.label}</button>
+                          );})}
+                        </div>
                         {lesson.rubric.map((row,ri)=>(
                           <div key={ri} style={{border:`1.5px solid ${BORDER}`,borderRadius:12,padding:10,marginBottom:8}}>
                             <div style={{display:"flex",gap:6,marginBottom:8}}>
