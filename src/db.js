@@ -294,10 +294,19 @@ export const getLessons = async (sectionId = null, classLabel = null) => cachedF
 
 export const upsertLesson = async (lesson) => {
   const { data: { user } } = await supabase.auth.getUser();
+  // FIX — this used to .select() with no join, so the returned row only
+  // ever had chapter_id, never the chapter's actual title. Every caller
+  // that turns this response into form state (see lessonToForm in
+  // App.jsx) reads chapters?.title first — with it missing, the एकाइ
+  // (unit) field silently reset to blank/placeholder right after any
+  // save, most visibly right after "AI ले यो पाठ बनाओस्" finishes and
+  // calls setForm(lessonToForm(lesson)) with this response. Joining
+  // chapters(title) here, same as getLessons already does, keeps the
+  // unit name intact through the round trip.
   const { data, error } = await supabase
     .from("lessons")
     .upsert({ ...lesson, teacher_id: user.id })
-    .select()
+    .select("*, chapters(title)")
     .single();
   return { data, error };
 };

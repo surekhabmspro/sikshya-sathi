@@ -4609,7 +4609,6 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
   const [error,setError]=useState("");
   const [linkedCounts,setLinkedCounts]=useState(null);
   const [showDetails,setShowDetails]=useState(false);
-  const [showMaterials,setShowMaterials]=useState(false);
   const [changingChapter,setChangingChapter]=useState(false);
   const [expanded,setExpanded]=useState(()=>new Set());
   const [editingChapterId,setEditingChapterId]=useState(null);
@@ -4719,50 +4718,12 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
     return()=>{cancelled=true;};
   },[form.chapter_title,classLabel]);
 
-  // FIX — this used to be its own separate fetch (db.getMaterialsByLesson,
-  // re-run only when form.id changed), so uploading another file to the
-  // SAME already-created Path didn't update the count until the form was
-  // reopened. Materials is now one shared list across the whole app (see
-  // App()'s loadMaterials), so this just filters it directly — always
-  // exactly in sync, no separate fetch or refresh trigger needed at all.
-  const matchedCount=useMemo(()=>form.id?(materials||[]).filter((m)=>m.lesson_id===form.id).length:0,[materials,form.id]);
-
-  // NEW — lets material-attach lazily create this Path's row the first
-  // time a file is dropped on a brand-new (unsaved) Path, so "सामग्री
-  // थप्नुहोस्" works immediately after typing a title, without forcing the
-  // teacher to run AI generation first just to get an id to tag against.
-  const ensurePath=async()=>{
-    if(form.id)return form.id;
-    if(!form.chapter_title.trim()||!form.title.trim())return null;
-    // FIX — now goes through the same getOrCreateLesson() door PathPicker
-    // uses to tag a material, instead of its own separate dup-check +
-    // insert. One implementation, so it can't drift from the other again.
-    // getOrCreateLesson now throws instead of silently returning a
-    // chapterless Path when chapter resolution fails — catch that here so
-    // a failed attach shows an error instead of an unhandled rejection.
-    let lesson;
-    try{ lesson=await getOrCreateLesson({lessons,chapterTitle:form.chapter_title,pathTitle:form.title,classLabel,sectionId:section?.id||null}); }
-    catch(e){ setError(e.message); return null; }
-    if(lesson){
-      setForm((f)=>({...f,id:lesson.id}));
-      // FIX — this created the Path row in the database but used to never
-      // tell Planner's own shared lessons list to refresh, so a Path
-      // created just by attaching a file (without ever tapping "AI ले यो
-      // पाठ बनाओस्") stayed invisible in both this screen's एकाइ list
-      // AND समग्री's Path picker until an unrelated refresh happened to
-      // fire.
-      onRefresh?.();
-      return lesson.id;
-    }
-    return null;
-  };
-
-  const startEdit=(l)=>{setForm(lessonToForm(l));setShowForm(true);setShowDetails(true);setShowMaterials(true);setChangingChapter(false);setStepState({});focusForm();};
+  const startEdit=(l)=>{setForm(lessonToForm(l));setShowForm(true);setShowDetails(true);setChangingChapter(false);setStepState({});focusForm();};
   // NEW — chapterTitle is now passed in from whichever एकाइ group's
   // "+ नयाँ पाठ" button was tapped, so the Path being created is always
   // clearly inside a specific Unit — no more guessing/typing the chapter
   // separately after the fact.
-  const startNew=(chapterTitle="")=>{setForm({...EMPTY_LESSON_FORM,chapter_title:chapterTitle});setShowForm(true);setShowDetails(false);setShowMaterials(false);setChangingChapter(!chapterTitle);setStepState({});
+  const startNew=(chapterTitle="")=>{setForm({...EMPTY_LESSON_FORM,chapter_title:chapterTitle});setShowForm(true);setShowDetails(false);setChangingChapter(!chapterTitle);setStepState({});
     focusForm();};
 
   // FIX — THE single door. Was previously three separate implementations
@@ -4780,7 +4741,7 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
       const dup=findDuplicatePath(chapter,form.title);
       if(dup){
         if(confirm(`"${dup.title}" नामको पाठ यो एकाइमा पहिले नै छ। त्यही खोल्ने हो?`)){
-          setForm(lessonToForm(dup));setShowDetails(true);setShowMaterials(true);setChangingChapter(false);
+          setForm(lessonToForm(dup));setShowDetails(true);setChangingChapter(false);
         }else setError("यो नामको पाठ पहिले नै अवस्थित छ — फरक नाम प्रयोग गर्नुहोस्।");
         return;
       }
@@ -4813,7 +4774,7 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
       const dup=findDuplicatePath(form.chapter_title,form.title);
       if(dup){
         if(confirm(`"${dup.title}" नामको पाठ यो एकाइमा पहिले नै छ। त्यही खोल्ने हो?`)){
-          setForm(lessonToForm(dup));setShowDetails(true);setShowMaterials(true);setChangingChapter(false);
+          setForm(lessonToForm(dup));setShowDetails(true);setChangingChapter(false);
         }else setError("यो नामको पाठ पहिले नै अवस्थित छ — फरक नाम प्रयोग गर्नुहोस्।");
         return;
       }
@@ -4937,26 +4898,19 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
               <input autoFocus={!form.chapter_title} placeholder="जस्तै: सडक सुरक्षा र ट्राफिक नियम" value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"12px 14px",fontSize:17,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
             </div>
 
-            {/* FIX — this used to sit below the AI generate button, so a
-                teacher who already had a lesson plan/PPT ready to attach
-                would tap generate first, then notice the attach option
-                after — generating from nothing when material to generate
-                *from* was one tap away. Attaching material first (if any
-                exists) means the generate button below can actually use
-                it. */}
-            <button className="ss-icon-btn" type="button" onClick={()=>setShowMaterials((v)=>!v)} style={{display:"flex",alignItems:"center",gap:5,background:"none",border:"none",color:INK_SOFT,fontWeight:600,fontSize:14.5,cursor:"pointer",padding:"2px 0",alignSelf:"flex-start"}}>
-              {showMaterials?<ArrowDown size={14}/>:<ArrowRight size={14}/>}📎 पहिले नै लेसन प्लान/PPT छ भने यहाँ थप्नुहोस् (वैकल्पिक)
-            </button>
-            {showMaterials&&(
-              <div>
-                <MaterialsHint count={matchedCount} chapterTitle={form.chapter_title} pathTitle={form.title}/>
-                <MaterialAttach chapterTitle={form.chapter_title} lessonId={form.id} onEnsureLessonId={ensurePath}/>
-                {linkedCounts&&(
-                  <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:4}}>
-                    <span style={{fontSize:13.5,background:SURFACE_2,color:INK_SOFT,padding:"4px 9px",borderRadius:999,fontWeight:700}}>❓ यो एकाइमा {linkedCounts.questions} प्रश्न</span>
-                    <span style={{fontSize:13.5,background:SURFACE_2,color:INK_SOFT,padding:"4px 9px",borderRadius:999,fontWeight:700}}>🎲 {linkedCounts.activities} क्रियाकलाप</span>
-                  </div>
-                )}
+            {/* REMOVED — the "पहिले नै लेसन प्लान/PPT छ भने यहाँ थप्नुहोस्"
+                attach-before-generating step. The app is AI-generation-first,
+                so asking a teacher to upload a plan/PPT before tapping
+                generate no longer fits the flow — material storage/upload
+                now lives only in the सामग्री (Materials) section, kept as a
+                plain store (MaterialAttach/MaterialsHint untouched there).
+                The question/activity count badges for this एकाइ are still
+                useful context here, so they stay, no longer gated behind the
+                attach toggle. */}
+            {linkedCounts&&(
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                <span style={{fontSize:13.5,background:SURFACE_2,color:INK_SOFT,padding:"4px 9px",borderRadius:999,fontWeight:700}}>❓ यो एकाइमा {linkedCounts.questions} प्रश्न</span>
+                <span style={{fontSize:13.5,background:SURFACE_2,color:INK_SOFT,padding:"4px 9px",borderRadius:999,fontWeight:700}}>🎲 {linkedCounts.activities} क्रियाकलाप</span>
               </div>
             )}
 
@@ -4999,7 +4953,7 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
               </>
             )}
             <div style={{display:"flex",gap:8}}>
-              <button onClick={()=>{setShowForm(false);setForm(EMPTY_LESSON_FORM);setShowDetails(false);setShowMaterials(false);setChangingChapter(false);setStepState({});}} className="ss-btn" style={{flex:1,padding:"11px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer",boxShadow:SHADOW.sm}}>रद्द</button>
+              <button onClick={()=>{setShowForm(false);setForm(EMPTY_LESSON_FORM);setShowDetails(false);setChangingChapter(false);setStepState({});}} className="ss-btn" style={{flex:1,padding:"11px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer",boxShadow:SHADOW.sm}}>रद्द</button>
               <button className="ss-btn" onClick={save} disabled={saving} style={{flex:1,padding:"11px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}>{saving?"...":isEditing?"परिवर्तन सुरक्षित गर्नुहोस्":"सुरक्षित"}</button>
             </div>
           </div>
