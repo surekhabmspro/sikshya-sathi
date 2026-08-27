@@ -5990,39 +5990,25 @@ function RosterEditor({ section, onSectionUpdated }){
   const [text,setText]=useState((section?.roster||[]).join("\n"));
   const [saving,setSaving]=useState(false);
   const [saved,setSaved]=useState(false);
-  // NEW — FIX: save() used to silently do nothing on error (no message,
-  // no console log), matching this app's earlier "why isn't this saving"
-  // bug class exactly — the button would just go back to normal with no
-  // sign anything went wrong. Most likely real cause here: the
-  // migration_section_roster.sql column was never run against the live
-  // Supabase DB (or was run but the PostgREST schema cache wasn't
-  // reloaded after), so every update to a `roster` column PostgREST
-  // doesn't know about is rejected — but the teacher would see nothing
-  // and reasonably conclude "the app is broken", not "I still need to
-  // run a migration". Now shows the actual Supabase error message so
-  // this is diagnosable instead of silent.
-  const [error,setError]=useState("");
-  useEffect(()=>{setText((section?.roster||[]).join("\n"));setSaved(false);setError("");},[section?.id]);
+  useEffect(()=>{setText((section?.roster||[]).join("\n"));setSaved(false);},[section?.id]);
   const names=text.split("\n").map((n)=>n.trim()).filter(Boolean);
   const save=async()=>{
-    setSaving(true);setError("");
-    const{data,error:err}=await db.setSectionRoster(section.id,names);
+    setSaving(true);
+    const{data,error}=await db.setSectionRoster(section.id,names);
     setSaving(false);
-    if(!err&&data){setSaved(true);onSectionUpdated?.(data);setTimeout(()=>setSaved(false),1800);}
-    else{setError(err?.message||"बचत गर्न सकिएन — कारण थाहा भएन।");}
+    if(!error&&data){setSaved(true);onSectionUpdated?.(data);setTimeout(()=>setSaved(false),1800);}
   };
   return(
-    <Card>
+    <Card accentColor={TEAL}>
       <SectionLabel icon={UsersRound} color={TEAL}>नाम सूची — {section?.name}</SectionLabel>
       <div style={{fontSize:14.5,color:INK_SOFT,marginBottom:10,lineHeight:1.6}}>
         एक लाइनमा एक विद्यार्थीको नाम राख्नुहोस्। यो सूची यस सेक्सनका लागि सुरक्षित हुन्छ र छनोट, समूह विभाजन जस्ता सबै उपकरणले प्रयोग गर्छन्।
       </div>
-      <textarea value={text} onChange={(e)=>setText(e.target.value)} rows={10} placeholder={"राम शर्मा\nसीता तामाङ\n..."} className="ss-field" style={{width:"100%",borderRadius:14,padding:"12px 14px",fontSize:16,border:`1.5px solid ${BORDER}`,background:SURFACE_2,fontFamily:"inherit",resize:"vertical"}}/>
-      {error&&<ErrorMsg msg={error}/>}
-      <div style={{display:"flex",alignItems:"center",gap:10,marginTop:10}}>
-        <Button size="sm" onClick={save} disabled={saving||!section}>{saving?"बचत गर्दै...":"सूची बचत गर्नुहोस्"}</Button>
-        <span style={{fontSize:14,color:INK_SOFT}}>{names.length} जना</span>
-        {saved&&<span style={{fontSize:14,color:ACCENT_DARK,fontWeight:700}}>✓ बचत भयो</span>}
+      <textarea value={text} onChange={(e)=>setText(e.target.value)} rows={10} placeholder={"राम शर्मा\nसीता तामाङ\n..."} className="ss-field" style={{width:"100%",borderRadius:16,padding:"14px 16px",fontSize:16,border:`2px solid color-mix(in srgb, ${TEAL} 38%, ${BORDER})`,background:`linear-gradient(165deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 90%, ${TEAL} 7%) 100%)`,color:INK,fontFamily:"inherit",resize:"vertical",boxShadow:SHADOW.raised}}/>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginTop:14,flexWrap:"wrap"}}>
+        <Button size="sm" onClick={save} disabled={saving||!section} style={{background:`linear-gradient(135deg, ${TEAL} 0%, color-mix(in srgb, ${TEAL} 70%, black) 100%)`,boxShadow:`0 4px 12px color-mix(in srgb, ${TEAL} 35%, transparent)`}}>{saving?"बचत गर्दै...":"सूची बचत गर्नुहोस्"}</Button>
+        <span style={{fontSize:14,fontWeight:700,color:TEAL,background:`color-mix(in srgb, ${TEAL} 14%, transparent)`,padding:"5px 12px",borderRadius:999}}>{names.length} जना</span>
+        {saved&&<span style={{fontSize:14,color:"#fff",fontWeight:700,background:TEAL,padding:"5px 12px",borderRadius:999,boxShadow:`0 3px 8px color-mix(in srgb, ${TEAL} 45%, transparent)`}}>✓ बचत भयो</span>}
       </div>
     </Card>
   );
@@ -6057,17 +6043,20 @@ function RandomPicker({ roster }){
   };
   const resetRound=()=>{setRemaining(shuffleArr(roster));setPicked(null);setDisplay("");};
   if(!roster.length)return(
-    <Card><div style={{fontSize:15,color:INK_SOFT}}>पहिले "नाम सूची" ट्याबमा विद्यार्थीहरूको नाम राख्नुहोस्।</div></Card>
+    <Card accentColor={ACCENT}><div style={{fontSize:15,color:INK_SOFT}}>पहिले "नाम सूची" ट्याबमा विद्यार्थीहरूको नाम राख्नुहोस्।</div></Card>
   );
   return(
-    <Card>
+    <Card accentColor={ACCENT}>
       <SectionLabel icon={Dices} color={ACCENT}>विद्यार्थी छनोट</SectionLabel>
-      <div style={{textAlign:"center",padding:"28px 10px"}}>
-        <div style={{fontSize:"clamp(28px, 6vw, 44px)",fontWeight:800,color:picked?ACCENT_DARK:INK,minHeight:56,letterSpacing:"0.01em"}}>
-          {display||"?"}
+      <style>{`@keyframes ss-pick-pop{0%{transform:scale(0.85);opacity:0.4;}60%{transform:scale(1.06);opacity:1;}100%{transform:scale(1);opacity:1;}}`}</style>
+      <div style={{textAlign:"center",padding:"10px 4px"}}>
+        <div key={display+String(picked)} style={{display:"inline-block",minWidth:200,maxWidth:"100%",padding:"26px 30px",borderRadius:28,background:picked&&!spinning?`linear-gradient(135deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`:`linear-gradient(165deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 88%, ${ACCENT} 8%) 100%)`,border:picked&&!spinning?"none":`1.5px solid color-mix(in srgb, ${ACCENT} 30%, ${BORDER})`,boxShadow:picked&&!spinning?`0 10px 26px color-mix(in srgb, ${ACCENT} 40%, transparent)`:SHADOW.raised,animation:"ss-pick-pop .28s ease"}}>
+          <div style={{fontSize:"clamp(26px, 6vw, 42px)",fontWeight:800,color:picked&&!spinning?"#fff":INK,letterSpacing:"0.01em",lineHeight:1.2}}>
+            {display||"?"}
+          </div>
         </div>
-        <div style={{marginTop:6,fontSize:14,color:INK_SOFT}}>बाँकी यस चक्रमा: {remaining.length||roster.length} / {roster.length}</div>
-        <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:20}}>
+        <div style={{marginTop:14,fontSize:14,color:INK_SOFT,fontWeight:600}}>बाँकी यस चक्रमा: {remaining.length||roster.length} / {roster.length}</div>
+        <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:18}}>
           <Button size="sm" onClick={draw} disabled={spinning}>{spinning?"छान्दै...":"अर्को छान्नुहोस्"}</Button>
           <Chip onClick={resetRound} color={INK_SOFT}>नयाँ चक्र</Chip>
         </div>
@@ -6136,10 +6125,20 @@ function ActivityTimer(){
 
 function GroupSplitter({ roster }){
   const [mode,setMode]=useState("count"); // "count" | "size"
-  const [value,setValue]=useState(4);
+  // FIX — value used to be a number, and the input's onChange did
+  // setValue(parseInt(e.target.value)||1). The instant you cleared the
+  // field to type a new number, e.target.value was "", parseInt("") is
+  // NaN, and the ||1 fallback snapped it straight back to 1 before you
+  // could type a second digit — so any value other than 1 was
+  // effectively impossible to enter from the keyboard. Keeping the raw
+  // typed text as a string (only converted to a number in build(), where
+  // an empty/invalid string safely falls back to 1) lets the field be
+  // cleared and retyped normally.
+  const [valueText,setValueText]=useState("4");
   const [groups,setGroups]=useState(null);
   const build=()=>{
-    if(!roster.length||value<1)return;
+    const value=Math.max(1,parseInt(valueText,10)||1);
+    if(!roster.length)return;
     const shuffled=shuffleArr(roster);
     let result=[];
     if(mode==="count"){
@@ -6154,26 +6153,34 @@ function GroupSplitter({ roster }){
   };
   useEffect(()=>{setGroups(null);},[roster.join("|")]);
   if(!roster.length)return(
-    <Card><div style={{fontSize:15,color:INK_SOFT}}>पहिले "नाम सूची" ट्याबमा विद्यार्थीहरूको नाम राख्नुहोस्।</div></Card>
+    <Card accentColor={VIOLET}><div style={{fontSize:15,color:INK_SOFT}}>पहिले "नाम सूची" ट्याबमा विद्यार्थीहरूको नाम राख्नुहोस्।</div></Card>
   );
+  // Cycles a small, vivid palette across the group cards so a page of
+  // results reads as distinct colorful groups at a glance instead of
+  // identical grey tiles — same token colors used across the rest of the
+  // app (Chip/Card accents), just applied round-robin per group index.
+  const GROUP_COLORS=[VIOLET,ACCENT,TEAL,ROSE,MARIGOLD_DARK];
   return(
-    <Card>
+    <Card accentColor={VIOLET}>
       <SectionLabel icon={Users} color={VIOLET}>समूह विभाजन</SectionLabel>
-      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:14}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:16}}>
         <Chip active={mode==="count"} color={VIOLET} onClick={()=>setMode("count")}>समूह संख्या अनुसार</Chip>
         <Chip active={mode==="size"} color={VIOLET} onClick={()=>setMode("size")}>प्रति समूह विद्यार्थी अनुसार</Chip>
-        <input type="number" min="1" value={value} onChange={(e)=>setValue(parseInt(e.target.value)||1)} className="ss-field" style={{width:70,borderRadius:999,padding:"7px 12px",fontSize:14.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
-        <Button size="sm" onClick={build}>समूह बनाउनुहोस्</Button>
+        <input type="number" inputMode="numeric" min="1" value={valueText}
+          onChange={(e)=>setValueText(e.target.value)}
+          onBlur={()=>setValueText(String(Math.max(1,parseInt(valueText,10)||1)))}
+          className="ss-field" style={{width:64,borderRadius:14,padding:"9px 10px",fontSize:16,fontWeight:800,textAlign:"center",border:`2px solid color-mix(in srgb, ${VIOLET} 45%, ${BORDER})`,background:`linear-gradient(165deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 90%, ${VIOLET} 8%) 100%)`,color:INK,boxShadow:SHADOW.raised}}/>
+        <Button size="sm" onClick={build} style={{background:`linear-gradient(135deg, ${VIOLET} 0%, color-mix(in srgb, ${VIOLET} 70%, black) 100%)`,boxShadow:`0 4px 12px color-mix(in srgb, ${VIOLET} 35%, transparent)`}}>समूह बनाउनुहोस्</Button>
         {groups&&<Chip dashed onClick={build} color={INK_SOFT}>फेरि मिलाउनुहोस्</Chip>}
       </div>
       {groups&&(
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:12}}>
-          {groups.map((g,i)=>(
-            <div key={i} style={{border:`1.5px solid ${BORDER}`,borderRadius:16,padding:"12px 14px",background:SURFACE_2}}>
-              <div style={{fontWeight:800,color:VIOLET,fontSize:14.5,marginBottom:6}}>समूह {i+1} ({g.length})</div>
-              {g.map((name)=>(<div key={name} style={{fontSize:15,padding:"3px 0",color:INK}}>{name}</div>))}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:14}}>
+          {groups.map((g,i)=>{const c=GROUP_COLORS[i%GROUP_COLORS.length];return(
+            <div key={i} style={{borderRadius:18,padding:"14px 16px",background:`linear-gradient(160deg, color-mix(in srgb, ${c} 16%, var(--surface)) 0%, color-mix(in srgb, ${c} 6%, var(--surface)) 100%)`,border:`1.5px solid color-mix(in srgb, ${c} 35%, ${BORDER})`,boxShadow:SHADOW.raised}}>
+              <div style={{display:"inline-flex",alignItems:"center",gap:6,fontWeight:800,color:"#fff",fontSize:13.5,marginBottom:8,padding:"3px 10px",borderRadius:999,background:c,boxShadow:`0 3px 8px color-mix(in srgb, ${c} 45%, transparent)`}}>समूह {i+1} · {g.length}</div>
+              {g.map((name)=>(<div key={name} style={{fontSize:15,fontWeight:600,padding:"4px 0",color:INK}}>{name}</div>))}
             </div>
-          ))}
+          );})}
         </div>
       )}
     </Card>
@@ -6181,7 +6188,25 @@ function GroupSplitter({ roster }){
 }
 
 function QuestionRoulette({ lessons, classLabel }){
-  const scopedLessons=useMemo(()=>lessons.filter((l)=>!classLabel||l.class_label===classLabel||!l.class_label),[lessons,classLabel]);
+  // FIX — this dropdown listed lessons in whatever order db.getLessons
+  // returned them (sorted by scheduled_date, which is null for most
+  // lessons until actually taught), so एकाइ/पाठ entries appeared in a
+  // scrambled order unrelated to their unit/lesson numbers — the same
+  // root cause already fixed for the Planner's grouped view via
+  // sortChaptersByUnitNumber/sortPathsByLessonNumber above. Applying the
+  // same digit-extraction sort here (by unit number, then lesson number
+  // within that unit) makes this list read एकाइ १ → २ → ३... in order,
+  // matching what a teacher actually expects to scroll through.
+  const scopedLessons=useMemo(()=>{
+    const filtered=lessons.filter((l)=>!classLabel||l.class_label===classLabel||!l.class_label);
+    return [...filtered].sort((a,b)=>{
+      const an=extractUnitNumber(a.chapters?.title||a.chapter_title||""), bn=extractUnitNumber(b.chapters?.title||b.chapter_title||"");
+      if(an!==bn){ if(an===null)return 1; if(bn===null)return -1; return an-bn; }
+      const aln=extractUnitNumber(a.title), bln=extractUnitNumber(b.title);
+      if(aln!==bln){ if(aln===null)return 1; if(bln===null)return -1; return aln-bln; }
+      return 0;
+    });
+  },[lessons,classLabel]);
   const [lessonId,setLessonId]=useState(scopedLessons[0]?.id||"");
   const [questions,setQuestions]=useState([]);
   const [loading,setLoading]=useState(false);
@@ -6225,14 +6250,14 @@ function QuestionRoulette({ lessons, classLabel }){
   const resetRound=()=>{setRemaining(shuffleArr(questions));setCurrent(null);setDisplay(null);setRevealed(false);};
   const lesson=scopedLessons.find((l)=>l.id===lessonId)||null;
   return(
-    <Card>
-      <SectionLabel icon={HelpCircle} color={ACCENT}>प्रश्न रुलेट</SectionLabel>
+    <Card accentColor={ROSE}>
+      <SectionLabel icon={HelpCircle} color={ROSE}>प्रश्न रुलेट</SectionLabel>
       {!scopedLessons.length?(
         <div style={{fontSize:15,color:INK_SOFT}}>पहिले योजना (Yojana) मा पाठ बनाउनुहोस्।</div>
       ):(
         <>
-          <div style={{marginBottom:14}}>
-            <select value={lessonId} onChange={(e)=>setLessonId(e.target.value)} className="ss-field" style={{width:"100%",borderRadius:12,padding:"10px 14px",fontSize:16,border:`1.5px solid ${BORDER}`,background:SURFACE_2,fontFamily:"inherit"}}>
+          <div style={{marginBottom:16}}>
+            <select value={lessonId} onChange={(e)=>setLessonId(e.target.value)} className="ss-field" style={{width:"100%",borderRadius:14,padding:"12px 14px",fontSize:16,fontWeight:600,border:`2px solid color-mix(in srgb, ${ROSE} 40%, ${BORDER})`,background:`linear-gradient(165deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 90%, ${ROSE} 7%) 100%)`,color:INK,fontFamily:"inherit",boxShadow:SHADOW.raised}}>
               {scopedLessons.map((l)=>(<option key={l.id} value={l.id}>{l.chapters?.title||l.chapter_title?`${l.chapters?.title||l.chapter_title} — `:""}{l.title}</option>))}
             </select>
           </div>
@@ -6242,17 +6267,17 @@ function QuestionRoulette({ lessons, classLabel }){
             <div style={{fontSize:15,color:INK_SOFT}}>यस पाठका लागि "पाठ अभ्यास समाधान" बाट प्रश्नहरू बनाउनुहोस्, त्यसपछि यहाँ रुलेट प्रयोग गर्न सकिन्छ।</div>
           ):(
             <div style={{textAlign:"center",padding:"10px 4px"}}>
-              <div style={{fontSize:14,color:INK_SOFT,marginBottom:10}}>बाँकी यस चक्रमा: {remaining.length||questions.length} / {questions.length}</div>
-              <div style={{minHeight:130,border:`1.5px solid ${BORDER}`,borderRadius:18,padding:"22px 18px",background:SURFACE_2,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10}}>
+              <div style={{fontSize:14,color:INK_SOFT,marginBottom:10,fontWeight:600}}>बाँकी यस चक्रमा: {remaining.length||questions.length} / {questions.length}</div>
+              <div style={{minHeight:130,borderRadius:22,padding:"24px 20px",background:`linear-gradient(160deg, color-mix(in srgb, ${ROSE} 14%, var(--surface)) 0%, color-mix(in srgb, ${ROSE} 5%, var(--surface)) 100%)`,border:`1.5px solid color-mix(in srgb, ${ROSE} 32%, ${BORDER})`,boxShadow:SHADOW.raised,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10}}>
                 {display?(
                   <>
-                    {display.type&&<div style={{fontSize:13,fontWeight:700,color:ACCENT_DARK,textTransform:"uppercase",letterSpacing:"0.06em"}}>{display.type}</div>}
+                    {display.type&&<div style={{fontSize:12.5,fontWeight:800,color:"#fff",textTransform:"uppercase",letterSpacing:"0.06em",background:ROSE,padding:"3px 12px",borderRadius:999,boxShadow:`0 3px 8px color-mix(in srgb, ${ROSE} 45%, transparent)`}}>{display.type}</div>}
                     <div style={{fontSize:"clamp(18px, 3.2vw, 26px)",fontWeight:700,color:INK,lineHeight:1.5}}>{display.text}</div>
                     {display.options?.length>0&&display.type==="बहुविकल्पीय"&&(
                       <div style={{fontSize:16,color:INK_SOFT,marginTop:4}}>{display.options.join("  ")}</div>
                     )}
                     {revealed&&!spinning&&(
-                      <div style={{marginTop:10,padding:"10px 16px",borderRadius:12,background:ACCENT_LIGHT,color:ACCENT_DARK,fontWeight:700,fontSize:17,maxWidth:"100%"}}>
+                      <div style={{marginTop:10,padding:"11px 18px",borderRadius:14,background:`linear-gradient(135deg, ${MARIGOLD} 0%, ${ROSE} 100%)`,color:"#fff",fontWeight:800,fontSize:17,maxWidth:"100%",boxShadow:`0 6px 16px color-mix(in srgb, ${ROSE} 35%, transparent)`}}>
                         उत्तर: {display.answer||"—"}
                         {display.correction&&<div style={{fontSize:14,fontWeight:600,marginTop:4}}>सही: {display.correction}</div>}
                       </div>
@@ -6263,8 +6288,8 @@ function QuestionRoulette({ lessons, classLabel }){
                 )}
               </div>
               <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:18,flexWrap:"wrap"}}>
-                <Button size="sm" onClick={spin} disabled={spinning}>{spinning?"घुम्दैछ...":"स्पिन गर्नुहोस्"}</Button>
-                {current&&!spinning&&<Chip onClick={()=>setRevealed((r)=>!r)} color={ACCENT}>{revealed?"उत्तर लुकाउनुहोस्":"उत्तर देखाउनुहोस्"}</Chip>}
+                <Button size="sm" onClick={spin} disabled={spinning} style={{background:`linear-gradient(135deg, ${ROSE} 0%, color-mix(in srgb, ${ROSE} 70%, black) 100%)`,boxShadow:`0 4px 12px color-mix(in srgb, ${ROSE} 35%, transparent)`}}>{spinning?"घुम्दैछ...":"स्पिन गर्नुहोस्"}</Button>
+                {current&&!spinning&&<Chip onClick={()=>setRevealed((r)=>!r)} color={ROSE}>{revealed?"उत्तर लुकाउनुहोस्":"उत्तर देखाउनुहोस्"}</Chip>}
                 <Chip onClick={resetRound} color={INK_SOFT}>नयाँ चक्र</Chip>
               </div>
             </div>
@@ -7568,6 +7593,13 @@ export default function App() {
   const goHomePanel=useCallback((tab)=>{setHomePanel(typeof tab==="string"?tab:null);setScreen("dashboard");},[]);
   const [settingsOpen,setSettingsOpen]=useState(false);
   const [searchOpen,setSearchOpen]=useState(false);
+  // NEW — a global "pick a student" button/modal, reachable from any
+  // screen (not just the उपकरण tab's छनोट panel), so a quick pick can
+  // happen mid-lesson-plan or mid-homework-review without navigating
+  // away first. Lives at the App shell level (like search/settings)
+  // since it needs currentSection's roster and must float over every
+  // screen equally.
+  const [pickerOpen,setPickerOpen]=useState(false);
   // NEW — one-click print from the Planner list: open the lesson AND print
   // it immediately, no second tap required.
   const openLesson=useCallback((l,opts)=>{setActiveLesson(l);setActiveLessonAutoPrint(!!opts?.autoPrint);setActiveLessonTab(opts?.tab||null);},[]);
@@ -8166,10 +8198,15 @@ export default function App() {
         .mobile-bottom-nav{display:flex;}
         .main-content{margin-left:0;padding-bottom:76px;}
         .ss-topbar{padding:13px 18px;}
+        /* Quick-pick FAB — floats above the bottom nav on mobile, and down
+           near the bottom-right corner on desktop where there's no bottom
+           nav to clear. */
+        .ss-quickpick-fab{position:fixed;right:18px;bottom:calc(84px + env(safe-area-inset-bottom));}
         @media(min-width:860px){
           .desktop-sidebar{display:flex;}
           .mobile-bottom-nav{display:none !important;}
           .main-content{margin-left:232px;padding-bottom:24px;}
+          .ss-quickpick-fab{bottom:24px;right:28px;}
           /* FIX — this bar was rendering full-width in normal document
              flow while the sidebar sits fixed on top of its left 232px,
              so on desktop its content started underneath the sidebar —
@@ -8320,6 +8357,32 @@ export default function App() {
           </button>
         );})}
       </div>
+
+      {/* NEW — global quick-pick: a floating button reachable from every
+          screen (Home/Planner/Materials/AI/Tools alike), not just the
+          उपकरण tab's छनोट panel, so a teacher mid-lesson-plan or
+          mid-homework-review can call on a random student without
+          navigating away first. Hidden while a lesson/edit modal is open
+          on top, or once a section exists to draw from — with no section
+          picked yet there's nothing to pick from anyway (matches
+          ClassroomTools' own "पहिले सेक्सन छान्नुहोस्" gate). */}
+      {currentSection&&!activeLesson&&!editingLessonPopup&&(
+        <button onClick={()=>setPickerOpen(true)} title="विद्यार्थी छनोट" className="ss-btn no-print ss-quickpick-fab" style={{width:58,height:58,borderRadius:20,border:"none",background:`linear-gradient(145deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:11,boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 10px 24px color-mix(in srgb, ${ACCENT} 42%, transparent), 0 3px 8px rgba(var(--shadow-rgb),0.2)`}}>
+          <Dices size={26}/>
+        </button>
+      )}
+      {pickerOpen&&(
+        <div className="no-print" onClick={()=>setPickerOpen(false)} style={{position:"fixed",inset:0,zIndex:92,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:20}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:24,width:"100%",maxWidth:"min(94vw, 480px)",maxHeight:"92vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative"}}>
+            <div style={{position:"sticky",top:0,zIndex:2,display:"flex",justifyContent:"flex-end",padding:"14px 14px 0",background:PAPER}}>
+              <IconButton icon={X} onClick={()=>setPickerOpen(false)} variant="surface"/>
+            </div>
+            <div style={{padding:"0 16px 20px"}}>
+              <RandomPicker roster={currentSection?.roster||[]}/>
+            </div>
+          </div>
+        </div>
+      )}
 
       {activeLesson&&<LessonMode lesson={activeLesson} onClose={()=>{setActiveLesson(null);setActiveLessonAutoPrint(false);setActiveLessonTab(null);}} onEdit={editLessonFromViewer} autoPrint={activeLessonAutoPrint} classLabel={classLabel} classContext={classContext} teacherName={teacherName} initialTab={activeLessonTab}/>}
       {editingLessonPopup&&<LessonEditModal lesson={editingLessonPopup} classContext={classContext} classLabel={classLabel}
