@@ -1046,6 +1046,15 @@ export const SIMULATION_TYPES = [
   { id: "compassdir", label: "दिशा पत्ता लगाउने खेल", mechanic: "slider", instruction: "एउटा दिशा/कम्पास पत्ता लगाउने खेल बनाउनुहोस् — इनलाइन SVG ले बनाइएको नक्सा/दृश्य हेरी विद्यार्थीले कम्पासको सुई तानेर घुमाई सही दिशामा मिलाउनुपर्ने।" },
   { id: "balancescale", label: "ब्यालेन्स स्केल तुलना खेल", mechanic: "drag", instruction: "एउटा ब्यालेन्स-स्केल तुलना खेल बनाउनुहोस् — वस्तु/तौल तानेर स्केलका दुई पल्लामा राख्दा नतिजा (कुन बढी/कम, वा सन्तुलन मिल्यो कि मिलेन) तुरुन्तै दृश्य रूपमा देखिने।" },
   { id: "seasoncycle", label: "ऋतु/चक्र सिमुलेसन", mechanic: "tap", instruction: "एउटा चक्र-सिमुलेसन बनाउनुहोस् (जस्तै ऋतु, जल-चक्र, वा खेती-चक्र) — ट्याप गर्दै चक्रका चरणहरूमा अगाडि बढ्दा दृश्य परिवर्तन हुँदै हरेक चरणमा छोटो तथ्य देखिने।" },
+  // NEW — "के हुन्छ होला?" (what-happens-next) predictor: unlike the other
+  // types above, this one is deliberately built around a PAUSE — the
+  // simulation shows a situation, stops, and makes the student commit to a
+  // guess among 2-4 options BEFORE revealing what actually happens. That
+  // predict-then-reveal beat (not just "click through and see") is the
+  // whole point of this type, so the instruction spells out the exact
+  // sequencing (show → pause → guess → reveal → explain why) rather than
+  // leaving it to a generic tap/click description.
+  { id: "predict", label: "के हुन्छ होला? (अनुमान)", mechanic: "tap", instruction: "एउटा \"के हुन्छ होला?\" अनुमान-आधारित सिमुलेसन बनाउनुहोस्। ढाँचा यसरी बनाउनुहोस्: (१) पहिले पाठसँग सम्बन्धित एउटा छोटो परिस्थिति/घटना (टेक्स्ट र/वा इमोजी/simple SVG दृश्यसहित) देखाउनुहोस् — जस्तै कुनै निर्णय, प्राकृतिक प्रक्रियाको एउटा चरण, वा सामाजिक अवस्था। (२) त्यसपछि तुरुन्तै नतिजा नदेखाई रोकिनुहोस्, र \"अब के हुन्छ होला?\" भन्दै २-४ वटा प्रशेच्य विकल्प (options, बटनका रूपमा) दिनुहोस् — विद्यार्थीले एउटामा क्लिक/ट्याप गरी आफ्नो अनुमान छान्नुपर्ने। (३) छनोट गरेपछि मात्र वास्तविक नतिजा (सही होस् वा गलत, विद्यार्थीले जे नै छाने पनि) प्रस्ट देखाउनुहोस्, अनि किन त्यस्तो हुन्छ भन्ने छोटो (१-२ वाक्य) व्याख्या पनि दिनुहोस्। (४) यस्तै ४-६ वटा फरक-फरक परिस्थिति/चरण क्रमैसँग राख्नुहोस् (हरेकमा माथिकै देखाउने→रोकिने→अनुमान→खुलासा चक्र दोहोर्‍याउनुहोस्), अगाडिको \"अर्को\" बटनले मात्र अर्को परिस्थितिमा जाने। नतिजा जति दिलचस्प/अप्रत्याशित (तर पाठसँग सान्दर्भिक र तथ्यमा आधारित) भए उति राम्रो — विद्यार्थीको उत्सुकता जगाउने खालको बनाउनुहोस्।" },
 ];
 
 // Mechanic-specific interaction instruction, injected once per generation

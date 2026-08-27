@@ -10,7 +10,7 @@ import {
   Settings as SettingsIcon, Trash2, RefreshCw, BookMarked, Zap,
   Sun, Moon, Lightbulb, Paperclip, ArrowDown, Pin, RotateCw,
   GraduationCap, PartyPopper, Bell, Palmtree, Megaphone, AlertTriangle, Download,
-  Upload, ChevronDown, WifiOff,
+  Upload, ChevronDown, WifiOff, Play, Pause, Dices, UsersRound,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import * as db from "./db";
@@ -3002,6 +3002,12 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
   // steps back up to the normal model plus a short, targeted review
   // pass, trading speed for reliability just on that retry.
   const [fastMode,setFastMode]=useState(false);
+  // NEW — teacher can now request a specific simulation type directly
+  // (e.g. जोडा मिलाउने कार्ड खेल / मिलान, or the new के हुन्छ होला? predictor)
+  // instead of only ever getting whatever pickNextSimulationType's
+  // round-robin happens to land on. Empty string = auto/varied (existing
+  // behavior, unchanged default).
+  const [forcedType,setForcedType]=useState("");
   const [usedCache,setUsedCache]=useState(false);
   const online=useOnlineStatus();
 
@@ -3149,9 +3155,16 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
       <Chip icon={Zap} active={fastMode} color={WARN} onClick={()=>setFastMode(!fastMode)} style={{fontWeight:800}}>
         {fastMode?"छिटो मोड: सक्रिय":"छिटो मोड: निष्क्रिय"}
       </Chip>
+      {/* NEW — direct type picker, so "मिलान गर्ने खेल"/"के हुन्छ होला?"
+          (or any other specific format) can be requested on demand
+          instead of waiting for the round-robin to land on it. */}
+      <select value={forcedType} onChange={(e)=>setForcedType(e.target.value)} className="ss-field" style={{borderRadius:999,padding:"7px 14px",fontSize:14.5,fontWeight:600,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontFamily:"inherit"}}>
+        <option value="">प्रकार: स्वतः (विविधता)</option>
+        {gemini.SIMULATION_TYPES.map((t)=>(<option key={t.id} value={t.id}>{t.label}</option>))}
+      </select>
     </div>
     {error&&<ErrorMsg msg={error}/>}
-    <button className="ss-btn" onClick={()=>generateForThisLesson()} disabled={generating||!online} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,width:"100%",padding:"13px",borderRadius:12,border:"none",background:`linear-gradient(180deg, ${VIOLET} 0%, color-mix(in srgb, ${VIOLET} 75%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:16.5,cursor:generating?"default":"pointer",opacity:(generating||!online)?0.65:1,boxShadow:SHADOW.accent,marginBottom:16}}>
+    <button className="ss-btn" onClick={()=>generateForThisLesson(forcedType?{forceTypeId:forcedType}:{})} disabled={generating||!online} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,width:"100%",padding:"13px",borderRadius:12,border:"none",background:`linear-gradient(180deg, ${VIOLET} 0%, color-mix(in srgb, ${VIOLET} 75%, black) 100%)`,color:"#fff",fontWeight:700,fontSize:16.5,cursor:generating?"default":"pointer",opacity:(generating||!online)?0.65:1,boxShadow:SHADOW.accent,marginBottom:16}}>
       {generating?<><Loader size={17} style={{animation:"spin 1s linear infinite"}}/>{fastMode?"सिमुलेसन बनाउँदै... (छिटो मोड)":"सिमुलेसन बनाउँदै र जाँच्दै... (१-२ मिनेट लाग्न सक्छ)"}</>:<><Wand2 size={17}/>{sims.length?"नयाँ सिमुलेसन बनाउनुहोस्":"AI बाट सिमुलेसन बनाउनुहोस्"}</>}
     </button>
     {loading?<Spinner/>:sims.length===0?<EmptyState icon={Gamepad2} text="अझै कुनै सिमुलेसन बनाइएको छैन। माथिको बटनबाट पहिलो बनाउनुहोस्।"/>:(
@@ -5943,6 +5956,344 @@ function ManagerPopup({ title, onClose, children }) {
   );
 }
 
+// NEW — कक्षा उपकरण (Classroom Tools): quick in-class helpers that don't
+// need any AI generation — random student picker, activity timer, group
+// splitter. All three share one name list, saved once per सेक्सन (not
+// per-lesson, since a class roster doesn't change lesson to lesson) via
+// db.setSectionRoster. Phase 1 of the brainstormed "fun tools" list.
+function beep(times=1){
+  try{
+    const Ctx=window.AudioContext||window.webkitAudioContext;
+    if(!Ctx)return;
+    const ctx=new Ctx();
+    for(let i=0;i<times;i++){
+      const osc=ctx.createOscillator();
+      const gain=ctx.createGain();
+      osc.connect(gain);gain.connect(ctx.destination);
+      osc.type="sine";osc.frequency.value=880;
+      const start=ctx.currentTime+i*0.28;
+      gain.gain.setValueAtTime(0.0001,start);
+      gain.gain.exponentialRampToValueAtTime(0.35,start+0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001,start+0.22);
+      osc.start(start);osc.stop(start+0.24);
+    }
+    setTimeout(()=>ctx.close(),times*280+400);
+  }catch{ /* audio unavailable — silent no-op, timer still works visually */ }
+}
+function shuffleArr(arr){
+  const a=[...arr];
+  for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}
+  return a;
+}
+
+function RosterEditor({ section, onSectionUpdated }){
+  const [text,setText]=useState((section?.roster||[]).join("\n"));
+  const [saving,setSaving]=useState(false);
+  const [saved,setSaved]=useState(false);
+  useEffect(()=>{setText((section?.roster||[]).join("\n"));setSaved(false);},[section?.id]);
+  const names=text.split("\n").map((n)=>n.trim()).filter(Boolean);
+  const save=async()=>{
+    setSaving(true);
+    const{data,error}=await db.setSectionRoster(section.id,names);
+    setSaving(false);
+    if(!error&&data){setSaved(true);onSectionUpdated?.(data);setTimeout(()=>setSaved(false),1800);}
+  };
+  return(
+    <Card>
+      <SectionLabel icon={UsersRound} color={TEAL}>नाम सूची — {section?.name}</SectionLabel>
+      <div style={{fontSize:14.5,color:INK_SOFT,marginBottom:10,lineHeight:1.6}}>
+        एक लाइनमा एक विद्यार्थीको नाम राख्नुहोस्। यो सूची यस सेक्सनका लागि सुरक्षित हुन्छ र छनोट, समूह विभाजन जस्ता सबै उपकरणले प्रयोग गर्छन्।
+      </div>
+      <textarea value={text} onChange={(e)=>setText(e.target.value)} rows={10} placeholder={"राम शर्मा\nसीता तामाङ\n..."} className="ss-field" style={{width:"100%",borderRadius:14,padding:"12px 14px",fontSize:16,border:`1.5px solid ${BORDER}`,background:SURFACE_2,fontFamily:"inherit",resize:"vertical"}}/>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginTop:10}}>
+        <Button size="sm" onClick={save} disabled={saving||!section}>{saving?"बचत गर्दै...":"सूची बचत गर्नुहोस्"}</Button>
+        <span style={{fontSize:14,color:INK_SOFT}}>{names.length} जना</span>
+        {saved&&<span style={{fontSize:14,color:ACCENT_DARK,fontWeight:700}}>✓ बचत भयो</span>}
+      </div>
+    </Card>
+  );
+}
+
+function RandomPicker({ roster }){
+  const [remaining,setRemaining]=useState(()=>shuffleArr(roster));
+  const [picked,setPicked]=useState(null);
+  const [display,setDisplay]=useState("");
+  const [spinning,setSpinning]=useState(false);
+  useEffect(()=>{setRemaining(shuffleArr(roster));setPicked(null);},[roster.join("|")]);
+  const draw=()=>{
+    if(spinning)return;
+    let pool=remaining.length?remaining:shuffleArr(roster);
+    if(!pool.length)return;
+    setSpinning(true);
+    let ticks=0;const maxTicks=14;
+    const interval=setInterval(()=>{
+      setDisplay(pool[Math.floor(Math.random()*pool.length)]);
+      ticks++;
+      if(ticks>=maxTicks){
+        clearInterval(interval);
+        const idx=Math.floor(Math.random()*pool.length);
+        const name=pool[idx];
+        const rest=pool.filter((_,i)=>i!==idx);
+        setDisplay(name);setPicked(name);
+        setRemaining(rest.length?rest:shuffleArr(roster));
+        setSpinning(false);
+        beep(1);
+      }
+    },70);
+  };
+  const resetRound=()=>{setRemaining(shuffleArr(roster));setPicked(null);setDisplay("");};
+  if(!roster.length)return(
+    <Card><div style={{fontSize:15,color:INK_SOFT}}>पहिले "नाम सूची" ट्याबमा विद्यार्थीहरूको नाम राख्नुहोस्।</div></Card>
+  );
+  return(
+    <Card>
+      <SectionLabel icon={Dices} color={ACCENT}>विद्यार्थी छनोट</SectionLabel>
+      <div style={{textAlign:"center",padding:"28px 10px"}}>
+        <div style={{fontSize:"clamp(28px, 6vw, 44px)",fontWeight:800,color:picked?ACCENT_DARK:INK,minHeight:56,letterSpacing:"0.01em"}}>
+          {display||"?"}
+        </div>
+        <div style={{marginTop:6,fontSize:14,color:INK_SOFT}}>बाँकी यस चक्रमा: {remaining.length||roster.length} / {roster.length}</div>
+        <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:20}}>
+          <Button size="sm" onClick={draw} disabled={spinning}>{spinning?"छान्दै...":"अर्को छान्नुहोस्"}</Button>
+          <Chip onClick={resetRound} color={INK_SOFT}>नयाँ चक्र</Chip>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function ActivityTimer(){
+  const PRESETS=[60,120,180,300,600];
+  const [totalSec,setTotalSec]=useState(180);
+  const [remaining,setRemaining]=useState(180);
+  const [running,setRunning]=useState(false);
+  const [customMin,setCustomMin]=useState("");
+  const intervalRef=useRef(null);
+  useEffect(()=>{
+    if(!running)return;
+    intervalRef.current=setInterval(()=>{
+      setRemaining((r)=>{
+        if(r<=1){clearInterval(intervalRef.current);setRunning(false);beep(3);return 0;}
+        return r-1;
+      });
+    },1000);
+    return()=>clearInterval(intervalRef.current);
+  },[running]);
+  const setPreset=(sec)=>{clearInterval(intervalRef.current);setRunning(false);setTotalSec(sec);setRemaining(sec);};
+  const applyCustom=()=>{
+    const m=parseFloat(customMin);
+    if(!m||m<=0)return;
+    setPreset(Math.round(m*60));
+  };
+  const toggle=()=>{
+    if(remaining<=0)return;
+    setRunning((r)=>!r);
+  };
+  const reset=()=>{clearInterval(intervalRef.current);setRunning(false);setRemaining(totalSec);};
+  const mm=String(Math.floor(remaining/60)).padStart(2,"0");
+  const ss=String(remaining%60).padStart(2,"0");
+  const pct=totalSec?Math.round((remaining/totalSec)*100):0;
+  return(
+    <Card>
+      <SectionLabel icon={Clock} color={MARIGOLD_DARK}>समय (Timer)</SectionLabel>
+      <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:16}}>
+        {PRESETS.map((sec)=>(
+          <Chip key={sec} active={totalSec===sec} color={MARIGOLD_DARK} onClick={()=>setPreset(sec)}>{sec<60?`${sec}से`:`${sec/60}मि`}</Chip>
+        ))}
+        <input value={customMin} onChange={(e)=>setCustomMin(e.target.value)} placeholder="मिनेट" type="number" min="0" step="0.5" className="ss-field" style={{width:70,borderRadius:999,padding:"7px 12px",fontSize:14.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+        <Chip dashed onClick={applyCustom} color={INK_SOFT}>राख्नुहोस्</Chip>
+      </div>
+      <div style={{textAlign:"center",padding:"18px 10px"}}>
+        <div style={{position:"relative",width:"min(260px, 60vw)",aspectRatio:"1",margin:"0 auto"}}>
+          <svg viewBox="0 0 100 100" style={{width:"100%",height:"100%",transform:"rotate(-90deg)"}}>
+            <circle cx="50" cy="50" r="45" fill="none" stroke={BORDER} strokeWidth="8"/>
+            <circle cx="50" cy="50" r="45" fill="none" stroke={remaining===0?WARN:MARIGOLD_DARK} strokeWidth="8" strokeLinecap="round" strokeDasharray={2*Math.PI*45} strokeDashoffset={2*Math.PI*45*(1-pct/100)} style={{transition:"stroke-dashoffset .3s linear"}}/>
+          </svg>
+          <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"clamp(30px, 8vw, 46px)",fontWeight:800,color:remaining===0?WARN:INK,fontVariantNumeric:"tabular-nums"}}>{mm}:{ss}</div>
+        </div>
+        <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:22}}>
+          <Button size="sm" onClick={toggle} disabled={remaining<=0}>{running?<><Pause size={16}/> रोक्नुहोस्</>:<><Play size={16}/> सुरु</>}</Button>
+          <Chip onClick={reset} color={INK_SOFT}>रिसेट</Chip>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function GroupSplitter({ roster }){
+  const [mode,setMode]=useState("count"); // "count" | "size"
+  const [value,setValue]=useState(4);
+  const [groups,setGroups]=useState(null);
+  const build=()=>{
+    if(!roster.length||value<1)return;
+    const shuffled=shuffleArr(roster);
+    let result=[];
+    if(mode==="count"){
+      const n=Math.min(value,shuffled.length);
+      result=Array.from({length:n},()=>[]);
+      shuffled.forEach((name,i)=>result[i%n].push(name));
+    }else{
+      const size=Math.max(1,value);
+      for(let i=0;i<shuffled.length;i+=size)result.push(shuffled.slice(i,i+size));
+    }
+    setGroups(result);
+  };
+  useEffect(()=>{setGroups(null);},[roster.join("|")]);
+  if(!roster.length)return(
+    <Card><div style={{fontSize:15,color:INK_SOFT}}>पहिले "नाम सूची" ट्याबमा विद्यार्थीहरूको नाम राख्नुहोस्।</div></Card>
+  );
+  return(
+    <Card>
+      <SectionLabel icon={Users} color={VIOLET}>समूह विभाजन</SectionLabel>
+      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:14}}>
+        <Chip active={mode==="count"} color={VIOLET} onClick={()=>setMode("count")}>समूह संख्या अनुसार</Chip>
+        <Chip active={mode==="size"} color={VIOLET} onClick={()=>setMode("size")}>प्रति समूह विद्यार्थी अनुसार</Chip>
+        <input type="number" min="1" value={value} onChange={(e)=>setValue(parseInt(e.target.value)||1)} className="ss-field" style={{width:70,borderRadius:999,padding:"7px 12px",fontSize:14.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+        <Button size="sm" onClick={build}>समूह बनाउनुहोस्</Button>
+        {groups&&<Chip dashed onClick={build} color={INK_SOFT}>फेरि मिलाउनुहोस्</Chip>}
+      </div>
+      {groups&&(
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:12}}>
+          {groups.map((g,i)=>(
+            <div key={i} style={{border:`1.5px solid ${BORDER}`,borderRadius:16,padding:"12px 14px",background:SURFACE_2}}>
+              <div style={{fontWeight:800,color:VIOLET,fontSize:14.5,marginBottom:6}}>समूह {i+1} ({g.length})</div>
+              {g.map((name)=>(<div key={name} style={{fontSize:15,padding:"3px 0",color:INK}}>{name}</div>))}
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function QuestionRoulette({ lessons, classLabel }){
+  const scopedLessons=useMemo(()=>lessons.filter((l)=>!classLabel||l.class_label===classLabel||!l.class_label),[lessons,classLabel]);
+  const [lessonId,setLessonId]=useState(scopedLessons[0]?.id||"");
+  const [questions,setQuestions]=useState([]);
+  const [loading,setLoading]=useState(false);
+  const [remaining,setRemaining]=useState([]);
+  const [current,setCurrent]=useState(null);
+  const [display,setDisplay]=useState(null);
+  const [spinning,setSpinning]=useState(false);
+  const [revealed,setRevealed]=useState(false);
+  useEffect(()=>{
+    if(!scopedLessons.length){setLessonId("");return;}
+    if(!scopedLessons.some((l)=>l.id===lessonId))setLessonId(scopedLessons[0].id);
+  },[scopedLessons]);
+  useEffect(()=>{
+    if(!lessonId){setQuestions([]);setRemaining([]);setCurrent(null);return;}
+    setLoading(true);setCurrent(null);setDisplay(null);setRevealed(false);
+    db.getQuestionsByLesson(lessonId).then(({data})=>{
+      const qs=data||[];
+      setQuestions(qs);setRemaining(shuffleArr(qs));setLoading(false);
+    });
+  },[lessonId]);
+  const spin=()=>{
+    if(spinning||!questions.length)return;
+    let pool=remaining.length?remaining:shuffleArr(questions);
+    setSpinning(true);setRevealed(false);
+    let ticks=0;const maxTicks=12;
+    const interval=setInterval(()=>{
+      setDisplay(pool[Math.floor(Math.random()*pool.length)]);
+      ticks++;
+      if(ticks>=maxTicks){
+        clearInterval(interval);
+        const idx=Math.floor(Math.random()*pool.length);
+        const q=pool[idx];
+        const rest=pool.filter((_,i)=>i!==idx);
+        setDisplay(q);setCurrent(q);
+        setRemaining(rest.length?rest:shuffleArr(questions));
+        setSpinning(false);
+        beep(1);
+      }
+    },70);
+  };
+  const resetRound=()=>{setRemaining(shuffleArr(questions));setCurrent(null);setDisplay(null);setRevealed(false);};
+  const lesson=scopedLessons.find((l)=>l.id===lessonId)||null;
+  return(
+    <Card>
+      <SectionLabel icon={HelpCircle} color={ACCENT}>प्रश्न रुलेट</SectionLabel>
+      {!scopedLessons.length?(
+        <div style={{fontSize:15,color:INK_SOFT}}>पहिले योजना (Yojana) मा पाठ बनाउनुहोस्।</div>
+      ):(
+        <>
+          <div style={{marginBottom:14}}>
+            <select value={lessonId} onChange={(e)=>setLessonId(e.target.value)} className="ss-field" style={{width:"100%",borderRadius:12,padding:"10px 14px",fontSize:16,border:`1.5px solid ${BORDER}`,background:SURFACE_2,fontFamily:"inherit"}}>
+              {scopedLessons.map((l)=>(<option key={l.id} value={l.id}>{l.chapters?.title||l.chapter_title?`${l.chapters?.title||l.chapter_title} — `:""}{l.title}</option>))}
+            </select>
+          </div>
+          {loading?(
+            <div style={{fontSize:15,color:INK_SOFT}}>लोड हुँदैछ...</div>
+          ):!questions.length?(
+            <div style={{fontSize:15,color:INK_SOFT}}>यस पाठका लागि "पाठ अभ्यास समाधान" बाट प्रश्नहरू बनाउनुहोस्, त्यसपछि यहाँ रुलेट प्रयोग गर्न सकिन्छ।</div>
+          ):(
+            <div style={{textAlign:"center",padding:"10px 4px"}}>
+              <div style={{fontSize:14,color:INK_SOFT,marginBottom:10}}>बाँकी यस चक्रमा: {remaining.length||questions.length} / {questions.length}</div>
+              <div style={{minHeight:130,border:`1.5px solid ${BORDER}`,borderRadius:18,padding:"22px 18px",background:SURFACE_2,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10}}>
+                {display?(
+                  <>
+                    {display.type&&<div style={{fontSize:13,fontWeight:700,color:ACCENT_DARK,textTransform:"uppercase",letterSpacing:"0.06em"}}>{display.type}</div>}
+                    <div style={{fontSize:"clamp(18px, 3.2vw, 26px)",fontWeight:700,color:INK,lineHeight:1.5}}>{display.text}</div>
+                    {display.options?.length>0&&display.type==="बहुविकल्पीय"&&(
+                      <div style={{fontSize:16,color:INK_SOFT,marginTop:4}}>{display.options.join("  ")}</div>
+                    )}
+                    {revealed&&!spinning&&(
+                      <div style={{marginTop:10,padding:"10px 16px",borderRadius:12,background:ACCENT_LIGHT,color:ACCENT_DARK,fontWeight:700,fontSize:17,maxWidth:"100%"}}>
+                        उत्तर: {display.answer||"—"}
+                        {display.correction&&<div style={{fontSize:14,fontWeight:600,marginTop:4}}>सही: {display.correction}</div>}
+                      </div>
+                    )}
+                  </>
+                ):(
+                  <div style={{fontSize:22,color:INK_SOFT}}>?</div>
+                )}
+              </div>
+              <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:18,flexWrap:"wrap"}}>
+                <Button size="sm" onClick={spin} disabled={spinning}>{spinning?"घुम्दैछ...":"स्पिन गर्नुहोस्"}</Button>
+                {current&&!spinning&&<Chip onClick={()=>setRevealed((r)=>!r)} color={ACCENT}>{revealed?"उत्तर लुकाउनुहोस्":"उत्तर देखाउनुहोस्"}</Chip>}
+                <Chip onClick={resetRound} color={INK_SOFT}>नयाँ चक्र</Chip>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
+function ClassroomTools({ section, onSectionUpdated, lessons, classLabel }){
+  const [tab,setTab]=useState("picker");
+  const roster=section?.roster||[];
+  const TABS=[
+    {id:"picker",label:"छनोट",icon:Dices,color:ACCENT},
+    {id:"roulette",label:"प्रश्न रुलेट",icon:HelpCircle,color:ROSE},
+    {id:"timer",label:"समय",icon:Clock,color:MARIGOLD_DARK},
+    {id:"groups",label:"समूह",icon:Users,color:VIOLET},
+    {id:"roster",label:"नाम सूची",icon:UsersRound,color:TEAL},
+  ];
+  if(!section)return(
+    <div style={{padding:16}}><Card><div style={{fontSize:15,color:INK_SOFT}}>पहिले माथिबाट सेक्सन छान्नुहोस्।</div></Card></div>
+  );
+  return(
+    <div>
+      <div className="no-print" style={{position:"sticky",top:0,zIndex:8,background:SURFACE,borderBottom:`1px solid ${BORDER}`,padding:"10px 14px"}}>
+        <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+          {TABS.map((t)=>{const Icon=t.icon;const active=tab===t.id;return(
+            <Chip key={t.id} onClick={()=>setTab(t.id)} active={active} color={t.color} icon={Icon} size="sm">{t.label}</Chip>
+          );})}
+        </div>
+      </div>
+      <div style={{padding:16}}>
+        {tab==="picker"&&<RandomPicker roster={roster}/>}
+        {tab==="roulette"&&<QuestionRoulette lessons={lessons} classLabel={classLabel}/>}
+        {tab==="timer"&&<ActivityTimer/>}
+        {tab==="groups"&&<GroupSplitter roster={roster}/>}
+        {tab==="roster"&&<RosterEditor section={section} onSectionUpdated={onSectionUpdated}/>}
+      </div>
+    </div>
+  );
+}
+
 function AITools({ lessons, classContext, classLabel, initialTab, onInitialTabConsumed }) {
   // FIX — "AI च्याट" used to be its own top-level screen, separate from
   // every other AI feature (resources/saved), even though it draws on
@@ -6001,6 +6352,7 @@ const RESOURCE_TEMPLATES=[
   {id:"mindmap",title:"अवधारणा नक्सा",icon:Brain,color:BLUE,prompt:(l)=>`"${l?.title||""}" पाठको अवधारणा नक्सा (text format) बनाउनुहोस्।`},
   {id:"vocab",title:"शब्दावली सूची",icon:Tag,color:ROSE,prompt:(l)=>`"${l?.title||""}" पाठका शब्दावलीहरू अर्थ र वाक्य प्रयोगसहित: ${(l?.vocabulary||[]).join(", ")}`},
   {id:"practice",title:"अभ्यास प्रश्न",icon:PenSquare,color:MARIGOLD_DARK,prompt:(l)=>`"${l?.title||""}" पाठका लागि १५ वटा विभिन्न प्रकारका अभ्यास प्रश्नहरू बनाउनुहोस्।`},
+  {id:"roleplay",title:"भूमिका खेल कार्ड",icon:MessageSquare,color:ROSE,prompt:(l,classContext)=>`${classContext} "${l?.title||""}" पाठका आधारमा ३-४ वटा छोटो भूमिका-खेल (role-play) कार्ड नेपालीमा बनाउनुहोस्। हरेक कार्डका लागि यी सबै दिनुहोस्: (१) कार्ड शीर्षक/पात्रको नाम-भूमिका, (२) छोटो परिस्थिति २-३ वाक्यमा (यही पाठसँग सम्बन्धित), (३) विद्यार्थीले भन्न/गर्न सक्ने १-२ वटा संकेत/लाइन। कक्षाकोठामा तुरुन्तै छोटो अभिनय गर्न मिल्ने, सजिलो र रोचक बनाउनुहोस्। हरेक कार्ड छुट्टै शीर्षकसहित प्रस्तुत गर्नुहोस्।`},
 ];
 const resourceTemplateMeta=(id)=>RESOURCE_TEMPLATES.find((t)=>t.id===id)||{title:"स्रोत",icon:Wand2,color:MARIGOLD_DARK};
 
@@ -7545,6 +7897,7 @@ export default function App() {
     {id:"planner",label:"योजना",icon:CalendarDays,color:TEAL},
     {id:"materials",label:"सामग्री",icon:BookOpen,color:MARIGOLD_DARK},
     {id:"aitools",label:"AI सहायक",icon:Wand2,color:VIOLET},
+    {id:"tools",label:"उपकरण",icon:Dices,color:ROSE},
   ];
 
   if(authLoading)return<div style={{minHeight:"100vh",background:"var(--bg,#F7F4EC)",display:"flex",alignItems:"center",justifyContent:"center"}}><Spinner/></div>;
@@ -7894,6 +8247,9 @@ export default function App() {
         </div>}
         {visitedScreens.has("aitools")&&<div style={{display:screen==="aitools"?undefined:"none"}}>
           <AITools lessons={lessons} classContext={classContext} classLabel={classLabel} initialTab={aiToolsTab} onInitialTabConsumed={()=>setAiToolsTab(null)}/>
+        </div>}
+        {visitedScreens.has("tools")&&<div style={{display:screen==="tools"?undefined:"none"}}>
+          <ClassroomTools section={currentSection} lessons={lessons} classLabel={classLabel} onSectionUpdated={(s)=>{setSections((prev)=>prev.map((x)=>x.id===s.id?s:x));if(currentSection?.id===s.id)setCurrentSection(s);}}/>
         </div>}
       </div>
 
