@@ -3954,7 +3954,14 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
   const [groupReason, setGroupReason] = useState(null);
   const [source, setSource] = useState("ai_drafted");
   const [draft, setDraft] = useState({ lessons: [] });
-  const [openIdx, setOpenIdx] = useState(0);
+  // FIX — this used to default to 0, so the very first आधिकारिक पाठ's
+  // plan/rubric was always pre-expanded the moment the modal opened
+  // (loading an existing group, finishing a fresh AI draft, or starting a
+  // manual entry alike) — pushing everything else down and forcing a
+  // scroll past it to reach whichever lesson the teacher actually wanted.
+  // Nothing auto-opens now; the teacher expands the one they want via the
+  // chevron themselves.
+  const [openIdx, setOpenIdx] = useState(-1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [formatTemplateId, setFormatTemplateId] = useState(null);
@@ -4008,7 +4015,7 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
 
   const startManual = () => {
     setSource("uploaded"); setGroupChapterTitles([chapter.title]); setGroupReason(null);
-    setDraft({ lessons: [emptyOfficialLesson()] }); setOpenIdx(0); setPhase("review");
+    setDraft({ lessons: [emptyOfficialLesson()] }); setOpenIdx(-1); setPhase("review");
   };
 
   // STAGE 1 — Detect: cheap calls only (chapter grouping + official lesson
@@ -4058,7 +4065,7 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
       ...emptyOfficialLesson(u.official_title),
       source_lesson_titles: u.source_lesson_titles || [], source_reason: u.reason || null,
     }));
-    setDraft({ lessons: lessonsAccum }); setOpenIdx(0);
+    setDraft({ lessons: lessonsAccum }); setOpenIdx(-1);
     const failedTitles = [];
     for (let i = 0; i < officialUnits.length; i++) {
       setDraftProgress({ done: i, total: officialUnits.length, label: officialUnits[i].official_title });
@@ -4185,7 +4192,7 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
     try {
       if (existingGroupRef.current?.id) await db.deletePlanGroup(existingGroupRef.current.id);
       existingGroupRef.current = null; setExistingGroup(null);
-      setDraft({ lessons: [] }); setOpenIdx(0); setPendingOfficialUnits([]);
+      setDraft({ lessons: [] }); setOpenIdx(-1); setPendingOfficialUnits([]);
       setPhase("choose");
     } catch (e) { setError(e.message || "मेटाउन सकिएन।"); }
     setBusy(false);
@@ -4648,6 +4655,14 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
   const [showDetails,setShowDetails]=useState(false);
   const [changingChapter,setChangingChapter]=useState(false);
   const [expanded,setExpanded]=useState(()=>new Set());
+  // FIX — an एकाइ left expanded here stayed expanded even after switching
+  // सेक्सन (or कक्षा) from the top bar, so a teacher moving from 5A to 5B
+  // (or fresh लोड for a different class) would land on a Planner screen
+  // still showing whichever unit they'd last opened in the OTHER
+  // section — confusing since the lessons under it now belong to the new
+  // section entirely. Collapse everything the moment the section/class
+  // actually changes, so each section always starts closed.
+  useEffect(()=>{ setExpanded(new Set()); },[section?.id,classLabel]);
   const [editingChapterId,setEditingChapterId]=useState(null);
   const [chapterEditValue,setChapterEditValue]=useState("");
   const [chapterBusy,setChapterBusy]=useState(null);
