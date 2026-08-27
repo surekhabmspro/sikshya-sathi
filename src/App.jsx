@@ -11,6 +11,7 @@ import {
   Sun, Moon, Lightbulb, Paperclip, ArrowDown, Pin, RotateCw,
   GraduationCap, PartyPopper, Bell, Palmtree, Megaphone, AlertTriangle, Download,
   Upload, ChevronDown, WifiOff, Play, Pause, Dices, UsersRound,
+  Volume2, VolumeX,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import * as db from "./db";
@@ -6423,13 +6424,26 @@ function ssPlayTimerTick(urgent){
 // colour-shower + chime celebration when time runs out — instead of the
 // old flat ring + a single triple beep().
 function ActivityTimer(){
-  const PRESETS=[60,120,180,300,600];
+  const PRESETS=[30,60,120,180,300,600];
   const [totalSec,setTotalSec]=useState(180);
   const [remaining,setRemaining]=useState(180);
   const [running,setRunning]=useState(false);
+  // Practical mm:ss custom entry — two small fields instead of one
+  // decimal-minutes box, so a teacher can set e.g. 1:30 or 0:45 directly
+  // instead of doing the minutes math themselves.
   const [customMin,setCustomMin]=useState("");
+  const [customSec,setCustomSec]=useState("");
   const [everStarted,setEverStarted]=useState(false);
   const [burstKey,setBurstKey]=useState(0);
+  // Mute just the timer's own sounds (tick + completion chime) — persisted
+  // per-device the same way theme/class/etc. are, so it stays off across
+  // sessions once a teacher turns it off.
+  const [muted,setMuted]=useState(()=>{
+    try{return localStorage.getItem("ss-timer-muted")==="1";}catch{return false;}
+  });
+  useEffect(()=>{ try{localStorage.setItem("ss-timer-muted",muted?"1":"0");}catch{} },[muted]);
+  const mutedRef=useRef(muted);
+  useEffect(()=>{ mutedRef.current=muted; },[muted]);
   const intervalRef=useRef(null);
   useEffect(()=>{
     if(!running)return;
@@ -6437,11 +6451,11 @@ function ActivityTimer(){
       setRemaining((r)=>{
         if(r<=1){
           clearInterval(intervalRef.current);setRunning(false);
-          ssPlayWinChime(); // same celebratory cue as a wheel win
+          if(!mutedRef.current)ssPlayWinChime(); // same celebratory cue as a wheel win
           setBurstKey((k)=>k+1);
           return 0;
         }
-        ssPlayTimerTick(r<=11); // ticks for the second that's about to elapse; sharper inside the last 10s
+        if(!mutedRef.current)ssPlayTimerTick(r<=11); // ticks for the second that's about to elapse; sharper inside the last 10s
         return r-1;
       });
     },1000);
@@ -6449,10 +6463,13 @@ function ActivityTimer(){
   },[running]);
   const setPreset=(sec)=>{clearInterval(intervalRef.current);setRunning(false);setTotalSec(sec);setRemaining(sec);setEverStarted(false);setBurstKey(0);};
   const applyCustom=()=>{
-    const m=parseFloat(customMin);
-    if(!m||m<=0)return;
-    setPreset(Math.round(m*60));
+    const m=parseInt(customMin,10)||0;
+    const s=parseInt(customSec,10)||0;
+    const total=m*60+s;
+    if(total<=0)return;
+    setPreset(total);
   };
+  const onCustomKeyDown=(e)=>{ if(e.key==="Enter")applyCustom(); };
   const toggle=()=>{
     if(remaining<=0)return;
     setEverStarted(true);
@@ -6474,11 +6491,15 @@ function ActivityTimer(){
         @keyframes ss-timer-pop{0%{transform:scale(0.8) translateY(4px);opacity:0;}55%{transform:scale(1.08) translateY(0);opacity:1;}100%{transform:scale(1) translateY(0);opacity:1;}}
         @keyframes ss-timer-invite-pulse{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb, ${MARIGOLD_DARK} 55%, transparent);}50%{box-shadow:0 0 0 10px color-mix(in srgb, ${MARIGOLD_DARK} 0%, transparent);}}
       `}</style>
-      <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:16}}>
+      <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:16,alignItems:"center"}}>
         {PRESETS.map((sec)=>(
           <Chip key={sec} active={totalSec===sec} color={MARIGOLD_DARK} onClick={()=>setPreset(sec)}>{sec<60?`${sec}से`:`${sec/60}मि`}</Chip>
         ))}
-        <input value={customMin} onChange={(e)=>setCustomMin(e.target.value)} placeholder="मिनेट" type="number" min="0" step="0.5" className="ss-field" style={{width:70,borderRadius:999,padding:"7px 12px",fontSize:14.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+        <div style={{display:"inline-flex",alignItems:"center",gap:4,borderRadius:999,padding:"4px 6px",border:`1.5px solid ${BORDER}`,background:SURFACE_2}}>
+          <input value={customMin} onChange={(e)=>setCustomMin(e.target.value.replace(/[^0-9]/g,""))} onKeyDown={onCustomKeyDown} placeholder="मि" type="number" inputMode="numeric" min="0" max="180" className="ss-field" style={{width:40,border:"none",background:"transparent",padding:"3px 2px",fontSize:14.5,textAlign:"center"}}/>
+          <span style={{color:INK_SOFT,fontWeight:700}}>:</span>
+          <input value={customSec} onChange={(e)=>{let v=e.target.value.replace(/[^0-9]/g,""); if(v!==""&&parseInt(v,10)>59)v="59"; setCustomSec(v);}} onKeyDown={onCustomKeyDown} placeholder="से" type="number" inputMode="numeric" min="0" max="59" className="ss-field" style={{width:40,border:"none",background:"transparent",padding:"3px 2px",fontSize:14.5,textAlign:"center"}}/>
+        </div>
         <Chip dashed onClick={applyCustom} color={INK_SOFT}>राख्नुहोस्</Chip>
       </div>
       <div style={{textAlign:"center",padding:"18px 10px",position:"relative"}}>
@@ -6514,6 +6535,22 @@ function ActivityTimer(){
         <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:22}}>
           <Button size="sm" onClick={toggle} disabled={remaining<=0} style={!everStarted&&!running?{animation:"ss-timer-invite-pulse 1.8s ease-in-out infinite"}:undefined}>{running?<><Pause size={16}/> रोक्नुहोस्</>:<><Play size={16}/> सुरु</>}</Button>
           <Chip onClick={reset} color={INK_SOFT}>रिसेट</Chip>
+          <button
+            type="button"
+            onClick={()=>setMuted((m)=>!m)}
+            title={muted?"आवाज खोल्नुहोस्":"आवाज बन्द गर्नुहोस्"}
+            aria-label={muted?"आवाज खोल्नुहोस्":"आवाज बन्द गर्नुहोस्"}
+            style={{
+              display:"inline-flex",alignItems:"center",justifyContent:"center",
+              width:34,height:34,borderRadius:999,
+              border:`1.5px solid ${BORDER}`,
+              background:muted?SURFACE_2:"transparent",
+              color:muted?INK_SOFT:MARIGOLD_DARK,
+              cursor:"pointer",
+            }}
+          >
+            {muted?<VolumeX size={16}/>:<Volume2 size={16}/>}
+          </button>
         </div>
         {/* Same colour-shower celebration as a wheel win, fired once when
             the countdown hits zero. */}
@@ -6587,6 +6624,16 @@ function GroupSplitter({ roster }){
   );
 }
 
+// ENHANCED — brought up to the same visual/audio language as the छनोट
+// (RandomPicker) wheel and समय (ActivityTimer): an ambient glow behind
+// the question card, blinking marquee lights along its top/bottom edges,
+// a real decelerating "reel" spin (fast ticks that ease into a slow
+// landing, like a real spinner/slot rather than a flat setInterval
+// swap), a sharp tick sound per flicker (reusing the Timer's own tick
+// oscillator) that speeds up then slows down, a win chime + colour-shower
+// burst on landing, a card shake while spinning, and a per-component
+// mute toggle matching the Timer's — instead of the old plain 12×70ms
+// flicker + single beep().
 function QuestionRoulette({ lessons, classLabel }){
   // FIX — this dropdown listed lessons in whatever order db.getLessons
   // returned them (sorted by scheduled_date, which is null for most
@@ -6615,12 +6662,26 @@ function QuestionRoulette({ lessons, classLabel }){
   const [display,setDisplay]=useState(null);
   const [spinning,setSpinning]=useState(false);
   const [revealed,setRevealed]=useState(false);
+  const [burstKey,setBurstKey]=useState(0);
+  const [landKey,setLandKey]=useState(0);
+  // Mute just this tool's own sounds (reel ticks + landing chime) —
+  // persisted per-device the same way the Timer's mute is.
+  const [muted,setMuted]=useState(()=>{
+    try{return localStorage.getItem("ss-roulette-muted")==="1";}catch{return false;}
+  });
+  useEffect(()=>{ try{localStorage.setItem("ss-roulette-muted",muted?"1":"0");}catch{} },[muted]);
+  const mutedRef=useRef(muted);
+  useEffect(()=>{ mutedRef.current=muted; },[muted]);
+  const timeoutsRef=useRef([]);
+  const clearSpinTimeouts=()=>{ timeoutsRef.current.forEach(clearTimeout); timeoutsRef.current=[]; };
+  useEffect(()=>()=>clearSpinTimeouts(),[]);
   useEffect(()=>{
     if(!scopedLessons.length){setLessonId("");return;}
     if(!scopedLessons.some((l)=>l.id===lessonId))setLessonId(scopedLessons[0].id);
   },[scopedLessons]);
   useEffect(()=>{
-    if(!lessonId){setQuestions([]);setRemaining([]);setCurrent(null);return;}
+    clearSpinTimeouts();setSpinning(false);
+    if(!lessonId){setQuestions([]);setRemaining([]);setCurrent(null);setDisplay(null);setRevealed(false);return;}
     setLoading(true);setCurrent(null);setDisplay(null);setRevealed(false);
     db.getQuestionsByLesson(lessonId).then(({data})=>{
       const qs=data||[];
@@ -6630,28 +6691,45 @@ function QuestionRoulette({ lessons, classLabel }){
   const spin=()=>{
     if(spinning||!questions.length)return;
     let pool=remaining.length?remaining:shuffleArr(questions);
-    setSpinning(true);setRevealed(false);
-    let ticks=0;const maxTicks=12;
-    const interval=setInterval(()=>{
-      setDisplay(pool[Math.floor(Math.random()*pool.length)]);
-      ticks++;
-      if(ticks>=maxTicks){
-        clearInterval(interval);
-        const idx=Math.floor(Math.random()*pool.length);
-        const q=pool[idx];
-        const rest=pool.filter((_,i)=>i!==idx);
-        setDisplay(q);setCurrent(q);
-        setRemaining(rest.length?rest:shuffleArr(questions));
-        setSpinning(false);
-        beep(1);
-      }
-    },70);
+    clearSpinTimeouts();
+    setSpinning(true);setRevealed(false);setCurrent(null);
+    // Real deceleration curve — ticks bunch up fast at first and spread
+    // out as they slow down, exactly like the wheel's own spin sound,
+    // instead of a flat setInterval firing at a constant 70ms.
+    const tickCount=16;
+    const duration=1700;
+    for(let i=0;i<tickCount;i++){
+      const t=duration*(1-Math.pow(1-i/tickCount,2.6));
+      const id=setTimeout(()=>{
+        setDisplay(pool[Math.floor(Math.random()*pool.length)]);
+        if(!mutedRef.current)ssPlayTimerTick(i>=tickCount-4);
+      },t);
+      timeoutsRef.current.push(id);
+    }
+    const landId=setTimeout(()=>{
+      const idx=Math.floor(Math.random()*pool.length);
+      const q=pool[idx];
+      const rest=pool.filter((_,i)=>i!==idx);
+      setDisplay(q);setCurrent(q);
+      setRemaining(rest.length?rest:shuffleArr(questions));
+      setSpinning(false);
+      setBurstKey((k)=>k+1);
+      setLandKey((k)=>k+1);
+      if(!mutedRef.current)ssPlayWinChime();
+    },duration+70);
+    timeoutsRef.current.push(landId);
   };
-  const resetRound=()=>{setRemaining(shuffleArr(questions));setCurrent(null);setDisplay(null);setRevealed(false);};
+  const resetRound=()=>{clearSpinTimeouts();setSpinning(false);setRemaining(shuffleArr(questions));setCurrent(null);setDisplay(null);setRevealed(false);};
   const lesson=scopedLessons.find((l)=>l.id===lessonId)||null;
+  const landed=!!current&&!spinning;
   return(
     <Card accentColor={ROSE}>
       <SectionLabel icon={HelpCircle} color={ROSE}>प्रश्न रुलेट</SectionLabel>
+      <style>{`
+        @keyframes ss-roulette-shake{0%,100%{transform:translateX(0) rotate(0deg);}20%{transform:translateX(-3px) rotate(-0.4deg);}40%{transform:translateX(3px) rotate(0.4deg);}60%{transform:translateX(-2px) rotate(-0.3deg);}80%{transform:translateX(2px) rotate(0.3deg);}}
+        @keyframes ss-roulette-pop{0%{transform:scale(0.85) translateY(6px);opacity:0;}55%{transform:scale(1.05) translateY(0);opacity:1;}100%{transform:scale(1) translateY(0);opacity:1;}}
+        @keyframes ss-roulette-invite-pulse{0%,100%{box-shadow:0 4px 12px color-mix(in srgb, ${ROSE} 35%, transparent), 0 0 0 0 color-mix(in srgb, ${ROSE} 55%, transparent);}50%{box-shadow:0 4px 12px color-mix(in srgb, ${ROSE} 35%, transparent), 0 0 0 10px color-mix(in srgb, ${ROSE} 0%, transparent);}}
+      `}</style>
       {!scopedLessons.length?(
         <div style={{fontSize:15,color:INK_SOFT}}>पहिले योजना (Yojana) मा पाठ बनाउनुहोस्।</div>
       ):(
@@ -6666,31 +6744,68 @@ function QuestionRoulette({ lessons, classLabel }){
           ):!questions.length?(
             <div style={{fontSize:15,color:INK_SOFT}}>यस पाठका लागि "पाठ अभ्यास समाधान" बाट प्रश्नहरू बनाउनुहोस्, त्यसपछि यहाँ रुलेट प्रयोग गर्न सकिन्छ।</div>
           ):(
-            <div style={{textAlign:"center",padding:"10px 4px"}}>
+            <div style={{textAlign:"center",padding:"10px 4px",position:"relative"}}>
               <div style={{fontSize:14,color:INK_SOFT,marginBottom:10,fontWeight:600}}>बाँकी यस चक्रमा: {remaining.length||questions.length} / {questions.length}</div>
-              <div style={{minHeight:130,borderRadius:22,padding:"24px 20px",background:`linear-gradient(160deg, color-mix(in srgb, ${ROSE} 14%, var(--surface)) 0%, color-mix(in srgb, ${ROSE} 5%, var(--surface)) 100%)`,border:`1.5px solid color-mix(in srgb, ${ROSE} 32%, ${BORDER})`,boxShadow:SHADOW.raised,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10}}>
-                {display?(
-                  <>
-                    {display.type&&<div style={{fontSize:12.5,fontWeight:800,color:"#fff",textTransform:"uppercase",letterSpacing:"0.06em",background:ROSE,padding:"3px 12px",borderRadius:999,boxShadow:`0 3px 8px color-mix(in srgb, ${ROSE} 45%, transparent)`}}>{display.type}</div>}
-                    <div style={{fontSize:"clamp(18px, 3.2vw, 26px)",fontWeight:700,color:INK,lineHeight:1.5}}>{display.text}</div>
-                    {display.options?.length>0&&display.type==="बहुविकल्पीय"&&(
-                      <div style={{fontSize:16,color:INK_SOFT,marginTop:4}}>{display.options.join("  ")}</div>
-                    )}
-                    {revealed&&!spinning&&(
-                      <div style={{marginTop:10,padding:"11px 18px",borderRadius:14,background:`linear-gradient(135deg, ${MARIGOLD} 0%, ${ROSE} 100%)`,color:"#fff",fontWeight:800,fontSize:17,maxWidth:"100%",boxShadow:`0 6px 16px color-mix(in srgb, ${ROSE} 35%, transparent)`}}>
-                        उत्तर: {display.answer||"—"}
-                        {display.correction&&<div style={{fontSize:14,fontWeight:600,marginTop:4}}>सही: {display.correction}</div>}
-                      </div>
-                    )}
-                  </>
-                ):(
-                  <div style={{fontSize:22,color:INK_SOFT}}>?</div>
-                )}
+              <div style={{position:"relative",padding:"6px 0"}}>
+                {/* Ambient glow behind the card — same language as the
+                    wheel/timer, brighter and faster while spinning. */}
+                <div style={{position:"absolute",inset:"-4% -2%",borderRadius:26,background:`radial-gradient(circle at 50% 45%, color-mix(in srgb, ${ROSE} 32%, transparent) 0%, transparent 72%)`,animation:spinning?"ss-glow-pulse 0.9s ease-in-out infinite":landed?"ss-glow-pulse 2.6s ease-in-out infinite":"none"}}/>
+                {/* Marquee lights along the top and bottom edges. */}
+                {Array.from({length:9}).map((_,i)=>{
+                  const x=8+i*(84/8);
+                  const c=i%2===0?MARIGOLD:ROSE;
+                  return(
+                    <div key={"t"+i} style={{position:"absolute",left:`${x}%`,top:0,width:8,height:8,borderRadius:"50%",transform:"translate(-50%,-50%)",background:`radial-gradient(circle at 35% 30%, #fff, ${c} 55%, color-mix(in srgb, ${c} 60%, black) 100%)`,boxShadow:spinning||landed?`0 0 6px 2px color-mix(in srgb, ${c} 65%, transparent)`:"none",opacity:spinning||landed?undefined:0.3,animation:spinning?`ss-light-blink 0.55s ease-in-out infinite`:landed?`ss-light-blink 1.15s ease-in-out infinite`:"none",animationDelay:`${i*0.06}s`}}/>
+                  );
+                })}
+                {Array.from({length:9}).map((_,i)=>{
+                  const x=8+i*(84/8);
+                  const c=i%2===0?ROSE:MARIGOLD;
+                  return(
+                    <div key={"b"+i} style={{position:"absolute",left:`${x}%`,bottom:0,width:8,height:8,borderRadius:"50%",transform:"translate(-50%,50%)",background:`radial-gradient(circle at 35% 30%, #fff, ${c} 55%, color-mix(in srgb, ${c} 60%, black) 100%)`,boxShadow:spinning||landed?`0 0 6px 2px color-mix(in srgb, ${c} 65%, transparent)`:"none",opacity:spinning||landed?undefined:0.3,animation:spinning?`ss-light-blink 0.55s ease-in-out infinite`:landed?`ss-light-blink 1.15s ease-in-out infinite`:"none",animationDelay:`${0.3+i*0.06}s`}}/>
+                  );
+                })}
+                <div key={landKey} style={{position:"relative",minHeight:130,borderRadius:22,padding:"24px 20px",background:`linear-gradient(160deg, color-mix(in srgb, ${ROSE} 14%, var(--surface)) 0%, color-mix(in srgb, ${ROSE} 5%, var(--surface)) 100%)`,border:`1.5px solid color-mix(in srgb, ${ROSE} ${spinning||landed?45:32}%, ${BORDER})`,boxShadow:landed?`${SHADOW.raised}, 0 0 0 3px color-mix(in srgb, ${ROSE} 20%, transparent)`:SHADOW.raised,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,animation:spinning?"ss-roulette-shake 0.32s ease-in-out infinite":landed?"ss-roulette-pop .38s cubic-bezier(0.34,1.56,0.64,1)":"none"}}>
+                  {display?(
+                    <>
+                      {display.type&&<div style={{fontSize:12.5,fontWeight:800,color:"#fff",textTransform:"uppercase",letterSpacing:"0.06em",background:ROSE,padding:"3px 12px",borderRadius:999,boxShadow:`0 3px 8px color-mix(in srgb, ${ROSE} 45%, transparent)`}}>{display.type}</div>}
+                      <div style={{fontSize:"clamp(18px, 3.2vw, 26px)",fontWeight:700,color:INK,lineHeight:1.5,filter:spinning?"blur(0.3px)":"none"}}>{display.text}</div>
+                      {display.options?.length>0&&display.type==="बहुविकल्पीय"&&(
+                        <div style={{fontSize:16,color:INK_SOFT,marginTop:4}}>{display.options.join("  ")}</div>
+                      )}
+                      {revealed&&!spinning&&(
+                        <div style={{marginTop:10,padding:"11px 18px",borderRadius:14,background:`linear-gradient(135deg, ${MARIGOLD} 0%, ${ROSE} 100%)`,color:"#fff",fontWeight:800,fontSize:17,maxWidth:"100%",boxShadow:`0 6px 16px color-mix(in srgb, ${ROSE} 35%, transparent)`}}>
+                          उत्तर: {display.answer||"—"}
+                          {display.correction&&<div style={{fontSize:14,fontWeight:600,marginTop:4}}>सही: {display.correction}</div>}
+                        </div>
+                      )}
+                    </>
+                  ):(
+                    <div style={{fontSize:22,color:INK_SOFT}}>?</div>
+                  )}
+                </div>
+                {landed&&<ColourShower burstKey={burstKey} top="calc(6px + 65px)"/>}
               </div>
-              <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:18,flexWrap:"wrap"}}>
-                <Button size="sm" onClick={spin} disabled={spinning} style={{background:`linear-gradient(135deg, ${ROSE} 0%, color-mix(in srgb, ${ROSE} 70%, black) 100%)`,boxShadow:`0 4px 12px color-mix(in srgb, ${ROSE} 35%, transparent)`}}>{spinning?"घुम्दैछ...":"स्पिन गर्नुहोस्"}</Button>
+              <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:18,flexWrap:"wrap",alignItems:"center"}}>
+                <Button size="sm" onClick={spin} disabled={spinning} style={{background:`linear-gradient(135deg, ${ROSE} 0%, color-mix(in srgb, ${ROSE} 70%, black) 100%)`,boxShadow:`0 4px 12px color-mix(in srgb, ${ROSE} 35%, transparent)`,animation:!spinning&&!current?"ss-roulette-invite-pulse 1.8s ease-in-out infinite":"none"}}>{spinning?<><Shuffle size={16} style={{animation:"spin 0.7s linear infinite"}}/> घुम्दैछ...</>:<><Shuffle size={16}/> स्पिन गर्नुहोस्</>}</Button>
                 {current&&!spinning&&<Chip onClick={()=>setRevealed((r)=>!r)} color={ROSE}>{revealed?"उत्तर लुकाउनुहोस्":"उत्तर देखाउनुहोस्"}</Chip>}
                 <Chip onClick={resetRound} color={INK_SOFT}>नयाँ चक्र</Chip>
+                <button
+                  type="button"
+                  onClick={()=>setMuted((m)=>!m)}
+                  title={muted?"आवाज खोल्नुहोस्":"आवाज बन्द गर्नुहोस्"}
+                  aria-label={muted?"आवाज खोल्नुहोस्":"आवाज बन्द गर्नुहोस्"}
+                  style={{
+                    display:"inline-flex",alignItems:"center",justifyContent:"center",
+                    width:34,height:34,borderRadius:999,
+                    border:`1.5px solid ${BORDER}`,
+                    background:muted?SURFACE_2:"transparent",
+                    color:muted?INK_SOFT:ROSE,
+                    cursor:"pointer",
+                  }}
+                >
+                  {muted?<VolumeX size={16}/>:<Volume2 size={16}/>}
+                </button>
               </div>
             </div>
           )}
