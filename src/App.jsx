@@ -6014,50 +6014,145 @@ function RosterEditor({ section, onSectionUpdated }){
   );
 }
 
+// NEW — "छनोट" used to just flicker random names in a text box (a fast
+// setInterval swapping the label) with no real sense of chance or
+// suspense — visually inert compared to how exciting a name draw feels
+// in a real classroom with an actual spinner. This is a genuine spinning
+// wheel: colored slices for the current cycle's remaining students, a
+// fixed pointer at top, and a CSS transform rotation animated with an
+// easing curve that mimics a real wheel decelerating into its result —
+// so the anticipation comes from watching it slow down and land, not
+// from reading scrambled text. `pool` (the wheel's current slice set)
+// mirrors the same "no repeats until everyone's had a turn" cycle the
+// old `remaining` state tracked; only its name changed.
+const WHEEL_COLORS = [ACCENT, ROSE, VIOLET, TEAL, MARIGOLD_DARK, BLUE];
 function RandomPicker({ roster }){
-  const [remaining,setRemaining]=useState(()=>shuffleArr(roster));
+  const [pool,setPool]=useState(()=>shuffleArr(roster));
   const [picked,setPicked]=useState(null);
-  const [display,setDisplay]=useState("");
+  const [rotation,setRotation]=useState(0);
   const [spinning,setSpinning]=useState(false);
-  useEffect(()=>{setRemaining(shuffleArr(roster));setPicked(null);},[roster.join("|")]);
-  const draw=()=>{
-    if(spinning)return;
-    let pool=remaining.length?remaining:shuffleArr(roster);
-    if(!pool.length)return;
+  const pendingRef=useRef(null);
+  useEffect(()=>{setPool(shuffleArr(roster));setPicked(null);setRotation(0);setSpinning(false);},[roster.join("|")]);
+
+  const n=pool.length;
+  const sliceAngle=n?360/n:360;
+  const gradient=useMemo(()=>{
+    if(!n)return SURFACE_2;
+    const stops=pool.map((_,i)=>{
+      const c=WHEEL_COLORS[i%WHEEL_COLORS.length];
+      return `${c} ${i*sliceAngle}deg ${(i+1)*sliceAngle}deg`;
+    });
+    return `conic-gradient(from 0deg, ${stops.join(", ")})`;
+  },[pool,n,sliceAngle]);
+  // Radial label positions — computed once per pool via plain trig
+  // (angle measured clockwise from 12 o'clock, matching the conic-gradient's
+  // own `from 0deg` start point) so each name/initial sits inside its own
+  // slice instead of needing per-browser SVG textPath support.
+  const labels=useMemo(()=>{
+    if(!n||n>18)return [];
+    const R=38; // % of wheel radius from center
+    return pool.map((name,i)=>{
+      const angle=i*sliceAngle+sliceAngle/2;
+      const rad=(angle*Math.PI)/180;
+      const x=R*Math.sin(rad), y=-R*Math.cos(rad);
+      const label=n>10?(name.trim()[0]||"?").toUpperCase():name.length>10?name.slice(0,9)+"…":name;
+      return { key:name+i, x, y, angle, label };
+    });
+  },[pool,n,sliceAngle]);
+
+  const spin=()=>{
+    if(spinning||!n)return;
+    const idx=Math.floor(Math.random()*n);
+    const winner=pool[idx];
+    const centerAngle=idx*sliceAngle+sliceAngle/2;
+    const extraTurns=5+Math.floor(Math.random()*3); // 5–7 full spins
+    pendingRef.current={idx,winner};
+    setPicked(null);
     setSpinning(true);
-    let ticks=0;const maxTicks=14;
-    const interval=setInterval(()=>{
-      setDisplay(pool[Math.floor(Math.random()*pool.length)]);
-      ticks++;
-      if(ticks>=maxTicks){
-        clearInterval(interval);
-        const idx=Math.floor(Math.random()*pool.length);
-        const name=pool[idx];
-        const rest=pool.filter((_,i)=>i!==idx);
-        setDisplay(name);setPicked(name);
-        setRemaining(rest.length?rest:shuffleArr(roster));
-        setSpinning(false);
-        beep(1);
-      }
-    },70);
+    setRotation((prev)=>{
+      const prevMod=((prev%360)+360)%360;
+      // Pointer is fixed at the top (global 0deg); after rotating by R,
+      // a slice originally centered at `centerAngle` sits at
+      // (centerAngle+R) mod 360 — solve for the R that brings it to 0.
+      const needed=((360-centerAngle)%360+360)%360;
+      const diff=((needed-prevMod)+360)%360;
+      return prev+extraTurns*360+diff;
+    });
   };
-  const resetRound=()=>{setRemaining(shuffleArr(roster));setPicked(null);setDisplay("");};
+  const onWheelTransitionEnd=(e)=>{
+    if(e.propertyName!=="transform"||!spinning)return;
+    const p=pendingRef.current;
+    if(!p)return;
+    const rest=pool.filter((_,i)=>i!==p.idx);
+    setPicked(p.winner);
+    setPool(rest.length?rest:shuffleArr(roster));
+    setSpinning(false);
+    beep(2);
+  };
+  const resetRound=()=>{setPool(shuffleArr(roster));setPicked(null);setRotation(0);setSpinning(false);};
+
   if(!roster.length)return(
     <Card accentColor={ACCENT}><div style={{fontSize:15,color:INK_SOFT}}>पहिले "नाम सूची" ट्याबमा विद्यार्थीहरूको नाम राख्नुहोस्।</div></Card>
   );
   return(
     <Card accentColor={ACCENT}>
       <SectionLabel icon={Dices} color={ACCENT}>विद्यार्थी छनोट</SectionLabel>
-      <style>{`@keyframes ss-pick-pop{0%{transform:scale(0.85);opacity:0.4;}60%{transform:scale(1.06);opacity:1;}100%{transform:scale(1);opacity:1;}}`}</style>
-      <div style={{textAlign:"center",padding:"10px 4px"}}>
-        <div key={display+String(picked)} style={{display:"inline-block",minWidth:200,maxWidth:"100%",padding:"26px 30px",borderRadius:28,background:picked&&!spinning?`linear-gradient(135deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`:`linear-gradient(165deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 88%, ${ACCENT} 8%) 100%)`,border:picked&&!spinning?"none":`1.5px solid color-mix(in srgb, ${ACCENT} 30%, ${BORDER})`,boxShadow:picked&&!spinning?`0 10px 26px color-mix(in srgb, ${ACCENT} 40%, transparent)`:SHADOW.raised,animation:"ss-pick-pop .28s ease"}}>
-          <div style={{fontSize:"clamp(26px, 6vw, 42px)",fontWeight:800,color:picked&&!spinning?"#fff":INK,letterSpacing:"0.01em",lineHeight:1.2}}>
-            {display||"?"}
+      <style>{`
+        @keyframes ss-pick-pop{0%{transform:scale(0.85);opacity:0.4;}60%{transform:scale(1.06);opacity:1;}100%{transform:scale(1);opacity:1;}}
+        @keyframes ss-hub-pulse{0%,100%{box-shadow:inset 0 1px 0 rgba(255,255,255,0.4), 0 0 0 0 color-mix(in srgb, ${ACCENT} 55%, transparent);}50%{box-shadow:inset 0 1px 0 rgba(255,255,255,0.4), 0 0 0 10px color-mix(in srgb, ${ACCENT} 0%, transparent);}}
+        @keyframes ss-light-blink{0%,100%{opacity:0.35;}50%{opacity:1;}}
+      `}</style>
+      <div style={{textAlign:"center",padding:"6px 4px 4px"}}>
+        {/* THE WHEEL */}
+        <div style={{position:"relative",width:"clamp(210px, 62vw, 280px)",aspectRatio:"1",margin:"6px auto 4px"}}>
+          {/* Marquee lights — static ring around the rim (doesn't rotate),
+              blinking on staggered delays for a carnival/fairground feel. */}
+          {Array.from({length:16}).map((_,i)=>{
+            const a=i*(360/16), rad=(a*Math.PI)/180;
+            const x=50+47*Math.sin(rad), y=50-47*Math.cos(rad);
+            return(
+              <div key={i} style={{position:"absolute",left:`${x}%`,top:`${y}%`,width:8,height:8,borderRadius:"50%",transform:"translate(-50%,-50%)",background:i%2===0?MARIGOLD:ACCENT,boxShadow:`0 0 6px 1px color-mix(in srgb, ${i%2===0?MARIGOLD:ACCENT} 70%, transparent)`,animation:`ss-light-blink 1.1s ease-in-out infinite`,animationDelay:`${i*0.07}s`}}/>
+            );
+          })}
+          {/* Rotating disc */}
+          <div onTransitionEnd={onWheelTransitionEnd} style={{
+            position:"absolute",inset:"7%",borderRadius:"50%",background:gradient,
+            border:`5px solid color-mix(in srgb, ${MARIGOLD} 60%, white 10%)`,
+            boxShadow:`0 14px 30px rgba(var(--shadow-rgb),0.30), 0 4px 10px rgba(var(--shadow-rgb),0.18), inset 0 2px 4px rgba(255,255,255,0.25)`,
+            transform:`rotate(${rotation}deg)`,
+            transition:spinning?"transform 4.2s cubic-bezier(0.15,0.68,0.18,1)":"none",
+          }}>
+            {labels.map((l)=>(
+              <div key={l.key} style={{position:"absolute",left:"50%",top:"50%",transform:`translate(-50%,-50%) translate(${l.x}%, ${l.y}%) rotate(${l.angle}deg)`,fontSize:n>12?11:n>7?13:15,fontWeight:800,color:"#fff",textShadow:"0 1px 3px rgba(0,0,0,0.45)",whiteSpace:"nowrap",pointerEvents:"none"}}>
+                {l.label}
+              </div>
+            ))}
+          </div>
+          {/* Pointer, fixed at top, doesn't rotate */}
+          <div style={{position:"absolute",top:-4,left:"50%",transform:"translateX(-50%)",width:0,height:0,borderLeft:"13px solid transparent",borderRight:"13px solid transparent",borderTop:`22px solid ${ACCENT_DARK}`,filter:"drop-shadow(0 3px 4px rgba(0,0,0,0.35))",zIndex:3}}/>
+          {/* Center hub — also tappable to spin */}
+          <button onClick={spin} disabled={spinning} className="ss-btn" style={{
+            position:"absolute",left:"50%",top:"50%",transform:"translate(-50%,-50%)",
+            width:"26%",height:"26%",borderRadius:"50%",zIndex:4,cursor:spinning?"wait":"pointer",
+            border:`3px solid color-mix(in srgb, ${MARIGOLD} 55%, white 15%)`,
+            background:`linear-gradient(150deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`,
+            display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",
+            boxShadow:`inset 0 1px 0 rgba(255,255,255,0.4), 0 6px 16px color-mix(in srgb, ${ACCENT} 45%, transparent)`,
+            animation:!spinning&&!picked?"ss-hub-pulse 1.8s ease-in-out infinite":"none",
+          }}>
+            <Dices size={22} style={spinning?{animation:"spin 1s linear infinite"}:undefined}/>
+          </button>
+        </div>
+
+        {/* Winner reveal */}
+        <div key={String(picked)} style={{display:"inline-block",minWidth:200,maxWidth:"100%",marginTop:10,padding:"18px 28px",borderRadius:26,background:picked&&!spinning?`linear-gradient(135deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`:`linear-gradient(165deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 88%, ${ACCENT} 8%) 100%)`,border:picked&&!spinning?"none":`1.5px solid color-mix(in srgb, ${ACCENT} 30%, ${BORDER})`,boxShadow:picked&&!spinning?`0 10px 26px color-mix(in srgb, ${ACCENT} 40%, transparent)`:SHADOW.raised,animation:picked&&!spinning?"ss-pick-pop .32s ease":"none"}}>
+          <div style={{fontSize:"clamp(24px, 5.5vw, 38px)",fontWeight:800,color:picked&&!spinning?"#fff":INK_SOFT,letterSpacing:"0.01em",lineHeight:1.2}}>
+            {spinning?"घुम्दैछ...":picked||"पाङ्ग्रा घुमाउनुहोस्"}
           </div>
         </div>
-        <div style={{marginTop:14,fontSize:14,color:INK_SOFT,fontWeight:600}}>बाँकी यस चक्रमा: {remaining.length||roster.length} / {roster.length}</div>
-        <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:18}}>
-          <Button size="sm" onClick={draw} disabled={spinning}>{spinning?"छान्दै...":"अर्को छान्नुहोस्"}</Button>
+        <div style={{marginTop:12,fontSize:14,color:INK_SOFT,fontWeight:600}}>बाँकी यस चक्रमा: {n} / {roster.length}</div>
+        <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:14}}>
+          <Button size="sm" onClick={spin} disabled={spinning}>{spinning?"घुम्दैछ...":"पाङ्ग्रा घुमाउनुहोस्"}</Button>
           <Chip onClick={resetRound} color={INK_SOFT}>नयाँ चक्र</Chip>
         </div>
       </div>
