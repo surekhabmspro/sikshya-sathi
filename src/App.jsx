@@ -6139,6 +6139,50 @@ function ssSpeakName(name){
   }catch{ /* speech unavailable — silent no-op */ }
 }
 
+// Shared "colour shower" burst — originally built for the student-picker
+// wheel, factored out here so the Timer's completion celebration (and any
+// future classroom tool) uses the exact same look: ribbon strips with a
+// muted satin gradient (not flat/bright), bursting outward then
+// drifting/falling like real ribbon confetti, each tumbling from its own
+// random starting angle. `top` positions the burst's origin point (as a
+// CSS top value) within the nearest position:relative ancestor that spans
+// the area the shower should cover — pass the whole card's height so the
+// shower reads as filling the card, not just the small graphic it bursts
+// from.
+function ssMakeConfetti(count=36){
+  return Array.from({length:count}).map((_,i)=>{
+    const angle=Math.random()*360, dist=70+Math.random()*170;
+    const rad=(angle*Math.PI)/180;
+    const base=WHEEL_COLORS[i%WHEEL_COLORS.length];
+    return{
+      key:i,
+      tx:Math.round(Math.sin(rad)*dist),
+      ty:Math.round(-Math.cos(rad)*dist),
+      dx:Math.round(Math.random()*100-50),
+      dy:Math.round(150+Math.random()*190),
+      width:4+Math.round(Math.random()*3),
+      height:14+Math.round(Math.random()*13),
+      rot0:Math.round(Math.random()*360),
+      color:`linear-gradient(90deg, color-mix(in srgb, ${base} 62%, black) 0%, color-mix(in srgb, ${base} 82%, white 8%) 48%, color-mix(in srgb, ${base} 62%, black) 100%)`,
+      delay:Math.round(Math.random()*220),
+      duration:1300+Math.round(Math.random()*700),
+    };
+  });
+}
+function ColourShower({ burstKey, top }){
+  const confetti=useMemo(()=>burstKey?ssMakeConfetti(36):[],[burstKey]);
+  if(!burstKey)return null;
+  return(
+    <div key={burstKey} style={{position:"absolute",inset:0,pointerEvents:"none",zIndex:20,overflow:"visible"}}>
+      <div style={{position:"absolute",left:"50%",top}}>
+        {confetti.map((c)=>(
+          <span key={c.key} style={{position:"absolute",left:0,top:0,width:c.width,height:c.height,borderRadius:1,background:c.color,"--tx":`${c.tx}px`,"--ty":`${c.ty}px`,"--dx":`${c.dx}px`,"--dy":`${c.dy}px`,"--rot0":`${c.rot0}deg`,animation:`ss-confetti-burst ${c.duration}ms cubic-bezier(0.2,0.7,0.3,1) ${c.delay}ms forwards`}}/>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function RandomPicker({ roster }){
   const [pool,setPool]=useState(()=>shuffleArr(roster));
   const [picked,setPicked]=useState(null);
@@ -6167,42 +6211,8 @@ function RandomPicker({ roster }){
   const n=pool.length;
   const sliceAngle=n?360/n:360;
 
-  // Confetti/colour-shower pieces are only (re)computed when a win lands,
-  // keyed off burstKey so every win gets a fresh random shower. Each piece
-  // bursts outward first, then keeps drifting/falling like real confetti
-  // settling under gravity.
-  // FIX — the shower used to be sized/positioned relative to the small
-  // wheel graphic itself (max ~300px box), so most of the burst was
-  // invisible: it was cropped to that tiny circle instead of covering the
-  // card. Distances widened here so it visibly spreads across the whole
-  // card; the overlay it renders into (below) was moved to cover the
-  // whole card instead of just the wheel.
-  // FIX — pieces used to be flat, saturated circles/squares straight from
-  // WHEEL_COLORS, which read as too bright/plasticky. Now every piece is
-  // an elongated ribbon strip (with a soft-edged satin gradient — darker
-  // at the ends, a lighter sheen through the middle — instead of a flat
-  // fill) and tumbles from a random starting angle via --rot0.
-  const confetti=useMemo(()=>{
-    if(!burstKey)return [];
-    return Array.from({length:36}).map((_,i)=>{
-      const angle=Math.random()*360, dist=70+Math.random()*170;
-      const rad=(angle*Math.PI)/180;
-      const base=WHEEL_COLORS[i%WHEEL_COLORS.length];
-      return{
-        key:i,
-        tx:Math.round(Math.sin(rad)*dist),
-        ty:Math.round(-Math.cos(rad)*dist),
-        dx:Math.round(Math.random()*100-50),
-        dy:Math.round(150+Math.random()*190),
-        width:4+Math.round(Math.random()*3),
-        height:14+Math.round(Math.random()*13),
-        rot0:Math.round(Math.random()*360),
-        color:`linear-gradient(90deg, color-mix(in srgb, ${base} 62%, black) 0%, color-mix(in srgb, ${base} 82%, white 8%) 48%, color-mix(in srgb, ${base} 62%, black) 100%)`,
-        delay:Math.round(Math.random()*220),
-        duration:1300+Math.round(Math.random()*700),
-      };
-    });
-  },[burstKey]);
+  // Colour-shower burst on win, via the shared ColourShower/ssMakeConfetti
+  // (see definitions above RandomPicker) also used by the Timer.
 
   const spin=()=>{
     if(spinning||!n)return;
@@ -6266,10 +6276,6 @@ function RandomPicker({ roster }){
       <style>{`
         @keyframes ss-pick-pop{0%{transform:scale(0.8) translateY(4px);opacity:0;}55%{transform:scale(1.08) translateY(0);opacity:1;}100%{transform:scale(1) translateY(0);opacity:1;}}
         @keyframes ss-hub-pulse{0%,100%{box-shadow:inset 0 2px 0 rgba(255,255,255,0.5), inset 0 -3px 6px rgba(0,0,0,0.22), 0 0 0 0 color-mix(in srgb, ${ACCENT} 55%, transparent);}50%{box-shadow:inset 0 2px 0 rgba(255,255,255,0.5), inset 0 -3px 6px rgba(0,0,0,0.22), 0 0 0 12px color-mix(in srgb, ${ACCENT} 0%, transparent);}}
-        @keyframes ss-light-blink{0%,100%{opacity:0.3;transform:translate(-50%,-50%) scale(0.82);}50%{opacity:1;transform:translate(-50%,-50%) scale(1.05);}}
-        @keyframes ss-glow-pulse{0%,100%{opacity:0.35;transform:scale(1);}50%{opacity:0.7;transform:scale(1.05);}}
-        @keyframes ss-confetti-burst{0%{transform:translate(-50%,-50%) scale(0.5) rotate(var(--rot0,0deg));opacity:1;}45%{transform:translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(1) rotate(calc(var(--rot0,0deg) + 140deg));opacity:1;}100%{transform:translate(calc(-50% + var(--tx) + var(--dx)), calc(-50% + var(--ty) + var(--dy))) scale(0.85) rotate(calc(var(--rot0,0deg) + 320deg));opacity:0;}}
-        @keyframes ss-ribbon-shine{0%{transform:translateX(-130%) skewX(-18deg);}100%{transform:translateX(230%) skewX(-18deg);}}
       `}</style>
       <div style={{textAlign:"center",padding:"6px 4px 4px",position:"relative"}}>
         {/* THE WHEEL */}
@@ -6373,45 +6379,75 @@ function RandomPicker({ roster }){
           <Chip onClick={resetRound} color={INK_SOFT}>नयाँ चक्र</Chip>
         </div>
 
-        {/* Colour shower — moved to cover the WHOLE card (this whole
-            relative block, wheel+banner+buttons) instead of just the
-            small wheel graphic, so the burst reads as a shower filling
-            the popup/card and isn't cropped to a ~300px circle. Anchored
-            at the wheel's own center so it still visibly originates from
-            the wheel. pointerEvents:none so it never blocks the spin
-            button/hub or the buttons below it. */}
-        {revealed&&(
-          <div key={burstKey} style={{position:"absolute",inset:0,pointerEvents:"none",zIndex:20,overflow:"visible"}}>
-            <div style={{position:"absolute",left:"50%",top:"calc(10px + clamp(230px, 68vw, 300px) / 2)"}}>
-              {confetti.map((c)=>(
-                <span key={c.key} style={{position:"absolute",left:0,top:0,width:c.width,height:c.height,borderRadius:1,background:c.color,"--tx":`${c.tx}px`,"--ty":`${c.ty}px`,"--dx":`${c.dx}px`,"--dy":`${c.dy}px`,"--rot0":`${c.rot0}deg`,animation:`ss-confetti-burst ${c.duration}ms cubic-bezier(0.2,0.7,0.3,1) ${c.delay}ms forwards`}}/>
-              ))}
-            </div>
-          </div>
-        )}
+        {/* Colour shower — covers the WHOLE card (this whole relative
+            block, wheel+banner+buttons) instead of just the small wheel
+            graphic, so the burst reads as a shower filling the popup/card
+            and isn't cropped to a ~300px circle. Anchored at the wheel's
+            own center so it still visibly originates from the wheel. */}
+        {revealed&&<ColourShower burstKey={burstKey} top="calc(10px + clamp(230px, 68vw, 300px) / 2)"/>}
       </div>
     </Card>
   );
 }
 
+// Short, high/low "tick" click for each second of a running countdown —
+// deliberately just a click (no ring/tone), matching the plain, un-fancy
+// timer of a real classroom clock, with a sharper/higher variant for the
+// urgent final stretch.
+function ssPlayTimerTick(urgent){
+  try{
+    const Ctx=window.AudioContext||window.webkitAudioContext;
+    if(!Ctx)return;
+    const ctx=new Ctx();
+    const osc=ctx.createOscillator();
+    const gain=ctx.createGain();
+    const filter=ctx.createBiquadFilter();
+    filter.type="highpass";
+    filter.frequency.value=urgent?2200:1400;
+    osc.type="square";
+    osc.frequency.value=urgent?1600:900;
+    osc.connect(filter);filter.connect(gain);gain.connect(ctx.destination);
+    const start=ctx.currentTime;
+    gain.gain.setValueAtTime(0.0001,start);
+    gain.gain.exponentialRampToValueAtTime(urgent?0.26:0.14,start+0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0001,start+(urgent?0.055:0.03));
+    osc.start(start);osc.stop(start+0.07);
+    setTimeout(()=>{try{ctx.close();}catch{}},160);
+  }catch{ /* audio unavailable — silent no-op, timer still runs visually */ }
+}
+
+// ENHANCED — brought up to the same visual/audio language as the
+// छनोट (RandomPicker) wheel: ambient glow, blinking marquee lights around
+// the ring, a gradient+glow progress stroke that shifts to red urgency in
+// the final 10s, a per-second tick (sharper in the last 10s), and a
+// colour-shower + chime celebration when time runs out — instead of the
+// old flat ring + a single triple beep().
 function ActivityTimer(){
   const PRESETS=[60,120,180,300,600];
   const [totalSec,setTotalSec]=useState(180);
   const [remaining,setRemaining]=useState(180);
   const [running,setRunning]=useState(false);
   const [customMin,setCustomMin]=useState("");
+  const [everStarted,setEverStarted]=useState(false);
+  const [burstKey,setBurstKey]=useState(0);
   const intervalRef=useRef(null);
   useEffect(()=>{
     if(!running)return;
     intervalRef.current=setInterval(()=>{
       setRemaining((r)=>{
-        if(r<=1){clearInterval(intervalRef.current);setRunning(false);beep(3);return 0;}
+        if(r<=1){
+          clearInterval(intervalRef.current);setRunning(false);
+          ssPlayWinChime(); // same celebratory cue as a wheel win
+          setBurstKey((k)=>k+1);
+          return 0;
+        }
+        ssPlayTimerTick(r<=11); // ticks for the second that's about to elapse; sharper inside the last 10s
         return r-1;
       });
     },1000);
     return()=>clearInterval(intervalRef.current);
   },[running]);
-  const setPreset=(sec)=>{clearInterval(intervalRef.current);setRunning(false);setTotalSec(sec);setRemaining(sec);};
+  const setPreset=(sec)=>{clearInterval(intervalRef.current);setRunning(false);setTotalSec(sec);setRemaining(sec);setEverStarted(false);setBurstKey(0);};
   const applyCustom=()=>{
     const m=parseFloat(customMin);
     if(!m||m<=0)return;
@@ -6419,15 +6455,25 @@ function ActivityTimer(){
   };
   const toggle=()=>{
     if(remaining<=0)return;
+    setEverStarted(true);
+    setBurstKey(0);
     setRunning((r)=>!r);
   };
-  const reset=()=>{clearInterval(intervalRef.current);setRunning(false);setRemaining(totalSec);};
+  const reset=()=>{clearInterval(intervalRef.current);setRunning(false);setRemaining(totalSec);setEverStarted(false);setBurstKey(0);};
   const mm=String(Math.floor(remaining/60)).padStart(2,"0");
   const ss=String(remaining%60).padStart(2,"0");
   const pct=totalSec?Math.round((remaining/totalSec)*100):0;
+  const urgent=running&&remaining>0&&remaining<=10;
+  const done=everStarted&&remaining===0;
+  const ringColor=urgent||done?WARN:MARIGOLD_DARK;
   return(
-    <Card>
+    <Card style={{position:"relative",overflow:"visible"}}>
       <SectionLabel icon={Clock} color={MARIGOLD_DARK}>समय (Timer)</SectionLabel>
+      <style>{`
+        @keyframes ss-timer-shake{0%,100%{transform:translateX(0);}25%{transform:translateX(-2px);}75%{transform:translateX(2px);}}
+        @keyframes ss-timer-pop{0%{transform:scale(0.8) translateY(4px);opacity:0;}55%{transform:scale(1.08) translateY(0);opacity:1;}100%{transform:scale(1) translateY(0);opacity:1;}}
+        @keyframes ss-timer-invite-pulse{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb, ${MARIGOLD_DARK} 55%, transparent);}50%{box-shadow:0 0 0 10px color-mix(in srgb, ${MARIGOLD_DARK} 0%, transparent);}}
+      `}</style>
       <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:16}}>
         {PRESETS.map((sec)=>(
           <Chip key={sec} active={totalSec===sec} color={MARIGOLD_DARK} onClick={()=>setPreset(sec)}>{sec<60?`${sec}से`:`${sec/60}मि`}</Chip>
@@ -6435,18 +6481,43 @@ function ActivityTimer(){
         <input value={customMin} onChange={(e)=>setCustomMin(e.target.value)} placeholder="मिनेट" type="number" min="0" step="0.5" className="ss-field" style={{width:70,borderRadius:999,padding:"7px 12px",fontSize:14.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
         <Chip dashed onClick={applyCustom} color={INK_SOFT}>राख्नुहोस्</Chip>
       </div>
-      <div style={{textAlign:"center",padding:"18px 10px"}}>
+      <div style={{textAlign:"center",padding:"18px 10px",position:"relative"}}>
         <div style={{position:"relative",width:"min(260px, 60vw)",aspectRatio:"1",margin:"0 auto"}}>
-          <svg viewBox="0 0 100 100" style={{width:"100%",height:"100%",transform:"rotate(-90deg)"}}>
+          {/* Ambient glow behind the ring — same language as the wheel,
+              pulsing faster and red once the last 10s kick in. */}
+          <div style={{position:"absolute",inset:"-8%",borderRadius:"50%",background:`radial-gradient(circle at 50% 45%, color-mix(in srgb, ${ringColor} 30%, transparent) 0%, transparent 72%)`,animation:running?`ss-glow-pulse ${urgent?1.1:2.6}s ease-in-out infinite`:"none"}}/>
+          {/* Marquee lights around the rim — only animated while running,
+              sit dim and static otherwise so an idle timer doesn't feel busy. */}
+          {Array.from({length:12}).map((_,i)=>{
+            const a=i*(360/12), rad=(a*Math.PI)/180;
+            const x=50+48*Math.sin(rad), y=50-48*Math.cos(rad);
+            const c=i%2===0?MARIGOLD:ringColor;
+            return(
+              <div key={i} style={{position:"absolute",left:`${x}%`,top:`${y}%`,width:7,height:7,borderRadius:"50%",transform:"translate(-50%,-50%)",background:`radial-gradient(circle at 35% 30%, #fff, ${c} 55%, color-mix(in srgb, ${c} 60%, black) 100%)`,boxShadow:running?`0 0 6px 2px color-mix(in srgb, ${c} 65%, transparent)`:"none",opacity:running?undefined:0.35,animation:running?`ss-light-blink ${urgent?0.7:1.15}s ease-in-out infinite`:"none",animationDelay:`${i*0.07}s`}}/>
+            );
+          })}
+          <svg viewBox="0 0 100 100" style={{width:"100%",height:"100%",transform:"rotate(-90deg)",position:"relative",zIndex:1,filter:`drop-shadow(0 0 ${urgent?7:4}px color-mix(in srgb, ${ringColor} 55%, transparent))`}}>
+            <defs>
+              <linearGradient id="ssTimerRingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor={urgent||done?WARN:MARIGOLD}/>
+                <stop offset="100%" stopColor={urgent||done?"#8a3a2a":MARIGOLD_DARK}/>
+              </linearGradient>
+            </defs>
             <circle cx="50" cy="50" r="45" fill="none" stroke={BORDER} strokeWidth="8"/>
-            <circle cx="50" cy="50" r="45" fill="none" stroke={remaining===0?WARN:MARIGOLD_DARK} strokeWidth="8" strokeLinecap="round" strokeDasharray={2*Math.PI*45} strokeDashoffset={2*Math.PI*45*(1-pct/100)} style={{transition:"stroke-dashoffset .3s linear"}}/>
+            <circle cx="50" cy="50" r="45" fill="none" stroke="url(#ssTimerRingGrad)" strokeWidth="8" strokeLinecap="round" strokeDasharray={2*Math.PI*45} strokeDashoffset={2*Math.PI*45*(1-pct/100)} style={{transition:"stroke-dashoffset .3s linear"}}/>
           </svg>
-          <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"clamp(30px, 8vw, 46px)",fontWeight:800,color:remaining===0?WARN:INK,fontVariantNumeric:"tabular-nums"}}>{mm}:{ss}</div>
+          <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",zIndex:2}}>
+            <div style={{fontSize:"clamp(30px, 8vw, 46px)",fontWeight:800,color:done?WARN:INK,fontVariantNumeric:"tabular-nums",animation:urgent?"ss-timer-shake .5s ease-in-out infinite":"none"}}>{mm}:{ss}</div>
+            {done&&<div style={{marginTop:4,fontSize:15,fontWeight:800,color:WARN,animation:"ss-timer-pop .38s cubic-bezier(0.34,1.56,0.64,1)"}}>⏰ समय सकियो!</div>}
+          </div>
         </div>
         <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:22}}>
-          <Button size="sm" onClick={toggle} disabled={remaining<=0}>{running?<><Pause size={16}/> रोक्नुहोस्</>:<><Play size={16}/> सुरु</>}</Button>
+          <Button size="sm" onClick={toggle} disabled={remaining<=0} style={!everStarted&&!running?{animation:"ss-timer-invite-pulse 1.8s ease-in-out infinite"}:undefined}>{running?<><Pause size={16}/> रोक्नुहोस्</>:<><Play size={16}/> सुरु</>}</Button>
           <Chip onClick={reset} color={INK_SOFT}>रिसेट</Chip>
         </div>
+        {/* Same colour-shower celebration as a wheel win, fired once when
+            the countdown hits zero. */}
+        {done&&<ColourShower burstKey={burstKey} top="calc(18px + min(260px, 60vw) / 2)"/>}
       </div>
     </Card>
   );
@@ -8352,6 +8423,14 @@ export default function App() {
 
         @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
         @keyframes ss-fade-up{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+        /* Shared "showpiece" effect keyframes — originally built for the
+           student-picker wheel, promoted here so other classroom tools
+           (e.g. the Timer) can reuse the same glow/lights/confetti/sheen
+           language instead of re-inventing a different-looking effect. */
+        @keyframes ss-glow-pulse{0%,100%{opacity:0.35;transform:scale(1);}50%{opacity:0.7;transform:scale(1.05);}}
+        @keyframes ss-light-blink{0%,100%{opacity:0.3;transform:translate(-50%,-50%) scale(0.82);}50%{opacity:1;transform:translate(-50%,-50%) scale(1.05);}}
+        @keyframes ss-confetti-burst{0%{transform:translate(-50%,-50%) scale(0.5) rotate(var(--rot0,0deg));opacity:1;}45%{transform:translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(1) rotate(calc(var(--rot0,0deg) + 140deg));opacity:1;}100%{transform:translate(calc(-50% + var(--tx) + var(--dx)), calc(-50% + var(--ty) + var(--dy))) scale(0.85) rotate(calc(var(--rot0,0deg) + 320deg));opacity:0;}}
+        @keyframes ss-ribbon-shine{0%{transform:translateX(-130%) skewX(-18deg);}100%{transform:translateX(230%) skewX(-18deg);}}
         /* NEW — gentle "alive" breathing glow for status dots (StatusPill)
            and the expand-arrow badge on an open एकाइ, so small state
            indicators don't sit completely static on screen. */
