@@ -4277,7 +4277,7 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
         {phase==="choose"&&(
           <div style={{display:"flex",flexDirection:"column",gap:12,marginTop:14}}>
             {error&&<div style={{fontSize:15,color:DANGER,background:DANGER_BG,borderRadius:10,padding:"10px 12px"}}>{error}</div>}
-            <div style={{fontSize:15.5,color:INK_SOFT,lineHeight:1.6}}>यो एकाइको लागि अझै कुनै आधिकारिक पाठ योजना/रुब्रिक्स छैन। यहाँको "आधिकारिक पाठ" संख्या कक्षामा पढाइने पाठ्यपुस्तकका पाठ संख्यासँग बराबर नहुन सक्छ — विद्यार्थी मूल्याङ्कन मार्गदर्शनले साझा सिकाइ उपलब्धि भएका पाठहरू गाभेको हुन सक्छ। पहिले मार्गदर्शन जाँची कति आधिकारिक पाठ बन्छन् भनी देखाउनेछौं, अनि तपाईंको सहमति लिएर एक-एक गरी मस्यौदा बनाउनेछौं (सबै एकैचोटि बनाउँदा ठूला एकाइमा टोकन सकिन सक्छ)।</div>
+            <div style={{fontSize:15.5,color:INK_SOFT,lineHeight:1.6}}>यो एकाइको लागि अझै कुनै आधिकारिक पाठ योजना/रुब्रिक्स छैन। यहाँको "आधिकारिक पाठ" संख्या कक्षामा पढाइने पाठ्यपुस्तकका पाठ संख्यासँग बराबर नहुन सक्छ — शिक्षक निर्देशिकाले साझा सिकाइ उपलब्धि भएका पाठहरू गाभेको हुन सक्छ। पहिले निर्देशिका जाँची कति आधिकारिक पाठ बन्छन् भनी देखाउनेछौं, अनि तपाईंको सहमति लिएर एक-एक गरी मस्यौदा बनाउनेछौं (सबै एकैचोटि बनाउँदा ठूला एकाइमा टोकन सकिन सक्छ)।</div>
             <AIButton label="✨ मार्गदर्शन जाँच्नुहोस्" onClick={startDetect} loading={busy} style={{width:"100%",justifyContent:"center",fontSize:16.5,padding:"13px"}}/>
             <button className="ss-btn" onClick={startManual} style={{width:"100%",padding:"12px",borderRadius:10,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontWeight:700,fontSize:16,cursor:"pointer"}}>आफैं लेख्नुहोस्</button>
           </div>
@@ -6639,13 +6639,13 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
       const{data,error}=await db.insertTeacherGuide({label:file.name,storage_path:path,file_type:fileType,class_label:classLabel});
       if(error)throw error;
       setTeacherGuide(data);
-      setGuideMsg(`"${file.name}" "${classLabel}" का लागि सुरक्षित भयो — अब यही मार्गदर्शनबाट यो कक्षाको पाठ योजना बनाइनेछ।`);
+      setGuideMsg(`"${file.name}" "${classLabel}" का लागि सुरक्षित भयो — अब यसैबाट यो कक्षाको पाठ योजना बनाइनेछ।`);
     }catch(err){setGuideMsg("त्रुटि: "+(err.message||"अपलोड असफल भयो।"));}
     setGuideBusy(false);e.target.value="";
   };
 
   const deleteGuideHandler=async()=>{
-    if(!teacherGuide||!confirm("यो विद्यार्थी मूल्याङ्कन मार्गदर्शन हटाउने? यसपछि AI ले नयाँ मार्गदर्शन नहुन्जेल पाठ्यपुस्तकको भरमा मात्र योजना बनाउनेछ।"))return;
+    if(!teacherGuide||!confirm("यो मार्गदर्शन/निर्देशिका हटाउने? यसपछि AI ले नयाँ फाइल नहुन्जेल पाठ्यपुस्तकको भरमा मात्र योजना बनाउनेछ।"))return;
     setGuideBusy(true);
     await db.deleteTeacherGuide(teacherGuide.id,teacherGuide.storage_path);
     setTeacherGuide(null);setGuideBusy(false);
@@ -6949,8 +6949,8 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
       </Card>
 
       <Card style={{marginBottom:14}}>
-        <SectionLabel icon={FileText} color={TEAL}>विद्यार्थी मूल्याङ्कन मार्गदर्शन</SectionLabel>
-        <div style={{fontSize:16,color:INK_SOFT,marginBottom:12,lineHeight:1.6}}>"{classLabel}" को लागि छुट्टै विद्यार्थी मूल्याङ्कन मार्गदर्शन अपलोड गर्नुहोस् — AI ले पाठ योजना र रुब्रिक्स मस्यौदा बनाउँदा यसैलाई प्रयोग गर्नेछ। अर्को कक्षामा गएपछि यहाँ त्यो कक्षाको आफ्नै (छुट्टै) मार्गदर्शन देखिनेछ। मार्गदर्शन फेरिँदा जुनसुकै बेला फेरि अपलोड गर्न सकिन्छ, पुरानो स्वतः बदलिन्छ।</div>
+        <SectionLabel icon={FileText} color={TEAL}>विद्यार्थी मूल्याङ्कन मार्गदर्शन / शिक्षक निर्देशिका</SectionLabel>
+        <div style={{fontSize:16,color:INK_SOFT,marginBottom:12,lineHeight:1.6}}>"{classLabel}" को लागि छुट्टै विद्यार्थी मूल्याङ्कन मार्गदर्शन वा शिक्षक निर्देशिका अपलोड गर्नुहोस् (जुनसुकै भए पनि हुन्छ, यदि त्यसमा यस विषयको विषयक्षेत्र/विषयवस्तुगत सिकाइ उपलब्धिको तालिका छ भने) — AI ले पूरै फाइल हेरेर कुन-कुन पाठ गाभिन्छ भनी पत्ता लगाई पाठ योजना र रुब्रिक्स मस्यौदा बनाउँदा यसैलाई प्रयोग गर्नेछ। फाइल लामो भए पनि (जस्तै धेरै पानाको सरकारी मार्गदर्शन) AI ले सुरुदेखि अन्त्यसम्म पूरै पढ्छ, त्यसैले अन्त्यतिरका विषय-विशेष अनुसूची/तालिका पनि समेटिन्छन्। अर्को कक्षामा गएपछि यहाँ त्यो कक्षाको आफ्नै (छुट्टै) मार्गदर्शन/निर्देशिका देखिनेछ। फेरिँदा जुनसुकै बेला फेरि अपलोड गर्न सकिन्छ, पुरानो स्वतः बदलिन्छ।</div>
         {teacherGuide?(
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
             <div style={{display:"flex",alignItems:"center",gap:8,background:ACCENT_LIGHT,borderRadius:10,padding:"10px 14px"}}>
@@ -6967,7 +6967,7 @@ function Settings({ session, sections, currentSection, onSectionAdded, onSection
           </div>
         ):(
           <label style={{display:"flex",alignItems:"center",gap:8,background:ACCENT,color:"#fff",border:"none",borderRadius:10,padding:"12px 16px",fontWeight:700,fontSize:16.5,cursor:"pointer"}}>
-            <FileText size={17}/>{guideBusy?"लोड गर्दै...":"विद्यार्थी मूल्याङ्कन मार्गदर्शन अपलोड गर्नुहोस्"}
+            <FileText size={17}/>{guideBusy?"लोड गर्दै...":"मार्गदर्शन/निर्देशिका अपलोड गर्नुहोस्"}
             <input type="file" accept="application/pdf,.docx,image/*" onChange={uploadGuideHandler} style={{display:"none"}}/>
           </label>
         )}

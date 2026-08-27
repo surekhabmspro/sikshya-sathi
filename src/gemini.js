@@ -1526,14 +1526,48 @@ export const generateRubric = async (prompt, ctx = null) => {
 // the right file was picked before this function ever runs.
 export async function extractGuideClassSection(guidePart, classLabel) {
   if (!guidePart) return null;
-  const prompt = `यो "${classLabel}" को लागि छुट्टै तयार पारिएको शिक्षक निर्देशिका (Teacher's Guide) हो। यसको पूरा विषयवस्तु — नछोटाई, कुनै तथ्य/वाक्य नछुटाई — सादा पाठको रूपमा फिर्ता दिनुहोस्। कुनै व्याख्या वा फर्म्याटिङ नथप्नुहोस्।${RAW_TEXT_LAYER_WARNING}`;
-  // FIX — was maxOutputTokens: 8192, which silently caps how much of a
-  // long Teacher's Guide can come back out of this extraction step, before
-  // the grouping/official-lesson/draft prompts below even see it. Raised
-  // to match the other big single-document extractions in this file.
+  const prompt = `यो "${classLabel}" को लागि छुट्टै तयार पारिएको शिक्षक निर्देशिका (Teacher's Guide) हो। यसको पूरा विषयवस्तु — नछोटाई, कुनै तथ्य/वाक्य नछुटाई, हरेक तालिका/विषयक्षेत्रको हरेक हरफसहित — सादा पाठको रूपमा फिर्ता दिनुहोस्। तालिका भए त्यसको हरेक हरफ (विषयक्षेत्र, विषयवस्तु, सिकाइ उपलब्धि आदि सबै स्तम्भ) छुट्याई-छुट्याई लेख्नुहोस्, नहराउनुहोस्। कुनै व्याख्या वा फर्म्याटिङ नथप्नुहोस्।${RAW_TEXT_LAYER_WARNING}`;
+  // FIX — real root cause of "guide has merge info but app never uses it":
+  // this was maxOutputTokens: 16000, asking Gemini to retype an ENTIRE guide
+  // document verbatim in one shot. A guide of even moderate length (e.g. a
+  // 24-page government margadarshan) can need 25,000-30,000+ output tokens
+  // to transcribe in full — well past that cap. The transcription silently
+  // cuts off partway through, and government guides consistently put the
+  // subject-specific detail (Anusuchi/annex tables with the per-topic
+  // सिकाइ उपलब्धि breakdown that grouping/merging actually depends on) in
+  // the LAST pages, after general front-matter — exactly the part a
+  // front-to-back truncation loses first. Raised well past what a
+  // multi-dozen-page guide needs so the part that matters isn't the part
+  // that gets cut.
+  //
+  // Second, and worse: this used to catch EVERY failure (network error,
+  // truncation, anything) and return null with no signal to the caller.
+  // callGemini already tags a truncated response with `.truncated = true`
+  // specifically so callers can tell "ran out of room" apart from "guide is
+  // empty/unusable" — but this function ignored that tag and treated both
+  // identically. Every downstream caller (detectChapterGrouping,
+  // detectOfficialLessons) treats a null guideClassText as "no merge info
+  // in this guide at all" and silently falls back to one official lesson
+  // per textbook lesson — which is indistinguishable, from the teacher's
+  // side, from "the guide really has nothing to merge here". A truncated
+  // extraction is now retried once at an even larger budget before giving
+  // up, and if it still fails, the error is re-thrown (not swallowed) so
+  // App.jsx's existing error UI actually tells the teacher extraction
+  // failed, instead of quietly proceeding as if the guide said nothing.
   let text;
-  try { text = await callGemini([guidePart, { text: prompt }], { maxOutputTokens: 16000, timeoutMs: 90000 }); }
-  catch { return null; }
+  try {
+    text = await callGemini([guidePart, { text: prompt }], { maxOutputTokens: 32768, timeoutMs: 150000 });
+  } catch (err) {
+    if (err?.truncated) {
+      try {
+        text = await callGemini([guidePart, { text: prompt }], { maxOutputTokens: 32768, timeoutMs: 150000, retries: 0, model: FALLBACK_MODEL });
+      } catch {
+        throw new Error("शिक्षक निर्देशिका धेरै लामो भएकाले पूरा पढ्न सकिएन — यसैले पाठ गाभ्ने जानकारी छुट्न सक्छ। सम्भव भए निर्देशिकालाई साना/छुट्टाछुट्टै भागमा (जस्तै हरेक विषयक्षेत्रको आफ्नै फाइल) बाँडेर अपलोड गर्नुहोस्।");
+      }
+    } else {
+      throw err;
+    }
+  }
   const trimmed = (text || "").trim();
   if (!trimmed || trimmed.length < 40) return null;
   if (looksCorrupted(trimmed)) return null; // never let a corrupted extraction feed every downstream Guide-based prompt (grouping, official lessons, etc.)
