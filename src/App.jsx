@@ -6026,39 +6026,56 @@ function RosterEditor({ section, onSectionUpdated }){
 // mirrors the same "no repeats until everyone's had a turn" cycle the
 // old `remaining` state tracked; only its name changed.
 const WHEEL_COLORS = [ACCENT, ROSE, VIOLET, TEAL, MARIGOLD_DARK, BLUE];
+const WHEEL_OVERSHOOT = 7; // degrees the wheel swings past the winner before rocking back
+
+// Angle convention throughout this wheel: 0deg = 12 o'clock, increasing
+// CLOCKWISE — matches how the disc is rotated with a plain CSS
+// `rotate(deg)` transform, so the trig below and the spin-targeting math
+// in `spin()` agree with each other.
+function ssPolar(cx, cy, r, angleDeg){
+  const rad = ((angleDeg - 90) * Math.PI) / 180;
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+}
+function ssSlicePath(cx, cy, r, startAngle, endAngle){
+  const start = ssPolar(cx, cy, r, endAngle);
+  const end = ssPolar(cx, cy, r, startAngle);
+  const largeArc = endAngle - startAngle <= 180 ? 0 : 1;
+  return `M ${cx} ${cy} L ${start.x} ${start.y} A ${r} ${r} 0 ${largeArc} 0 ${end.x} ${end.y} Z`;
+}
+
 function RandomPicker({ roster }){
   const [pool,setPool]=useState(()=>shuffleArr(roster));
   const [picked,setPicked]=useState(null);
   const [rotation,setRotation]=useState(0);
-  const [spinning,setSpinning]=useState(false);
+  // "idle" -> "spinning" (long decelerating spin, ends slightly past the
+  // winner) -> "settling" (short bounce back onto the exact winner) -> "idle"
+  const [phase,setPhase]=useState("idle");
+  const [burstKey,setBurstKey]=useState(0);
   const pendingRef=useRef(null);
-  useEffect(()=>{setPool(shuffleArr(roster));setPicked(null);setRotation(0);setSpinning(false);},[roster.join("|")]);
+  useEffect(()=>{setPool(shuffleArr(roster));setPicked(null);setRotation(0);setPhase("idle");},[roster.join("|")]);
 
+  const spinning = phase!=="idle";
   const n=pool.length;
   const sliceAngle=n?360/n:360;
-  const gradient=useMemo(()=>{
-    if(!n)return SURFACE_2;
-    const stops=pool.map((_,i)=>{
-      const c=WHEEL_COLORS[i%WHEEL_COLORS.length];
-      return `${c} ${i*sliceAngle}deg ${(i+1)*sliceAngle}deg`;
-    });
-    return `conic-gradient(from 0deg, ${stops.join(", ")})`;
-  },[pool,n,sliceAngle]);
-  // Radial label positions — computed once per pool via plain trig
-  // (angle measured clockwise from 12 o'clock, matching the conic-gradient's
-  // own `from 0deg` start point) so each name/initial sits inside its own
-  // slice instead of needing per-browser SVG textPath support.
-  const labels=useMemo(()=>{
-    if(!n||n>18)return [];
-    const R=38; // % of wheel radius from center
-    return pool.map((name,i)=>{
-      const angle=i*sliceAngle+sliceAngle/2;
+
+  // Confetti pieces are only (re)computed when a win actually lands, keyed
+  // off burstKey so every win gets a fresh random burst.
+  const confetti=useMemo(()=>{
+    if(!burstKey)return [];
+    return Array.from({length:18}).map((_,i)=>{
+      const angle=Math.random()*360, dist=55+Math.random()*60;
       const rad=(angle*Math.PI)/180;
-      const x=R*Math.sin(rad), y=-R*Math.cos(rad);
-      const label=n>10?(name.trim()[0]||"?").toUpperCase():name.length>10?name.slice(0,9)+"…":name;
-      return { key:name+i, x, y, angle, label };
+      return{
+        key:i,
+        tx:Math.round(Math.sin(rad)*dist),
+        ty:Math.round(-Math.cos(rad)*dist),
+        color:WHEEL_COLORS[i%WHEEL_COLORS.length],
+        size:5+Math.round(Math.random()*5),
+        round:i%2===0,
+        delay:Math.round(Math.random()*150),
+      };
     });
-  },[pool,n,sliceAngle]);
+  },[burstKey]);
 
   const spin=()=>{
     if(spinning||!n)return;
@@ -6066,9 +6083,8 @@ function RandomPicker({ roster }){
     const winner=pool[idx];
     const centerAngle=idx*sliceAngle+sliceAngle/2;
     const extraTurns=5+Math.floor(Math.random()*3); // 5–7 full spins
-    pendingRef.current={idx,winner};
     setPicked(null);
-    setSpinning(true);
+    setPhase("spinning");
     setRotation((prev)=>{
       const prevMod=((prev%360)+360)%360;
       // Pointer is fixed at the top (global 0deg); after rotating by R,
@@ -6076,20 +6092,31 @@ function RandomPicker({ roster }){
       // (centerAngle+R) mod 360 — solve for the R that brings it to 0.
       const needed=((360-centerAngle)%360+360)%360;
       const diff=((needed-prevMod)+360)%360;
-      return prev+extraTurns*360+diff;
+      const target=prev+extraTurns*360+diff;
+      pendingRef.current={idx,winner,target};
+      return target+WHEEL_OVERSHOOT; // swing a touch past the winner first
     });
   };
   const onWheelTransitionEnd=(e)=>{
-    if(e.propertyName!=="transform"||!spinning)return;
-    const p=pendingRef.current;
-    if(!p)return;
-    const rest=pool.filter((_,i)=>i!==p.idx);
-    setPicked(p.winner);
-    setPool(rest.length?rest:shuffleArr(roster));
-    setSpinning(false);
-    beep(2);
+    if(e.propertyName!=="transform")return;
+    if(phase==="spinning"){
+      // Rock back from the overshoot onto the exact winning slice.
+      setPhase("settling");
+      setRotation(pendingRef.current.target);
+      return;
+    }
+    if(phase==="settling"){
+      const p=pendingRef.current;
+      if(!p)return;
+      const rest=pool.filter((_,i)=>i!==p.idx);
+      setPicked(p.winner);
+      setPool(rest.length?rest:shuffleArr(roster));
+      setPhase("idle");
+      setBurstKey((k)=>k+1);
+      beep(2);
+    }
   };
-  const resetRound=()=>{setPool(shuffleArr(roster));setPicked(null);setRotation(0);setSpinning(false);};
+  const resetRound=()=>{setPool(shuffleArr(roster));setPicked(null);setRotation(0);setPhase("idle");};
 
   if(!roster.length)return(
     <Card accentColor={ACCENT}><div style={{fontSize:15,color:INK_SOFT}}>पहिले "नाम सूची" ट्याबमा विद्यार्थीहरूको नाम राख्नुहोस्।</div></Card>
@@ -6098,59 +6125,118 @@ function RandomPicker({ roster }){
     <Card accentColor={ACCENT}>
       <SectionLabel icon={Dices} color={ACCENT}>विद्यार्थी छनोट</SectionLabel>
       <style>{`
-        @keyframes ss-pick-pop{0%{transform:scale(0.85);opacity:0.4;}60%{transform:scale(1.06);opacity:1;}100%{transform:scale(1);opacity:1;}}
-        @keyframes ss-hub-pulse{0%,100%{box-shadow:inset 0 1px 0 rgba(255,255,255,0.4), 0 0 0 0 color-mix(in srgb, ${ACCENT} 55%, transparent);}50%{box-shadow:inset 0 1px 0 rgba(255,255,255,0.4), 0 0 0 10px color-mix(in srgb, ${ACCENT} 0%, transparent);}}
-        @keyframes ss-light-blink{0%,100%{opacity:0.35;}50%{opacity:1;}}
+        @keyframes ss-pick-pop{0%{transform:scale(0.8) translateY(4px);opacity:0;}55%{transform:scale(1.08) translateY(0);opacity:1;}100%{transform:scale(1) translateY(0);opacity:1;}}
+        @keyframes ss-hub-pulse{0%,100%{box-shadow:inset 0 2px 0 rgba(255,255,255,0.5), inset 0 -3px 6px rgba(0,0,0,0.22), 0 0 0 0 color-mix(in srgb, ${ACCENT} 55%, transparent);}50%{box-shadow:inset 0 2px 0 rgba(255,255,255,0.5), inset 0 -3px 6px rgba(0,0,0,0.22), 0 0 0 12px color-mix(in srgb, ${ACCENT} 0%, transparent);}}
+        @keyframes ss-light-blink{0%,100%{opacity:0.3;transform:translate(-50%,-50%) scale(0.82);}50%{opacity:1;transform:translate(-50%,-50%) scale(1.05);}}
+        @keyframes ss-glow-pulse{0%,100%{opacity:0.35;transform:scale(1);}50%{opacity:0.7;transform:scale(1.05);}}
+        @keyframes ss-confetti-burst{0%{transform:translate(-50%,-50%) scale(0.5) rotate(0deg);opacity:1;}75%{opacity:1;}100%{transform:translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(0.9) rotate(180deg);opacity:0;}}
+        @keyframes ss-ribbon-shine{0%{transform:translateX(-130%) skewX(-18deg);}100%{transform:translateX(230%) skewX(-18deg);}}
       `}</style>
       <div style={{textAlign:"center",padding:"6px 4px 4px"}}>
         {/* THE WHEEL */}
-        <div style={{position:"relative",width:"clamp(210px, 62vw, 280px)",aspectRatio:"1",margin:"6px auto 4px"}}>
-          {/* Marquee lights — static ring around the rim (doesn't rotate),
-              blinking on staggered delays for a carnival/fairground feel. */}
+        <div style={{position:"relative",width:"clamp(230px, 68vw, 300px)",aspectRatio:"1",margin:"10px auto 0"}}>
+          {/* Ambient glow behind the whole wheel */}
+          <div style={{position:"absolute",inset:"-8%",borderRadius:"50%",background:`radial-gradient(circle at 50% 45%, color-mix(in srgb, ${MARIGOLD} 30%, transparent) 0%, transparent 72%)`,animation:"ss-glow-pulse 2.6s ease-in-out infinite"}}/>
+          {/* Marquee lights — static ring around the rim (doesn't rotate) */}
           {Array.from({length:16}).map((_,i)=>{
             const a=i*(360/16), rad=(a*Math.PI)/180;
-            const x=50+47*Math.sin(rad), y=50-47*Math.cos(rad);
+            const x=50+48*Math.sin(rad), y=50-48*Math.cos(rad);
+            const c=i%2===0?MARIGOLD:ACCENT;
             return(
-              <div key={i} style={{position:"absolute",left:`${x}%`,top:`${y}%`,width:8,height:8,borderRadius:"50%",transform:"translate(-50%,-50%)",background:i%2===0?MARIGOLD:ACCENT,boxShadow:`0 0 6px 1px color-mix(in srgb, ${i%2===0?MARIGOLD:ACCENT} 70%, transparent)`,animation:`ss-light-blink 1.1s ease-in-out infinite`,animationDelay:`${i*0.07}s`}}/>
+              <div key={i} style={{position:"absolute",left:`${x}%`,top:`${y}%`,width:9,height:9,borderRadius:"50%",transform:"translate(-50%,-50%)",background:`radial-gradient(circle at 35% 30%, #fff, ${c} 55%, color-mix(in srgb, ${c} 60%, black) 100%)`,boxShadow:`0 0 7px 2px color-mix(in srgb, ${c} 70%, transparent)`,animation:`ss-light-blink 1.15s ease-in-out infinite`,animationDelay:`${i*0.07}s`}}/>
             );
           })}
-          {/* Rotating disc */}
+          {/* Metal rim base — gives the disc visual thickness */}
+          <div style={{position:"absolute",inset:"5%",borderRadius:"50%",background:`conic-gradient(from 0deg, #fff4d6, ${MARIGOLD} 12%, #7a4e10 28%, ${MARIGOLD} 42%, #fff4d6 55%, ${MARIGOLD} 68%, #7a4e10 84%, #fff4d6 100%)`,boxShadow:"0 12px 26px rgba(0,0,0,0.35), inset 0 0 0 2px rgba(255,255,255,0.25)"}}/>
+          {/* Rotating disc — real SVG pie slices, not a CSS conic-gradient,
+              so names sit exactly in their own slice at any pool size. */}
           <div onTransitionEnd={onWheelTransitionEnd} style={{
-            position:"absolute",inset:"7%",borderRadius:"50%",background:gradient,
-            border:`5px solid color-mix(in srgb, ${MARIGOLD} 60%, white 10%)`,
-            boxShadow:`0 14px 30px rgba(var(--shadow-rgb),0.30), 0 4px 10px rgba(var(--shadow-rgb),0.18), inset 0 2px 4px rgba(255,255,255,0.25)`,
+            position:"absolute",inset:"7.5%",borderRadius:"50%",
             transform:`rotate(${rotation}deg)`,
-            transition:spinning?"transform 4.2s cubic-bezier(0.15,0.68,0.18,1)":"none",
+            transition: phase==="spinning" ? "transform 4.5s cubic-bezier(0.13,0.7,0.14,1)" : phase==="settling" ? "transform 0.42s cubic-bezier(0.33,1.6,0.6,1)" : "none",
+            filter:"drop-shadow(0 8px 14px rgba(0,0,0,0.32))",
           }}>
-            {labels.map((l)=>(
-              <div key={l.key} style={{position:"absolute",left:"50%",top:"50%",transform:`translate(-50%,-50%) translate(${l.x}%, ${l.y}%) rotate(${l.angle}deg)`,fontSize:n>12?11:n>7?13:15,fontWeight:800,color:"#fff",textShadow:"0 1px 3px rgba(0,0,0,0.45)",whiteSpace:"nowrap",pointerEvents:"none"}}>
-                {l.label}
-              </div>
-            ))}
+            <svg viewBox="0 0 200 200" style={{width:"100%",height:"100%",display:"block",borderRadius:"50%"}}>
+              <defs>
+                <radialGradient id="ssWheelGloss" cx="33%" cy="26%" r="80%">
+                  <stop offset="0%" stopColor="#ffffff" stopOpacity="0.5"/>
+                  <stop offset="38%" stopColor="#ffffff" stopOpacity="0.1"/>
+                  <stop offset="100%" stopColor="#000000" stopOpacity="0.2"/>
+                </radialGradient>
+              </defs>
+              {pool.map((name,i)=>{
+                const start=i*sliceAngle, end=(i+1)*sliceAngle;
+                return <path key={name+i} d={ssSlicePath(100,100,96,start,end)} fill={WHEEL_COLORS[i%WHEEL_COLORS.length]} stroke="rgba(255,255,255,0.55)" strokeWidth="2"/>;
+              })}
+              {n>0&&n<=24&&pool.map((name,i)=>{
+                const angle=i*sliceAngle+sliceAngle/2;
+                const {x,y}=ssPolar(100,100,64,angle);
+                const label=n>10?(name.trim()[0]||"?").toUpperCase():name.length>10?name.slice(0,9)+"…":name;
+                const fontSize=n>18?8:n>14?9.5:n>10?11:n>6?13:15;
+                const flip=angle>90&&angle<270;
+                return(
+                  <text key={name+i+"lbl"} x={x} y={y} fontSize={fontSize} fontWeight="800" fill="#fff" stroke="rgba(0,0,0,0.45)" strokeWidth={2.6} strokeLinejoin="round" paintOrder="stroke" textAnchor="middle" dominantBaseline="middle" transform={`rotate(${flip?angle-180:angle}, ${x}, ${y})`}>
+                    {label}
+                  </text>
+                );
+              })}
+              <circle cx="100" cy="100" r="96" fill="url(#ssWheelGloss)"/>
+              <circle cx="100" cy="100" r="96" fill="none" stroke="rgba(0,0,0,0.18)" strokeWidth="1.5"/>
+            </svg>
           </div>
           {/* Pointer, fixed at top, doesn't rotate */}
-          <div style={{position:"absolute",top:-4,left:"50%",transform:"translateX(-50%)",width:0,height:0,borderLeft:"13px solid transparent",borderRight:"13px solid transparent",borderTop:`22px solid ${ACCENT_DARK}`,filter:"drop-shadow(0 3px 4px rgba(0,0,0,0.35))",zIndex:3}}/>
+          <div style={{position:"absolute",top:-10,left:"50%",transform:"translateX(-50%)",zIndex:5,filter:"drop-shadow(0 4px 5px rgba(0,0,0,0.4))"}}>
+            <svg width="34" height="40" viewBox="0 0 34 40">
+              <path d="M17 40 C 8 26, 2 20, 2 12 A 15 15 0 0 1 32 12 C 32 20, 26 26, 17 40 Z" fill={ACCENT_DARK}/>
+              <circle cx="17" cy="13" r="7" fill={MARIGOLD}/>
+              <circle cx="14.5" cy="10.5" r="2.2" fill="#fff" opacity="0.75"/>
+            </svg>
+          </div>
           {/* Center hub — also tappable to spin */}
           <button onClick={spin} disabled={spinning} className="ss-btn" style={{
             position:"absolute",left:"50%",top:"50%",transform:"translate(-50%,-50%)",
-            width:"26%",height:"26%",borderRadius:"50%",zIndex:4,cursor:spinning?"wait":"pointer",
+            width:"27%",height:"27%",borderRadius:"50%",zIndex:4,cursor:spinning?"wait":"pointer",
             border:`3px solid color-mix(in srgb, ${MARIGOLD} 55%, white 15%)`,
             background:`linear-gradient(150deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`,
             display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",
-            boxShadow:`inset 0 1px 0 rgba(255,255,255,0.4), 0 6px 16px color-mix(in srgb, ${ACCENT} 45%, transparent)`,
+            boxShadow:`inset 0 2px 0 rgba(255,255,255,0.5), inset 0 -3px 6px rgba(0,0,0,0.22), 0 8px 18px color-mix(in srgb, ${ACCENT} 45%, transparent)`,
             animation:!spinning&&!picked?"ss-hub-pulse 1.8s ease-in-out infinite":"none",
           }}>
-            <Dices size={22} style={spinning?{animation:"spin 1s linear infinite"}:undefined}/>
+            <Dices size={24} style={spinning?{animation:"spin 0.9s linear infinite"}:undefined}/>
           </button>
+          {/* Confetti burst on a win */}
+          {picked&&!spinning&&(
+            <div key={burstKey} style={{position:"absolute",inset:0,pointerEvents:"none",zIndex:6,overflow:"visible"}}>
+              {confetti.map((c)=>(
+                <span key={c.key} style={{position:"absolute",left:"50%",top:"50%",width:c.size,height:c.size,borderRadius:c.round?"50%":"2px",background:c.color,"--tx":`${c.tx}px`,"--ty":`${c.ty}px`,animation:`ss-confetti-burst 900ms cubic-bezier(0.2,0.8,0.3,1) ${c.delay}ms forwards`}}/>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Winner reveal */}
-        <div key={String(picked)} style={{display:"inline-block",minWidth:200,maxWidth:"100%",marginTop:10,padding:"18px 28px",borderRadius:26,background:picked&&!spinning?`linear-gradient(135deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`:`linear-gradient(165deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 88%, ${ACCENT} 8%) 100%)`,border:picked&&!spinning?"none":`1.5px solid color-mix(in srgb, ${ACCENT} 30%, ${BORDER})`,boxShadow:picked&&!spinning?`0 10px 26px color-mix(in srgb, ${ACCENT} 40%, transparent)`:SHADOW.raised,animation:picked&&!spinning?"ss-pick-pop .32s ease":"none"}}>
-          <div style={{fontSize:"clamp(24px, 5.5vw, 38px)",fontWeight:800,color:picked&&!spinning?"#fff":INK_SOFT,letterSpacing:"0.01em",lineHeight:1.2}}>
-            {spinning?"घुम्दैछ...":picked||"पाङ्ग्रा घुमाउनुहोस्"}
+        {/* Winner banner — attached directly under the wheel (with a small
+            connecting notch) instead of floating in a separate block far
+            below it, so the result reads as part of the wheel, not a
+            disconnected label. */}
+        <div style={{position:"relative",marginTop:-4,zIndex:3}}>
+          <div style={{width:0,height:0,margin:"0 auto",borderLeft:"9px solid transparent",borderRight:"9px solid transparent",borderBottom:`9px solid ${picked&&!spinning?ACCENT_DARK:"color-mix(in srgb, "+ACCENT+" 35%, "+BORDER+")"}`}}/>
+          <div key={String(picked)+phase} style={{
+            position:"relative",overflow:"hidden",display:"inline-block",minWidth:220,maxWidth:"92%",marginTop:-1,padding:"16px 26px",borderRadius:22,
+            background:picked&&!spinning?`linear-gradient(135deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`:`linear-gradient(165deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 88%, ${ACCENT} 8%) 100%)`,
+            border:picked&&!spinning?"none":`1.5px solid color-mix(in srgb, ${ACCENT} 30%, ${BORDER})`,
+            boxShadow:picked&&!spinning?`0 12px 28px color-mix(in srgb, ${ACCENT} 42%, transparent)`:SHADOW.raised,
+            animation:picked&&!spinning?"ss-pick-pop .38s cubic-bezier(0.34,1.56,0.64,1)":"none",
+          }}>
+            {picked&&!spinning&&(
+              <span style={{position:"absolute",top:0,left:0,width:"55%",height:"100%",background:"linear-gradient(90deg, transparent, rgba(255,255,255,0.45), transparent)",animation:"ss-ribbon-shine 1.6s ease-in-out 0.2s"}}/>
+            )}
+            <div style={{position:"relative",fontSize:"clamp(22px, 5.2vw, 34px)",fontWeight:800,color:picked&&!spinning?"#fff":INK_SOFT,letterSpacing:"0.01em",lineHeight:1.2}}>
+              {spinning?"घुम्दैछ...":picked||"पाङ्ग्रा घुमाउनुहोस्"}
+            </div>
           </div>
         </div>
-        <div style={{marginTop:12,fontSize:14,color:INK_SOFT,fontWeight:600}}>बाँकी यस चक्रमा: {n} / {roster.length}</div>
+
+        <div style={{marginTop:14,fontSize:14,color:INK_SOFT,fontWeight:600}}>बाँकी यस चक्रमा: {n} / {roster.length}</div>
         <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:14}}>
           <Button size="sm" onClick={spin} disabled={spinning}>{spinning?"घुम्दैछ...":"पाङ्ग्रा घुमाउनुहोस्"}</Button>
           <Chip onClick={resetRound} color={INK_SOFT}>नयाँ चक्र</Chip>
