@@ -6071,36 +6071,43 @@ function ssPlayWinChime(){
     setTimeout(()=>ctx.close(),1300);
   }catch{ /* audio unavailable — silent no-op */ }
 }
-// Continuous "whirring" sound for while the wheel is physically spinning.
-// Built from filtered white noise (not a plain tone) so it reads as a
-// spinning mechanical object rather than a beep, with the filter gliding
-// downward over the same ~4.5s the CSS spin transition takes, mimicking a
-// real wheel's deceleration. Node references live on the ref passed in so
-// spin()/onWheelTransitionEnd/resetRound/unmount can all stop it cleanly.
+// Comb/ratchet-style spin sound — like a stick (or pen) flicking across a
+// comb's teeth: individual ticks close together while the wheel is fast,
+// spreading further apart as it decelerates. Replaces an earlier
+// continuous whirring-noise version, which didn't sound right for a wheel
+// with a fixed pointer clicking past pegs. Every tick is scheduled up
+// front for the whole spin+settle duration; the ref keeps the
+// AudioContext + tick oscillators so spin()/onWheelTransitionEnd/
+// resetRound/unmount can all cut it off early and cleanly.
 function ssStartSpinSound(ref){
   try{
     ssStopSpinSound(ref); // guard against overlap if one is already running
     const Ctx=window.AudioContext||window.webkitAudioContext;
     if(!Ctx)return;
     const ctx=new Ctx();
-    const bufferSize=ctx.sampleRate*2;
-    const buffer=ctx.createBuffer(1,bufferSize,ctx.sampleRate);
-    const data=buffer.getChannelData(0);
-    for(let i=0;i<bufferSize;i++)data[i]=Math.random()*2-1;
-    const noise=ctx.createBufferSource();
-    noise.buffer=buffer;
-    noise.loop=true;
-    const filter=ctx.createBiquadFilter();
-    filter.type="bandpass";
-    filter.Q.value=0.85;
-    filter.frequency.setValueAtTime(1500,ctx.currentTime);
-    filter.frequency.linearRampToValueAtTime(420,ctx.currentTime+4.5); // matches the 4.5s spin transition
-    const gain=ctx.createGain();
-    gain.gain.setValueAtTime(0.0001,ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.16,ctx.currentTime+0.15);
-    noise.connect(filter);filter.connect(gain);gain.connect(ctx.destination);
-    noise.start();
-    ref.current={ctx,noise,gain};
+    const duration=4.9; // spin(4.5s) + settle(0.42s) with a little headroom
+    const tickCount=85;
+    const oscs=[];
+    for(let i=0;i<tickCount;i++){
+      // Eases ticks to bunch up early (fast clicking) and spread out late
+      // (slowing down), matching the wheel's own deceleration curve.
+      const t=duration*(1-Math.pow(1-i/tickCount,2.6));
+      const start=ctx.currentTime+t;
+      const osc=ctx.createOscillator();
+      const gain=ctx.createGain();
+      const filter=ctx.createBiquadFilter();
+      filter.type="highpass";
+      filter.frequency.value=1600;
+      osc.type="square";
+      osc.frequency.value=2100+Math.random()*500; // slight variation so ticks aren't identical
+      osc.connect(filter);filter.connect(gain);gain.connect(ctx.destination);
+      gain.gain.setValueAtTime(0.0001,start);
+      gain.gain.exponentialRampToValueAtTime(0.22,start+0.003); // sharp attack — a "tick", not a tone
+      gain.gain.exponentialRampToValueAtTime(0.0001,start+0.02);
+      osc.start(start);osc.stop(start+0.025);
+      oscs.push(osc);
+    }
+    ref.current={ctx,oscs};
   }catch{ /* audio unavailable — silent no-op, wheel still spins visually */ }
 }
 function ssStopSpinSound(ref){
@@ -6108,11 +6115,9 @@ function ssStopSpinSound(ref){
   if(!state)return;
   ref.current=null;
   try{
-    const{ctx,noise,gain}=state;
-    gain.gain.cancelScheduledValues(ctx.currentTime);
-    gain.gain.setValueAtTime(gain.gain.value,ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+0.12);
-    setTimeout(()=>{try{noise.stop();ctx.close();}catch{}},220);
+    const{ctx,oscs}=state;
+    oscs.forEach((osc)=>{try{osc.stop();}catch{}}); // cut any not-yet-played ticks short
+    setTimeout(()=>{try{ctx.close();}catch{}},60);
   }catch{ /* already stopped/unavailable — nothing to clean up */ }
 }
 // Speaks the winning student's full name aloud via the browser's built-in
@@ -6172,20 +6177,27 @@ function RandomPicker({ roster }){
   // card. Distances widened here so it visibly spreads across the whole
   // card; the overlay it renders into (below) was moved to cover the
   // whole card instead of just the wheel.
+  // FIX — pieces used to be flat, saturated circles/squares straight from
+  // WHEEL_COLORS, which read as too bright/plasticky. Now every piece is
+  // an elongated ribbon strip (with a soft-edged satin gradient — darker
+  // at the ends, a lighter sheen through the middle — instead of a flat
+  // fill) and tumbles from a random starting angle via --rot0.
   const confetti=useMemo(()=>{
     if(!burstKey)return [];
     return Array.from({length:36}).map((_,i)=>{
       const angle=Math.random()*360, dist=70+Math.random()*170;
       const rad=(angle*Math.PI)/180;
+      const base=WHEEL_COLORS[i%WHEEL_COLORS.length];
       return{
         key:i,
         tx:Math.round(Math.sin(rad)*dist),
         ty:Math.round(-Math.cos(rad)*dist),
         dx:Math.round(Math.random()*100-50),
         dy:Math.round(150+Math.random()*190),
-        color:WHEEL_COLORS[i%WHEEL_COLORS.length],
-        size:6+Math.round(Math.random()*7),
-        shape:i%3,
+        width:4+Math.round(Math.random()*3),
+        height:14+Math.round(Math.random()*13),
+        rot0:Math.round(Math.random()*360),
+        color:`linear-gradient(90deg, color-mix(in srgb, ${base} 62%, black) 0%, color-mix(in srgb, ${base} 82%, white 8%) 48%, color-mix(in srgb, ${base} 62%, black) 100%)`,
         delay:Math.round(Math.random()*220),
         duration:1300+Math.round(Math.random()*700),
       };
@@ -6256,7 +6268,7 @@ function RandomPicker({ roster }){
         @keyframes ss-hub-pulse{0%,100%{box-shadow:inset 0 2px 0 rgba(255,255,255,0.5), inset 0 -3px 6px rgba(0,0,0,0.22), 0 0 0 0 color-mix(in srgb, ${ACCENT} 55%, transparent);}50%{box-shadow:inset 0 2px 0 rgba(255,255,255,0.5), inset 0 -3px 6px rgba(0,0,0,0.22), 0 0 0 12px color-mix(in srgb, ${ACCENT} 0%, transparent);}}
         @keyframes ss-light-blink{0%,100%{opacity:0.3;transform:translate(-50%,-50%) scale(0.82);}50%{opacity:1;transform:translate(-50%,-50%) scale(1.05);}}
         @keyframes ss-glow-pulse{0%,100%{opacity:0.35;transform:scale(1);}50%{opacity:0.7;transform:scale(1.05);}}
-        @keyframes ss-confetti-burst{0%{transform:translate(-50%,-50%) scale(0.5) rotate(0deg);opacity:1;}45%{transform:translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(1) rotate(140deg);opacity:1;}100%{transform:translate(calc(-50% + var(--tx) + var(--dx)), calc(-50% + var(--ty) + var(--dy))) scale(0.85) rotate(320deg);opacity:0;}}
+        @keyframes ss-confetti-burst{0%{transform:translate(-50%,-50%) scale(0.5) rotate(var(--rot0,0deg));opacity:1;}45%{transform:translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(1) rotate(calc(var(--rot0,0deg) + 140deg));opacity:1;}100%{transform:translate(calc(-50% + var(--tx) + var(--dx)), calc(-50% + var(--ty) + var(--dy))) scale(0.85) rotate(calc(var(--rot0,0deg) + 320deg));opacity:0;}}
         @keyframes ss-ribbon-shine{0%{transform:translateX(-130%) skewX(-18deg);}100%{transform:translateX(230%) skewX(-18deg);}}
       `}</style>
       <div style={{textAlign:"center",padding:"6px 4px 4px",position:"relative"}}>
@@ -6372,7 +6384,7 @@ function RandomPicker({ roster }){
           <div key={burstKey} style={{position:"absolute",inset:0,pointerEvents:"none",zIndex:20,overflow:"visible"}}>
             <div style={{position:"absolute",left:"50%",top:"calc(10px + clamp(230px, 68vw, 300px) / 2)"}}>
               {confetti.map((c)=>(
-                <span key={c.key} style={{position:"absolute",left:0,top:0,width:c.size,height:c.size,borderRadius:c.shape===0?"50%":"2px",background:c.color,"--tx":`${c.tx}px`,"--ty":`${c.ty}px`,"--dx":`${c.dx}px`,"--dy":`${c.dy}px`,animation:`ss-confetti-burst ${c.duration}ms cubic-bezier(0.2,0.7,0.3,1) ${c.delay}ms forwards`}}/>
+                <span key={c.key} style={{position:"absolute",left:0,top:0,width:c.width,height:c.height,borderRadius:1,background:c.color,"--tx":`${c.tx}px`,"--ty":`${c.ty}px`,"--dx":`${c.dx}px`,"--dy":`${c.dy}px`,"--rot0":`${c.rot0}deg`,animation:`ss-confetti-burst ${c.duration}ms cubic-bezier(0.2,0.7,0.3,1) ${c.delay}ms forwards`}}/>
               ))}
             </div>
           </div>
