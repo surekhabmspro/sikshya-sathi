@@ -5990,13 +5990,26 @@ function RosterEditor({ section, onSectionUpdated }){
   const [text,setText]=useState((section?.roster||[]).join("\n"));
   const [saving,setSaving]=useState(false);
   const [saved,setSaved]=useState(false);
-  useEffect(()=>{setText((section?.roster||[]).join("\n"));setSaved(false);},[section?.id]);
+  // NEW — FIX: save() used to silently do nothing on error (no message,
+  // no console log), matching this app's earlier "why isn't this saving"
+  // bug class exactly — the button would just go back to normal with no
+  // sign anything went wrong. Most likely real cause here: the
+  // migration_section_roster.sql column was never run against the live
+  // Supabase DB (or was run but the PostgREST schema cache wasn't
+  // reloaded after), so every update to a `roster` column PostgREST
+  // doesn't know about is rejected — but the teacher would see nothing
+  // and reasonably conclude "the app is broken", not "I still need to
+  // run a migration". Now shows the actual Supabase error message so
+  // this is diagnosable instead of silent.
+  const [error,setError]=useState("");
+  useEffect(()=>{setText((section?.roster||[]).join("\n"));setSaved(false);setError("");},[section?.id]);
   const names=text.split("\n").map((n)=>n.trim()).filter(Boolean);
   const save=async()=>{
-    setSaving(true);
-    const{data,error}=await db.setSectionRoster(section.id,names);
+    setSaving(true);setError("");
+    const{data,error:err}=await db.setSectionRoster(section.id,names);
     setSaving(false);
-    if(!error&&data){setSaved(true);onSectionUpdated?.(data);setTimeout(()=>setSaved(false),1800);}
+    if(!err&&data){setSaved(true);onSectionUpdated?.(data);setTimeout(()=>setSaved(false),1800);}
+    else{setError(err?.message||"बचत गर्न सकिएन — कारण थाहा भएन।");}
   };
   return(
     <Card>
@@ -6005,6 +6018,7 @@ function RosterEditor({ section, onSectionUpdated }){
         एक लाइनमा एक विद्यार्थीको नाम राख्नुहोस्। यो सूची यस सेक्सनका लागि सुरक्षित हुन्छ र छनोट, समूह विभाजन जस्ता सबै उपकरणले प्रयोग गर्छन्।
       </div>
       <textarea value={text} onChange={(e)=>setText(e.target.value)} rows={10} placeholder={"राम शर्मा\nसीता तामाङ\n..."} className="ss-field" style={{width:"100%",borderRadius:14,padding:"12px 14px",fontSize:16,border:`1.5px solid ${BORDER}`,background:SURFACE_2,fontFamily:"inherit",resize:"vertical"}}/>
+      {error&&<ErrorMsg msg={error}/>}
       <div style={{display:"flex",alignItems:"center",gap:10,marginTop:10}}>
         <Button size="sm" onClick={save} disabled={saving||!section}>{saving?"बचत गर्दै...":"सूची बचत गर्नुहोस्"}</Button>
         <span style={{fontSize:14,color:INK_SOFT}}>{names.length} जना</span>
