@@ -3547,6 +3547,15 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoMaterials, onGoAITools, onG
     try{return localStorage.getItem(`ss-today-lesson::${classLabel||"default"}`)||null;}catch{return null;}
   });
   const [pickingToday,setPickingToday]=useState(false);
+  // NEW — the एकाइ groups inside बदल्नुहोस् used to always show every
+  // lesson under every unit at once — fine for a couple of units, an
+  // unreadable wall of text once a teacher has built out a full year. Each
+  // एकाइ header is now a collapsible accordion (same one-open-at-a-time
+  // behaviour as the Planner fix), so lesson names stay tucked under their
+  // unit name until you actually tap it open. Opening बदल्नुहोस् starts
+  // with today's own एकाइ pre-expanded so the current pick is visible
+  // immediately, everything else collapsed.
+  const [todayExpandedChapter,setTodayExpandedChapter]=useState(null);
   // NEW — बदल्नुहोस् used to dump every lesson in one flat list in
   // whatever order the DB happened to return them (no chapter grouping,
   // no number ordering) — fine with a handful of lessons, unusable once a
@@ -3565,7 +3574,8 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoMaterials, onGoAITools, onG
   // it explicitly the moment this screen goes inactive (active turns
   // false) is what makes leaving and coming back show the card collapsed
   // again — same as the एकाइ-expand fix in Planner below.
-  useEffect(()=>{ if(!active){ setPickingToday(false); setTodaySearch(""); } },[active]);
+  useEffect(()=>{ if(!active){ setPickingToday(false); setTodaySearch(""); setTodayExpandedChapter(null); } },[active]);
+  const toggleTodayChapter=(id)=>setTodayExpandedChapter((prev)=>prev===id?null:id);
   const chooseToday=(l)=>{
     setTodayOverrideId(l.id);setPickingToday(false);setTodaySearch("");
     try{localStorage.setItem(`ss-today-lesson::${classLabel||"default"}`,l.id);}catch{}
@@ -3645,7 +3655,7 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoMaterials, onGoAITools, onG
               <div style={{display:"inline-flex",fontSize:12.5,opacity:0.95,fontWeight:700,letterSpacing:"0.04em",textTransform:"uppercase",background:"rgba(255,255,255,0.18)",padding:"3px 10px",borderRadius:999}}>आजको पाठ · {today.chapters?.title||today.chapter_title||""}</div>
               {/* NEW — was previously impossible to change; this is the fix. */}
               {lessons.length>1&&(
-                <button className="ss-btn" onClick={()=>setPickingToday((v)=>!v)} style={{background:"linear-gradient(180deg, rgba(255,255,255,0.32) 0%, rgba(255,255,255,0.14) 100%)",border:"1px solid rgba(255,255,255,0.4)",color:"#fff",borderRadius:999,padding:"4px 11px",fontSize:13,fontWeight:700,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap",boxShadow:"0 1px 0 rgba(255,255,255,0.35) inset, 0 2px 6px rgba(0,0,0,0.18)"}}>बदल्नुहोस्</button>
+                <button className="ss-btn" onClick={()=>{setPickingToday((v)=>{const next=!v;if(next)setTodayExpandedChapter(today.chapter_id||today.chapters?.id||null);return next;});}} style={{background:"linear-gradient(180deg, rgba(255,255,255,0.32) 0%, rgba(255,255,255,0.14) 100%)",border:"1px solid rgba(255,255,255,0.4)",color:"#fff",borderRadius:999,padding:"4px 11px",fontSize:13,fontWeight:700,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap",boxShadow:"0 1px 0 rgba(255,255,255,0.35) inset, 0 2px 6px rgba(0,0,0,0.18)"}}>बदल्नुहोस्</button>
               )}
             </div>
             <div style={{fontSize:21,fontWeight:800,margin:"8px 0 14px",letterSpacing:"-0.01em",overflowWrap:"break-word",fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}>{today.title}</div>
@@ -3660,16 +3670,30 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoMaterials, onGoAITools, onG
                 )}
                 <div style={{padding:8,overflowY:"auto"}}>
                   {todayGroups.length===0&&<div style={{padding:"14px 10px",fontSize:14,color:INK_SOFT,textAlign:"center"}}>कुनै पाठ फेला परेन</div>}
-                  {todayGroups.map((g)=>(
+                  {todayGroups.map((g)=>{
+                    // While searching, matching units stay forced open so
+                    // results are visible immediately — collapsing then
+                    // only applies once the search box is cleared again.
+                    const isOpen=todaySearch.trim()?true:todayExpandedChapter===g.chapter.id;
+                    return(
                     <div key={g.chapter.id} style={{marginBottom:6}}>
-                      <div style={{position:"sticky",top:0,background:SURFACE,fontSize:12,fontWeight:700,color:g.unassigned?WARN:ACCENT_DARK,textTransform:"uppercase",letterSpacing:"0.03em",padding:"6px 10px 4px"}}>{g.chapter.title}</div>
-                      {g.paths.map((l)=>(
-                        <div key={l.id} onClick={()=>chooseToday(l)} style={{padding:"9px 10px",borderRadius:10,cursor:"pointer",background:l.id===today.id?ACCENT_LIGHT:"transparent"}}>
-                          <div style={{fontSize:15.5,color:INK,fontWeight:700}}>{l.title}</div>
+                      <div onClick={()=>!todaySearch.trim()&&toggleTodayChapter(g.chapter.id)} style={{display:"flex",alignItems:"center",gap:6,position:"sticky",top:0,background:SURFACE,padding:"6px 10px",borderRadius:8,cursor:todaySearch.trim()?"default":"pointer"}}>
+                        <ChevronDown size={13} color={g.unassigned?WARN:ACCENT_DARK} style={{flexShrink:0,transform:isOpen?"rotate(0deg)":"rotate(-90deg)",transition:"transform .2s cubic-bezier(.34,1.56,.64,1)"}}/>
+                        <span style={{flex:1,minWidth:0,fontSize:12,fontWeight:700,color:g.unassigned?WARN:ACCENT_DARK,textTransform:"uppercase",letterSpacing:"0.03em",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.chapter.title}</span>
+                        <span style={{fontSize:11,fontWeight:700,color:INK_SOFT,background:SURFACE_2,borderRadius:999,padding:"1px 7px",flexShrink:0}}>{g.paths.length}</span>
+                      </div>
+                      {isOpen&&(
+                        <div style={{animation:"ss-fade-up .18s cubic-bezier(.2,.7,.2,1) backwards"}}>
+                          {g.paths.map((l)=>(
+                            <div key={l.id} onClick={()=>chooseToday(l)} style={{padding:"9px 10px 9px 27px",borderRadius:10,cursor:"pointer",background:l.id===today.id?ACCENT_LIGHT:"transparent"}}>
+                              <div style={{fontSize:15.5,color:INK,fontWeight:700}}>{l.title}</div>
+                            </div>
+                          ))}
                         </div>
-                      ))}
+                      )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ):(
