@@ -6042,37 +6042,100 @@ function ssSlicePath(cx, cy, r, startAngle, endAngle){
   const largeArc = endAngle - startAngle <= 180 ? 0 : 1;
   return `M ${cx} ${cy} L ${start.x} ${start.y} A ${r} ${r} 0 ${largeArc} 0 ${end.x} ${end.y} Z`;
 }
+// First + last name initials only (e.g. "राम शर्मा" -> "रश"), so slice
+// labels stay short and legible no matter how long a name is. A
+// single-word name just uses its first two characters.
+function ssInitials(fullName){
+  const parts=(fullName||"").trim().split(/\s+/).filter(Boolean);
+  if(!parts.length)return "?";
+  if(parts.length===1)return parts[0].slice(0,2);
+  return parts[0][0]+parts[parts.length-1][0];
+}
+// A bright ascending four-note chime (replaces the old plain beep) — more
+// like a game-show "ta-da" than a single alert tone.
+function ssPlayWinChime(){
+  try{
+    const Ctx=window.AudioContext||window.webkitAudioContext;
+    if(!Ctx)return;
+    const ctx=new Ctx();
+    [523.25,659.25,783.99,1046.5].forEach((freq,i)=>{
+      const osc=ctx.createOscillator(), gain=ctx.createGain();
+      osc.connect(gain);gain.connect(ctx.destination);
+      osc.type="triangle";osc.frequency.value=freq;
+      const start=ctx.currentTime+i*0.1;
+      gain.gain.setValueAtTime(0.0001,start);
+      gain.gain.exponentialRampToValueAtTime(0.32,start+0.03);
+      gain.gain.exponentialRampToValueAtTime(0.0001,start+0.55);
+      osc.start(start);osc.stop(start+0.58);
+    });
+    setTimeout(()=>ctx.close(),1300);
+  }catch{ /* audio unavailable — silent no-op */ }
+}
+// Speaks the winning student's full name aloud via the browser's built-in
+// text-to-speech. Devanagari is read far more naturally by a Hindi voice
+// than the default English one, so a Hindi voice is preferred when the
+// device has one installed; falls back to whatever default voice exists.
+function ssSpeakName(name){
+  try{
+    if(!("speechSynthesis" in window)||!name)return;
+    window.speechSynthesis.cancel();
+    const utter=new SpeechSynthesisUtterance(name);
+    const voices=window.speechSynthesis.getVoices();
+    const preferred=voices.find((v)=>/^(ne|hi)([-_]|$)/i.test(v.lang));
+    if(preferred)utter.voice=preferred;
+    utter.lang=preferred?preferred.lang:"hi-IN";
+    utter.rate=0.92;
+    utter.pitch=1.05;
+    window.speechSynthesis.speak(utter);
+  }catch{ /* speech unavailable — silent no-op */ }
+}
 
 function RandomPicker({ roster }){
   const [pool,setPool]=useState(()=>shuffleArr(roster));
   const [picked,setPicked]=useState(null);
   const [rotation,setRotation]=useState(0);
   // "idle" -> "spinning" (long decelerating spin, ends slightly past the
-  // winner) -> "settling" (short bounce back onto the exact winner) -> "idle"
+  // winner) -> "settling" (short bounce back onto the exact winner) ->
+  // "holding" (wheel frozen for a few seconds so students can clearly see
+  // where it stopped, before the winner is removed for the next round) -> "idle"
   const [phase,setPhase]=useState("idle");
   const [burstKey,setBurstKey]=useState(0);
   const pendingRef=useRef(null);
-  useEffect(()=>{setPool(shuffleArr(roster));setPicked(null);setRotation(0);setPhase("idle");},[roster.join("|")]);
+  const holdTimeoutRef=useRef(null);
+  useEffect(()=>{
+    if(holdTimeoutRef.current)clearTimeout(holdTimeoutRef.current);
+    setPool(shuffleArr(roster));setPicked(null);setRotation(0);setPhase("idle");
+  },[roster.join("|")]);
+  useEffect(()=>()=>{if(holdTimeoutRef.current)clearTimeout(holdTimeoutRef.current);},[]);
 
   const spinning = phase!=="idle";
+  // True once the winner is locked in and visible (through the 3s hold and
+  // afterward, until the next spin clears it) — separate from `spinning`
+  // because the wheel is still technically "busy" while holding.
+  const revealed = !!picked && phase!=="spinning" && phase!=="settling";
   const n=pool.length;
   const sliceAngle=n?360/n:360;
 
-  // Confetti pieces are only (re)computed when a win actually lands, keyed
-  // off burstKey so every win gets a fresh random burst.
+  // Confetti/colour-shower pieces are only (re)computed when a win lands,
+  // keyed off burstKey so every win gets a fresh random shower. Each piece
+  // bursts outward first, then keeps drifting/falling like real confetti
+  // settling under gravity.
   const confetti=useMemo(()=>{
     if(!burstKey)return [];
-    return Array.from({length:18}).map((_,i)=>{
-      const angle=Math.random()*360, dist=55+Math.random()*60;
+    return Array.from({length:26}).map((_,i)=>{
+      const angle=Math.random()*360, dist=45+Math.random()*55;
       const rad=(angle*Math.PI)/180;
       return{
         key:i,
         tx:Math.round(Math.sin(rad)*dist),
         ty:Math.round(-Math.cos(rad)*dist),
+        dx:Math.round(Math.random()*50-25),
+        dy:Math.round(70+Math.random()*90),
         color:WHEEL_COLORS[i%WHEEL_COLORS.length],
-        size:5+Math.round(Math.random()*5),
-        round:i%2===0,
-        delay:Math.round(Math.random()*150),
+        size:5+Math.round(Math.random()*6),
+        shape:i%3,
+        delay:Math.round(Math.random()*180),
+        duration:1100+Math.round(Math.random()*500),
       };
     });
   },[burstKey]);
@@ -6108,15 +6171,24 @@ function RandomPicker({ roster }){
     if(phase==="settling"){
       const p=pendingRef.current;
       if(!p)return;
-      const rest=pool.filter((_,i)=>i!==p.idx);
       setPicked(p.winner);
-      setPool(rest.length?rest:shuffleArr(roster));
-      setPhase("idle");
+      setPhase("holding"); // freeze — nothing changes for a few seconds
       setBurstKey((k)=>k+1);
-      beep(2);
+      ssPlayWinChime();
+      ssSpeakName(p.winner);
+      holdTimeoutRef.current=setTimeout(()=>{
+        setPool((prevPool)=>{
+          const rest=prevPool.filter((_,i)=>i!==p.idx);
+          return rest.length?rest:shuffleArr(roster);
+        });
+        setPhase("idle");
+      },3000);
     }
   };
-  const resetRound=()=>{setPool(shuffleArr(roster));setPicked(null);setRotation(0);setPhase("idle");};
+  const resetRound=()=>{
+    if(holdTimeoutRef.current)clearTimeout(holdTimeoutRef.current);
+    setPool(shuffleArr(roster));setPicked(null);setRotation(0);setPhase("idle");
+  };
 
   if(!roster.length)return(
     <Card accentColor={ACCENT}><div style={{fontSize:15,color:INK_SOFT}}>पहिले "नाम सूची" ट्याबमा विद्यार्थीहरूको नाम राख्नुहोस्।</div></Card>
@@ -6129,7 +6201,7 @@ function RandomPicker({ roster }){
         @keyframes ss-hub-pulse{0%,100%{box-shadow:inset 0 2px 0 rgba(255,255,255,0.5), inset 0 -3px 6px rgba(0,0,0,0.22), 0 0 0 0 color-mix(in srgb, ${ACCENT} 55%, transparent);}50%{box-shadow:inset 0 2px 0 rgba(255,255,255,0.5), inset 0 -3px 6px rgba(0,0,0,0.22), 0 0 0 12px color-mix(in srgb, ${ACCENT} 0%, transparent);}}
         @keyframes ss-light-blink{0%,100%{opacity:0.3;transform:translate(-50%,-50%) scale(0.82);}50%{opacity:1;transform:translate(-50%,-50%) scale(1.05);}}
         @keyframes ss-glow-pulse{0%,100%{opacity:0.35;transform:scale(1);}50%{opacity:0.7;transform:scale(1.05);}}
-        @keyframes ss-confetti-burst{0%{transform:translate(-50%,-50%) scale(0.5) rotate(0deg);opacity:1;}75%{opacity:1;}100%{transform:translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(0.9) rotate(180deg);opacity:0;}}
+        @keyframes ss-confetti-burst{0%{transform:translate(-50%,-50%) scale(0.5) rotate(0deg);opacity:1;}45%{transform:translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(1) rotate(140deg);opacity:1;}100%{transform:translate(calc(-50% + var(--tx) + var(--dx)), calc(-50% + var(--ty) + var(--dy))) scale(0.85) rotate(320deg);opacity:0;}}
         @keyframes ss-ribbon-shine{0%{transform:translateX(-130%) skewX(-18deg);}100%{transform:translateX(230%) skewX(-18deg);}}
       `}</style>
       <div style={{textAlign:"center",padding:"6px 4px 4px"}}>
@@ -6168,11 +6240,11 @@ function RandomPicker({ roster }){
                 const start=i*sliceAngle, end=(i+1)*sliceAngle;
                 return <path key={name+i} d={ssSlicePath(100,100,96,start,end)} fill={WHEEL_COLORS[i%WHEEL_COLORS.length]} stroke="rgba(255,255,255,0.55)" strokeWidth="2"/>;
               })}
-              {n>0&&n<=24&&pool.map((name,i)=>{
+              {n>0&&n<=30&&pool.map((name,i)=>{
                 const angle=i*sliceAngle+sliceAngle/2;
                 const {x,y}=ssPolar(100,100,64,angle);
-                const label=n>10?(name.trim()[0]||"?").toUpperCase():name.length>10?name.slice(0,9)+"…":name;
-                const fontSize=n>18?8:n>14?9.5:n>10?11:n>6?13:15;
+                const label=ssInitials(name).toUpperCase();
+                const fontSize=n>20?14:n>14?16:n>8?19:22;
                 const flip=angle>90&&angle<270;
                 return(
                   <text key={name+i+"lbl"} x={x} y={y} fontSize={fontSize} fontWeight="800" fill="#fff" stroke="rgba(0,0,0,0.45)" strokeWidth={2.6} strokeLinejoin="round" paintOrder="stroke" textAnchor="middle" dominantBaseline="middle" transform={`rotate(${flip?angle-180:angle}, ${x}, ${y})`}>
@@ -6200,15 +6272,15 @@ function RandomPicker({ roster }){
             background:`linear-gradient(150deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`,
             display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",
             boxShadow:`inset 0 2px 0 rgba(255,255,255,0.5), inset 0 -3px 6px rgba(0,0,0,0.22), 0 8px 18px color-mix(in srgb, ${ACCENT} 45%, transparent)`,
-            animation:!spinning&&!picked?"ss-hub-pulse 1.8s ease-in-out infinite":"none",
+            animation:phase==="idle"&&!picked?"ss-hub-pulse 1.8s ease-in-out infinite":"none",
           }}>
             <Dices size={24} style={spinning?{animation:"spin 0.9s linear infinite"}:undefined}/>
           </button>
-          {/* Confetti burst on a win */}
-          {picked&&!spinning&&(
+          {/* Colour shower — bursts outward then rains/drifts down like real confetti */}
+          {revealed&&(
             <div key={burstKey} style={{position:"absolute",inset:0,pointerEvents:"none",zIndex:6,overflow:"visible"}}>
               {confetti.map((c)=>(
-                <span key={c.key} style={{position:"absolute",left:"50%",top:"50%",width:c.size,height:c.size,borderRadius:c.round?"50%":"2px",background:c.color,"--tx":`${c.tx}px`,"--ty":`${c.ty}px`,animation:`ss-confetti-burst 900ms cubic-bezier(0.2,0.8,0.3,1) ${c.delay}ms forwards`}}/>
+                <span key={c.key} style={{position:"absolute",left:"50%",top:"50%",width:c.size,height:c.size,borderRadius:c.shape===0?"50%":"2px",background:c.color,"--tx":`${c.tx}px`,"--ty":`${c.ty}px`,"--dx":`${c.dx}px`,"--dy":`${c.dy}px`,animation:`ss-confetti-burst ${c.duration}ms cubic-bezier(0.2,0.7,0.3,1) ${c.delay}ms forwards`}}/>
               ))}
             </div>
           )}
@@ -6219,19 +6291,19 @@ function RandomPicker({ roster }){
             below it, so the result reads as part of the wheel, not a
             disconnected label. */}
         <div style={{position:"relative",marginTop:-4,zIndex:3}}>
-          <div style={{width:0,height:0,margin:"0 auto",borderLeft:"9px solid transparent",borderRight:"9px solid transparent",borderBottom:`9px solid ${picked&&!spinning?ACCENT_DARK:"color-mix(in srgb, "+ACCENT+" 35%, "+BORDER+")"}`}}/>
+          <div style={{width:0,height:0,margin:"0 auto",borderLeft:"9px solid transparent",borderRight:"9px solid transparent",borderBottom:`9px solid ${revealed?ACCENT_DARK:"color-mix(in srgb, "+ACCENT+" 35%, "+BORDER+")"}`}}/>
           <div key={String(picked)+phase} style={{
             position:"relative",overflow:"hidden",display:"inline-block",minWidth:220,maxWidth:"92%",marginTop:-1,padding:"16px 26px",borderRadius:22,
-            background:picked&&!spinning?`linear-gradient(135deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`:`linear-gradient(165deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 88%, ${ACCENT} 8%) 100%)`,
-            border:picked&&!spinning?"none":`1.5px solid color-mix(in srgb, ${ACCENT} 30%, ${BORDER})`,
-            boxShadow:picked&&!spinning?`0 12px 28px color-mix(in srgb, ${ACCENT} 42%, transparent)`:SHADOW.raised,
-            animation:picked&&!spinning?"ss-pick-pop .38s cubic-bezier(0.34,1.56,0.64,1)":"none",
+            background:revealed?`linear-gradient(135deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`:`linear-gradient(165deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 88%, ${ACCENT} 8%) 100%)`,
+            border:revealed?"none":`1.5px solid color-mix(in srgb, ${ACCENT} 30%, ${BORDER})`,
+            boxShadow:revealed?`0 12px 28px color-mix(in srgb, ${ACCENT} 42%, transparent)`:SHADOW.raised,
+            animation:revealed?"ss-pick-pop .38s cubic-bezier(0.34,1.56,0.64,1)":"none",
           }}>
-            {picked&&!spinning&&(
+            {revealed&&(
               <span style={{position:"absolute",top:0,left:0,width:"55%",height:"100%",background:"linear-gradient(90deg, transparent, rgba(255,255,255,0.45), transparent)",animation:"ss-ribbon-shine 1.6s ease-in-out 0.2s"}}/>
             )}
-            <div style={{position:"relative",fontSize:"clamp(22px, 5.2vw, 34px)",fontWeight:800,color:picked&&!spinning?"#fff":INK_SOFT,letterSpacing:"0.01em",lineHeight:1.2}}>
-              {spinning?"घुम्दैछ...":picked||"पाङ्ग्रा घुमाउनुहोस्"}
+            <div style={{position:"relative",fontSize:"clamp(22px, 5.2vw, 34px)",fontWeight:800,color:revealed?"#fff":INK_SOFT,letterSpacing:"0.01em",lineHeight:1.2}}>
+              {phase==="spinning"||phase==="settling"?"घुम्दैछ...":picked||"पाङ्ग्रा घुमाउनुहोस्"}
             </div>
           </div>
         </div>
