@@ -136,6 +136,20 @@ const DANGER_BG = "var(--danger-bg)";
 const WARN = "var(--warn)";
 const WARN_BG = "var(--warn-bg)";
 
+// NEW — fixed (non-theme) vivid colours for the three playful classroom
+// tools (छनोट/RandomPicker, प्रश्न रुलेट/QuestionRoulette, समय/ActivityTimer).
+// Everything else in the app intentionally uses the --accent/--rose/etc.
+// CSS variables above so it adapts to light/dark mode — but those
+// variables are deliberately DESATURATED in dark mode for eye comfort,
+// which made these three game-like tools look dull/muted on a dark
+// device instead of bright and fun. These are plain hex, so they stay
+// equally vivid in both themes.
+const FUN_RED="#F4362D", FUN_ORANGE="#FF8A00", FUN_YELLOW="#FFC700",
+  FUN_GREEN="#22C55E", FUN_TEAL="#06B6D4", FUN_BLUE="#2E7DFF",
+  FUN_INDIGO="#6C5CE7", FUN_PURPLE="#C026D3", FUN_PINK="#FF3D8A";
+const FUN_COLORS=[FUN_RED,FUN_ORANGE,FUN_YELLOW,FUN_GREEN,FUN_TEAL,FUN_BLUE,FUN_INDIGO,FUN_PURPLE,FUN_PINK];
+const FUN_ORANGE_DARK="#CC6E00";
+
 // NEW — a shared rotating palette (used via PALETTE[i % PALETTE.length]) for
 // lists that don't have a natural status/category color of their own —
 // activity types, assessment types, journal entries, search results — so
@@ -6112,7 +6126,7 @@ function RosterEditor({ section, onSectionUpdated }){
 // from reading scrambled text. `pool` (the wheel's current slice set)
 // mirrors the same "no repeats until everyone's had a turn" cycle the
 // old `remaining` state tracked; only its name changed.
-const WHEEL_COLORS = [ACCENT, ROSE, VIOLET, TEAL, MARIGOLD_DARK, BLUE];
+const WHEEL_COLORS = FUN_COLORS;
 const WHEEL_OVERSHOOT = 7; // degrees the wheel swings past the winner before rocking back
 
 // Angle convention throughout this wheel: 0deg = 12 o'clock, increasing
@@ -6355,31 +6369,31 @@ function RandomPicker({ roster }){
   };
 
   if(!roster.length)return(
-    <Card accentColor={ACCENT}><div style={{fontSize:15,color:INK_SOFT}}>पहिले "नाम सूची" ट्याबमा विद्यार्थीहरूको नाम राख्नुहोस्।</div></Card>
+    <Card accentColor={FUN_ORANGE}><div style={{fontSize:15,color:INK_SOFT}}>पहिले "नाम सूची" ट्याबमा विद्यार्थीहरूको नाम राख्नुहोस्।</div></Card>
   );
   return(
-    <Card accentColor={ACCENT}>
-      <SectionLabel icon={Dices} color={ACCENT}>विद्यार्थी छनोट</SectionLabel>
+    <Card accentColor={FUN_ORANGE}>
+      <SectionLabel icon={Dices} color={FUN_ORANGE}>विद्यार्थी छनोट</SectionLabel>
       <style>{`
         @keyframes ss-pick-pop{0%{transform:scale(0.8) translateY(4px);opacity:0;}55%{transform:scale(1.08) translateY(0);opacity:1;}100%{transform:scale(1) translateY(0);opacity:1;}}
-        @keyframes ss-hub-pulse{0%,100%{box-shadow:inset 0 2px 0 rgba(255,255,255,0.5), inset 0 -3px 6px rgba(0,0,0,0.22), 0 0 0 0 color-mix(in srgb, ${ACCENT} 55%, transparent);}50%{box-shadow:inset 0 2px 0 rgba(255,255,255,0.5), inset 0 -3px 6px rgba(0,0,0,0.22), 0 0 0 12px color-mix(in srgb, ${ACCENT} 0%, transparent);}}
+        @keyframes ss-hub-pulse{0%,100%{box-shadow:inset 0 2px 0 rgba(255,255,255,0.5), inset 0 -3px 6px rgba(0,0,0,0.22), 0 0 0 0 color-mix(in srgb, ${FUN_ORANGE} 55%, transparent);}50%{box-shadow:inset 0 2px 0 rgba(255,255,255,0.5), inset 0 -3px 6px rgba(0,0,0,0.22), 0 0 0 12px color-mix(in srgb, ${FUN_ORANGE} 0%, transparent);}}
       `}</style>
       <div style={{textAlign:"center",padding:"6px 4px 4px",position:"relative"}}>
         {/* THE WHEEL */}
         <div style={{position:"relative",width:"clamp(230px, 68vw, 300px)",aspectRatio:"1",margin:"10px auto 0"}}>
           {/* Ambient glow behind the whole wheel */}
-          <div style={{position:"absolute",inset:"-8%",borderRadius:"50%",background:`radial-gradient(circle at 50% 45%, color-mix(in srgb, ${MARIGOLD} 30%, transparent) 0%, transparent 72%)`,animation:"ss-glow-pulse 2.6s ease-in-out infinite"}}/>
+          <div style={{position:"absolute",inset:"-8%",borderRadius:"50%",background:`radial-gradient(circle at 50% 45%, color-mix(in srgb, ${FUN_YELLOW} 30%, transparent) 0%, transparent 72%)`,animation:"ss-glow-pulse 2.6s ease-in-out infinite"}}/>
           {/* Marquee lights — static ring around the rim (doesn't rotate) */}
           {Array.from({length:16}).map((_,i)=>{
             const a=i*(360/16), rad=(a*Math.PI)/180;
             const x=50+48*Math.sin(rad), y=50-48*Math.cos(rad);
-            const c=i%2===0?MARIGOLD:ACCENT;
+            const c=i%2===0?FUN_YELLOW:FUN_ORANGE;
             return(
               <div key={i} style={{position:"absolute",left:`${x}%`,top:`${y}%`,width:9,height:9,borderRadius:"50%",transform:"translate(-50%,-50%)",background:`radial-gradient(circle at 35% 30%, #fff, ${c} 55%, color-mix(in srgb, ${c} 60%, black) 100%)`,boxShadow:`0 0 7px 2px color-mix(in srgb, ${c} 70%, transparent)`,animation:`ss-light-blink 1.15s ease-in-out infinite`,animationDelay:`${i*0.07}s`}}/>
             );
           })}
           {/* Metal rim base — gives the disc visual thickness */}
-          <div style={{position:"absolute",inset:"5%",borderRadius:"50%",background:`conic-gradient(from 0deg, #fff4d6, ${MARIGOLD} 12%, #7a4e10 28%, ${MARIGOLD} 42%, #fff4d6 55%, ${MARIGOLD} 68%, #7a4e10 84%, #fff4d6 100%)`,boxShadow:"0 12px 26px rgba(0,0,0,0.35), inset 0 0 0 2px rgba(255,255,255,0.25)"}}/>
+          <div style={{position:"absolute",inset:"5%",borderRadius:"50%",background:`conic-gradient(from 0deg, #fff4d6, ${FUN_YELLOW} 12%, #7a4e10 28%, ${FUN_YELLOW} 42%, #fff4d6 55%, ${FUN_YELLOW} 68%, #7a4e10 84%, #fff4d6 100%)`,boxShadow:"0 12px 26px rgba(0,0,0,0.35), inset 0 0 0 2px rgba(255,255,255,0.25)"}}/>
           {/* Rotating disc — real SVG pie slices, not a CSS conic-gradient,
               so names sit exactly in their own slice at any pool size. */}
           <div onTransitionEnd={onWheelTransitionEnd} style={{
@@ -6419,8 +6433,8 @@ function RandomPicker({ roster }){
           {/* Pointer, fixed at top, doesn't rotate */}
           <div style={{position:"absolute",top:-10,left:"50%",transform:"translateX(-50%)",zIndex:5,filter:"drop-shadow(0 4px 5px rgba(0,0,0,0.4))"}}>
             <svg width="34" height="40" viewBox="0 0 34 40">
-              <path d="M17 40 C 8 26, 2 20, 2 12 A 15 15 0 0 1 32 12 C 32 20, 26 26, 17 40 Z" fill={ACCENT_DARK}/>
-              <circle cx="17" cy="13" r="7" fill={MARIGOLD}/>
+              <path d="M17 40 C 8 26, 2 20, 2 12 A 15 15 0 0 1 32 12 C 32 20, 26 26, 17 40 Z" fill={FUN_ORANGE_DARK}/>
+              <circle cx="17" cy="13" r="7" fill={FUN_YELLOW}/>
               <circle cx="14.5" cy="10.5" r="2.2" fill="#fff" opacity="0.75"/>
             </svg>
           </div>
@@ -6428,10 +6442,10 @@ function RandomPicker({ roster }){
           <button onClick={spin} disabled={spinning} className="ss-btn" style={{
             position:"absolute",left:"50%",top:"50%",transform:"translate(-50%,-50%)",
             width:"27%",height:"27%",borderRadius:"50%",zIndex:4,cursor:spinning?"wait":"pointer",
-            border:`3px solid color-mix(in srgb, ${MARIGOLD} 55%, white 15%)`,
-            background:`linear-gradient(150deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`,
+            border:`3px solid color-mix(in srgb, ${FUN_YELLOW} 55%, white 15%)`,
+            background:`linear-gradient(150deg, ${FUN_YELLOW} 0%, ${FUN_ORANGE} 100%)`,
             display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",
-            boxShadow:`inset 0 2px 0 rgba(255,255,255,0.5), inset 0 -3px 6px rgba(0,0,0,0.22), 0 8px 18px color-mix(in srgb, ${ACCENT} 45%, transparent)`,
+            boxShadow:`inset 0 2px 0 rgba(255,255,255,0.5), inset 0 -3px 6px rgba(0,0,0,0.22), 0 8px 18px color-mix(in srgb, ${FUN_ORANGE} 45%, transparent)`,
             animation:phase==="idle"&&!picked?"ss-hub-pulse 1.8s ease-in-out infinite":"none",
           }}>
             <Dices size={24} style={spinning?{animation:"spin 0.9s linear infinite"}:undefined}/>
@@ -6443,12 +6457,12 @@ function RandomPicker({ roster }){
             below it, so the result reads as part of the wheel, not a
             disconnected label. */}
         <div style={{position:"relative",marginTop:-4,zIndex:3}}>
-          <div style={{width:0,height:0,margin:"0 auto",borderLeft:"9px solid transparent",borderRight:"9px solid transparent",borderBottom:`9px solid ${revealed?ACCENT_DARK:"color-mix(in srgb, "+ACCENT+" 35%, "+BORDER+")"}`}}/>
+          <div style={{width:0,height:0,margin:"0 auto",borderLeft:"9px solid transparent",borderRight:"9px solid transparent",borderBottom:`9px solid ${revealed?FUN_ORANGE_DARK:"color-mix(in srgb, "+FUN_ORANGE+" 35%, "+BORDER+")"}`}}/>
           <div key={String(picked)+phase} style={{
             position:"relative",overflow:"hidden",display:"inline-block",minWidth:220,maxWidth:"92%",marginTop:-1,padding:"16px 26px",borderRadius:22,
-            background:revealed?`linear-gradient(135deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`:`linear-gradient(165deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 88%, ${ACCENT} 8%) 100%)`,
-            border:revealed?"none":`1.5px solid color-mix(in srgb, ${ACCENT} 30%, ${BORDER})`,
-            boxShadow:revealed?`0 12px 28px color-mix(in srgb, ${ACCENT} 42%, transparent)`:SHADOW.raised,
+            background:revealed?`linear-gradient(135deg, ${FUN_YELLOW} 0%, ${FUN_ORANGE} 100%)`:`linear-gradient(165deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 88%, ${FUN_ORANGE} 8%) 100%)`,
+            border:revealed?"none":`1.5px solid color-mix(in srgb, ${FUN_ORANGE} 30%, ${BORDER})`,
+            boxShadow:revealed?`0 12px 28px color-mix(in srgb, ${FUN_ORANGE} 42%, transparent)`:SHADOW.raised,
             animation:revealed?"ss-pick-pop .38s cubic-bezier(0.34,1.56,0.64,1)":"none",
           }}>
             {revealed&&(
@@ -6509,7 +6523,7 @@ function ssPlayTimerTick(urgent){
 // the final 10s, a per-second tick (sharper in the last 10s), and a
 // colour-shower + chime celebration when time runs out — instead of the
 // old flat ring + a single triple beep().
-function ActivityTimer(){
+function ActivityTimer({ onStateChange }={}){
   const PRESETS=[30,60,120,180,300,600];
   const [totalSec,setTotalSec]=useState(180);
   const [remaining,setRemaining]=useState(180);
@@ -6563,23 +6577,27 @@ function ActivityTimer(){
     setRunning((r)=>!r);
   };
   const reset=()=>{clearInterval(intervalRef.current);setRunning(false);setRemaining(totalSec);setEverStarted(false);setBurstKey(0);};
+  // Reports remaining/running/totalSec upward so a FAB or badge elsewhere
+  // in the app can show a live countdown without this component needing
+  // to stay visible — used for the global quick-tools panel.
+  useEffect(()=>{ onStateChange?.({remaining,running,totalSec}); },[remaining,running,totalSec]);
   const mm=String(Math.floor(remaining/60)).padStart(2,"0");
   const ss=String(remaining%60).padStart(2,"0");
   const pct=totalSec?Math.round((remaining/totalSec)*100):0;
   const urgent=running&&remaining>0&&remaining<=10;
   const done=everStarted&&remaining===0;
-  const ringColor=urgent||done?WARN:MARIGOLD_DARK;
+  const ringColor=urgent||done?WARN:FUN_ORANGE_DARK;
   return(
     <Card style={{position:"relative",overflow:"visible"}}>
-      <SectionLabel icon={Clock} color={MARIGOLD_DARK}>समय (Timer)</SectionLabel>
+      <SectionLabel icon={Clock} color={FUN_ORANGE_DARK}>समय (Timer)</SectionLabel>
       <style>{`
         @keyframes ss-timer-shake{0%,100%{transform:translateX(0);}25%{transform:translateX(-2px);}75%{transform:translateX(2px);}}
         @keyframes ss-timer-pop{0%{transform:scale(0.8) translateY(4px);opacity:0;}55%{transform:scale(1.08) translateY(0);opacity:1;}100%{transform:scale(1) translateY(0);opacity:1;}}
-        @keyframes ss-timer-invite-pulse{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb, ${MARIGOLD_DARK} 55%, transparent);}50%{box-shadow:0 0 0 10px color-mix(in srgb, ${MARIGOLD_DARK} 0%, transparent);}}
+        @keyframes ss-timer-invite-pulse{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb, ${FUN_ORANGE_DARK} 55%, transparent);}50%{box-shadow:0 0 0 10px color-mix(in srgb, ${FUN_ORANGE_DARK} 0%, transparent);}}
       `}</style>
       <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:16,alignItems:"center"}}>
         {PRESETS.map((sec)=>(
-          <Chip key={sec} active={totalSec===sec} color={MARIGOLD_DARK} onClick={()=>setPreset(sec)}>{sec<60?`${sec}से`:`${sec/60}मि`}</Chip>
+          <Chip key={sec} active={totalSec===sec} color={FUN_ORANGE_DARK} onClick={()=>setPreset(sec)}>{sec<60?`${sec}से`:`${sec/60}मि`}</Chip>
         ))}
         <div style={{display:"inline-flex",alignItems:"center",gap:4,borderRadius:999,padding:"4px 6px",border:`1.5px solid ${BORDER}`,background:SURFACE_2}}>
           <input value={customMin} onChange={(e)=>setCustomMin(e.target.value.replace(/[^0-9]/g,""))} onKeyDown={onCustomKeyDown} placeholder="मि" type="number" inputMode="numeric" min="0" max="180" className="ss-field" style={{width:40,border:"none",background:"transparent",padding:"3px 2px",fontSize:14.5,textAlign:"center"}}/>
@@ -6598,7 +6616,7 @@ function ActivityTimer(){
           {Array.from({length:12}).map((_,i)=>{
             const a=i*(360/12), rad=(a*Math.PI)/180;
             const x=50+48*Math.sin(rad), y=50-48*Math.cos(rad);
-            const c=i%2===0?MARIGOLD:ringColor;
+            const c=i%2===0?FUN_YELLOW:ringColor;
             return(
               <div key={i} style={{position:"absolute",left:`${x}%`,top:`${y}%`,width:7,height:7,borderRadius:"50%",transform:"translate(-50%,-50%)",background:`radial-gradient(circle at 35% 30%, #fff, ${c} 55%, color-mix(in srgb, ${c} 60%, black) 100%)`,boxShadow:running?`0 0 6px 2px color-mix(in srgb, ${c} 65%, transparent)`:"none",opacity:running?undefined:0.35,animation:running?`ss-light-blink ${urgent?0.7:1.15}s ease-in-out infinite`:"none",animationDelay:`${i*0.07}s`}}/>
             );
@@ -6606,8 +6624,8 @@ function ActivityTimer(){
           <svg viewBox="0 0 100 100" style={{width:"100%",height:"100%",transform:"rotate(-90deg)",position:"relative",zIndex:1,filter:`drop-shadow(0 0 ${urgent?7:4}px color-mix(in srgb, ${ringColor} 55%, transparent))`}}>
             <defs>
               <linearGradient id="ssTimerRingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor={urgent||done?WARN:MARIGOLD}/>
-                <stop offset="100%" stopColor={urgent||done?"#8a3a2a":MARIGOLD_DARK}/>
+                <stop offset="0%" stopColor={urgent||done?WARN:FUN_YELLOW}/>
+                <stop offset="100%" stopColor={urgent||done?"#8a3a2a":FUN_ORANGE_DARK}/>
               </linearGradient>
             </defs>
             <circle cx="50" cy="50" r="45" fill="none" stroke={BORDER} strokeWidth="8"/>
@@ -6631,7 +6649,7 @@ function ActivityTimer(){
               width:34,height:34,borderRadius:999,
               border:`1.5px solid ${BORDER}`,
               background:muted?SURFACE_2:"transparent",
-              color:muted?INK_SOFT:MARIGOLD_DARK,
+              color:muted?INK_SOFT:FUN_ORANGE_DARK,
               cursor:"pointer",
             }}
           >
@@ -6809,19 +6827,19 @@ function QuestionRoulette({ lessons, classLabel }){
   const lesson=scopedLessons.find((l)=>l.id===lessonId)||null;
   const landed=!!current&&!spinning;
   return(
-    <Card accentColor={ROSE}>
-      <SectionLabel icon={HelpCircle} color={ROSE}>प्रश्न रुलेट</SectionLabel>
+    <Card accentColor={FUN_PINK}>
+      <SectionLabel icon={HelpCircle} color={FUN_PINK}>प्रश्न रुलेट</SectionLabel>
       <style>{`
         @keyframes ss-roulette-shake{0%,100%{transform:translateX(0) rotate(0deg);}20%{transform:translateX(-3px) rotate(-0.4deg);}40%{transform:translateX(3px) rotate(0.4deg);}60%{transform:translateX(-2px) rotate(-0.3deg);}80%{transform:translateX(2px) rotate(0.3deg);}}
         @keyframes ss-roulette-pop{0%{transform:scale(0.85) translateY(6px);opacity:0;}55%{transform:scale(1.05) translateY(0);opacity:1;}100%{transform:scale(1) translateY(0);opacity:1;}}
-        @keyframes ss-roulette-invite-pulse{0%,100%{box-shadow:0 4px 12px color-mix(in srgb, ${ROSE} 35%, transparent), 0 0 0 0 color-mix(in srgb, ${ROSE} 55%, transparent);}50%{box-shadow:0 4px 12px color-mix(in srgb, ${ROSE} 35%, transparent), 0 0 0 10px color-mix(in srgb, ${ROSE} 0%, transparent);}}
+        @keyframes ss-roulette-invite-pulse{0%,100%{box-shadow:0 4px 12px color-mix(in srgb, ${FUN_PINK} 35%, transparent), 0 0 0 0 color-mix(in srgb, ${FUN_PINK} 55%, transparent);}50%{box-shadow:0 4px 12px color-mix(in srgb, ${FUN_PINK} 35%, transparent), 0 0 0 10px color-mix(in srgb, ${FUN_PINK} 0%, transparent);}}
       `}</style>
       {!scopedLessons.length?(
         <div style={{fontSize:15,color:INK_SOFT}}>पहिले योजना (Yojana) मा पाठ बनाउनुहोस्।</div>
       ):(
         <>
           <div style={{marginBottom:16}}>
-            <select value={lessonId} onChange={(e)=>setLessonId(e.target.value)} className="ss-field" style={{width:"100%",borderRadius:14,padding:"12px 14px",fontSize:16,fontWeight:600,border:`2px solid color-mix(in srgb, ${ROSE} 40%, ${BORDER})`,background:`linear-gradient(165deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 90%, ${ROSE} 7%) 100%)`,color:INK,fontFamily:"inherit",boxShadow:SHADOW.raised}}>
+            <select value={lessonId} onChange={(e)=>setLessonId(e.target.value)} className="ss-field" style={{width:"100%",borderRadius:14,padding:"12px 14px",fontSize:16,fontWeight:600,border:`2px solid color-mix(in srgb, ${FUN_PINK} 40%, ${BORDER})`,background:`linear-gradient(165deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 90%, ${FUN_PINK} 7%) 100%)`,color:INK,fontFamily:"inherit",boxShadow:SHADOW.raised}}>
               {scopedLessons.map((l)=>(<option key={l.id} value={l.id}>{l.chapters?.title||l.chapter_title?`${l.chapters?.title||l.chapter_title} — `:""}{l.title}</option>))}
             </select>
           </div>
@@ -6835,32 +6853,32 @@ function QuestionRoulette({ lessons, classLabel }){
               <div style={{position:"relative",padding:"6px 0"}}>
                 {/* Ambient glow behind the card — same language as the
                     wheel/timer, brighter and faster while spinning. */}
-                <div style={{position:"absolute",inset:"-4% -2%",borderRadius:26,background:`radial-gradient(circle at 50% 45%, color-mix(in srgb, ${ROSE} 32%, transparent) 0%, transparent 72%)`,animation:spinning?"ss-glow-pulse 0.9s ease-in-out infinite":landed?"ss-glow-pulse 2.6s ease-in-out infinite":"none"}}/>
+                <div style={{position:"absolute",inset:"-4% -2%",borderRadius:26,background:`radial-gradient(circle at 50% 45%, color-mix(in srgb, ${FUN_PINK} 32%, transparent) 0%, transparent 72%)`,animation:spinning?"ss-glow-pulse 0.9s ease-in-out infinite":landed?"ss-glow-pulse 2.6s ease-in-out infinite":"none"}}/>
                 {/* Marquee lights along the top and bottom edges. */}
                 {Array.from({length:9}).map((_,i)=>{
                   const x=8+i*(84/8);
-                  const c=i%2===0?MARIGOLD:ROSE;
+                  const c=i%2===0?FUN_YELLOW:FUN_PINK;
                   return(
                     <div key={"t"+i} style={{position:"absolute",left:`${x}%`,top:0,width:8,height:8,borderRadius:"50%",transform:"translate(-50%,-50%)",background:`radial-gradient(circle at 35% 30%, #fff, ${c} 55%, color-mix(in srgb, ${c} 60%, black) 100%)`,boxShadow:spinning||landed?`0 0 6px 2px color-mix(in srgb, ${c} 65%, transparent)`:"none",opacity:spinning||landed?undefined:0.3,animation:spinning?`ss-light-blink 0.55s ease-in-out infinite`:landed?`ss-light-blink 1.15s ease-in-out infinite`:"none",animationDelay:`${i*0.06}s`}}/>
                   );
                 })}
                 {Array.from({length:9}).map((_,i)=>{
                   const x=8+i*(84/8);
-                  const c=i%2===0?ROSE:MARIGOLD;
+                  const c=i%2===0?FUN_PINK:FUN_YELLOW;
                   return(
                     <div key={"b"+i} style={{position:"absolute",left:`${x}%`,bottom:0,width:8,height:8,borderRadius:"50%",transform:"translate(-50%,50%)",background:`radial-gradient(circle at 35% 30%, #fff, ${c} 55%, color-mix(in srgb, ${c} 60%, black) 100%)`,boxShadow:spinning||landed?`0 0 6px 2px color-mix(in srgb, ${c} 65%, transparent)`:"none",opacity:spinning||landed?undefined:0.3,animation:spinning?`ss-light-blink 0.55s ease-in-out infinite`:landed?`ss-light-blink 1.15s ease-in-out infinite`:"none",animationDelay:`${0.3+i*0.06}s`}}/>
                   );
                 })}
-                <div key={landKey} style={{position:"relative",minHeight:130,borderRadius:22,padding:"24px 20px",background:`linear-gradient(160deg, color-mix(in srgb, ${ROSE} 14%, var(--surface)) 0%, color-mix(in srgb, ${ROSE} 5%, var(--surface)) 100%)`,border:`1.5px solid color-mix(in srgb, ${ROSE} ${spinning||landed?45:32}%, ${BORDER})`,boxShadow:landed?`${SHADOW.raised}, 0 0 0 3px color-mix(in srgb, ${ROSE} 20%, transparent)`:SHADOW.raised,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,animation:spinning?"ss-roulette-shake 0.32s ease-in-out infinite":landed?"ss-roulette-pop .38s cubic-bezier(0.34,1.56,0.64,1)":"none"}}>
+                <div key={landKey} style={{position:"relative",minHeight:130,borderRadius:22,padding:"24px 20px",background:`linear-gradient(160deg, color-mix(in srgb, ${FUN_PINK} 14%, var(--surface)) 0%, color-mix(in srgb, ${FUN_PINK} 5%, var(--surface)) 100%)`,border:`1.5px solid color-mix(in srgb, ${FUN_PINK} ${spinning||landed?45:32}%, ${BORDER})`,boxShadow:landed?`${SHADOW.raised}, 0 0 0 3px color-mix(in srgb, ${FUN_PINK} 20%, transparent)`:SHADOW.raised,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,animation:spinning?"ss-roulette-shake 0.32s ease-in-out infinite":landed?"ss-roulette-pop .38s cubic-bezier(0.34,1.56,0.64,1)":"none"}}>
                   {display?(
                     <>
-                      {display.type&&<div style={{fontSize:12.5,fontWeight:800,color:"#fff",textTransform:"uppercase",letterSpacing:"0.06em",background:ROSE,padding:"3px 12px",borderRadius:999,boxShadow:`0 3px 8px color-mix(in srgb, ${ROSE} 45%, transparent)`}}>{display.type}</div>}
+                      {display.type&&<div style={{fontSize:12.5,fontWeight:800,color:"#fff",textTransform:"uppercase",letterSpacing:"0.06em",background:FUN_PINK,padding:"3px 12px",borderRadius:999,boxShadow:`0 3px 8px color-mix(in srgb, ${FUN_PINK} 45%, transparent)`}}>{display.type}</div>}
                       <div style={{fontSize:"clamp(18px, 3.2vw, 26px)",fontWeight:700,color:INK,lineHeight:1.5,filter:spinning?"blur(0.3px)":"none"}}>{display.text}</div>
                       {display.options?.length>0&&display.type==="बहुविकल्पीय"&&(
                         <div style={{fontSize:16,color:INK_SOFT,marginTop:4}}>{display.options.join("  ")}</div>
                       )}
                       {revealed&&!spinning&&(
-                        <div style={{marginTop:10,padding:"11px 18px",borderRadius:14,background:`linear-gradient(135deg, ${MARIGOLD} 0%, ${ROSE} 100%)`,color:"#fff",fontWeight:800,fontSize:17,maxWidth:"100%",boxShadow:`0 6px 16px color-mix(in srgb, ${ROSE} 35%, transparent)`}}>
+                        <div style={{marginTop:10,padding:"11px 18px",borderRadius:14,background:`linear-gradient(135deg, ${FUN_YELLOW} 0%, ${FUN_PINK} 100%)`,color:"#fff",fontWeight:800,fontSize:17,maxWidth:"100%",boxShadow:`0 6px 16px color-mix(in srgb, ${FUN_PINK} 35%, transparent)`}}>
                           उत्तर: {display.answer||"—"}
                           {display.correction&&<div style={{fontSize:14,fontWeight:600,marginTop:4}}>सही: {display.correction}</div>}
                         </div>
@@ -6873,8 +6891,8 @@ function QuestionRoulette({ lessons, classLabel }){
                 {landed&&<ColourShower burstKey={burstKey} top="calc(6px + 65px)"/>}
               </div>
               <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:18,flexWrap:"wrap",alignItems:"center"}}>
-                <Button size="sm" onClick={spin} disabled={spinning} style={{background:`linear-gradient(135deg, ${ROSE} 0%, color-mix(in srgb, ${ROSE} 70%, black) 100%)`,boxShadow:`0 4px 12px color-mix(in srgb, ${ROSE} 35%, transparent)`,animation:!spinning&&!current?"ss-roulette-invite-pulse 1.8s ease-in-out infinite":"none"}}>{spinning?<><Shuffle size={16} style={{animation:"spin 0.7s linear infinite"}}/> घुम्दैछ...</>:<><Shuffle size={16}/> स्पिन गर्नुहोस्</>}</Button>
-                {current&&!spinning&&<Chip onClick={()=>setRevealed((r)=>!r)} color={ROSE}>{revealed?"उत्तर लुकाउनुहोस्":"उत्तर देखाउनुहोस्"}</Chip>}
+                <Button size="sm" onClick={spin} disabled={spinning} style={{background:`linear-gradient(135deg, ${FUN_PINK} 0%, color-mix(in srgb, ${FUN_PINK} 70%, black) 100%)`,boxShadow:`0 4px 12px color-mix(in srgb, ${FUN_PINK} 35%, transparent)`,animation:!spinning&&!current?"ss-roulette-invite-pulse 1.8s ease-in-out infinite":"none"}}>{spinning?<><Shuffle size={16} style={{animation:"spin 0.7s linear infinite"}}/> घुम्दैछ...</>:<><Shuffle size={16}/> स्पिन गर्नुहोस्</>}</Button>
+                {current&&!spinning&&<Chip onClick={()=>setRevealed((r)=>!r)} color={FUN_PINK}>{revealed?"उत्तर लुकाउनुहोस्":"उत्तर देखाउनुहोस्"}</Chip>}
                 <Chip onClick={resetRound} color={INK_SOFT}>नयाँ चक्र</Chip>
                 <button
                   type="button"
@@ -6886,7 +6904,7 @@ function QuestionRoulette({ lessons, classLabel }){
                     width:34,height:34,borderRadius:999,
                     border:`1.5px solid ${BORDER}`,
                     background:muted?SURFACE_2:"transparent",
-                    color:muted?INK_SOFT:ROSE,
+                    color:muted?INK_SOFT:FUN_PINK,
                     cursor:"pointer",
                   }}
                 >
@@ -6905,9 +6923,9 @@ function ClassroomTools({ section, onSectionUpdated, lessons, classLabel }){
   const [tab,setTab]=useState("picker");
   const roster=section?.roster||[];
   const TABS=[
-    {id:"picker",label:"छनोट",icon:Dices,color:ACCENT},
-    {id:"roulette",label:"प्रश्न रुलेट",icon:HelpCircle,color:ROSE},
-    {id:"timer",label:"समय",icon:Clock,color:MARIGOLD_DARK},
+    {id:"picker",label:"छनोट",icon:Dices,color:FUN_ORANGE},
+    {id:"roulette",label:"प्रश्न रुलेट",icon:HelpCircle,color:FUN_PINK},
+    {id:"timer",label:"समय",icon:Clock,color:FUN_ORANGE_DARK},
     {id:"groups",label:"समूह",icon:Users,color:VIOLET},
     {id:"roster",label:"नाम सूची",icon:UsersRound,color:TEAL},
   ];
@@ -8201,6 +8219,14 @@ export default function App() {
   // since it needs currentSection's roster and must float over every
   // screen equally.
   const [pickerOpen,setPickerOpen]=useState(false);
+  // NEW — the FAB now opens a small two-tab panel (छनोट / समय) instead of
+  // just the picker, so the Timer is reachable from every screen too —
+  // teachers asked for both, not just the name picker, to follow them
+  // around the app. `quickTool` picks which one is showing inside the
+  // panel; `timerState` mirrors ActivityTimer's own remaining/running so
+  // the FAB can show a live mm:ss badge even while the panel is closed.
+  const [quickTool,setQuickTool]=useState("picker");
+  const [timerState,setTimerState]=useState({remaining:0,running:false,totalSec:0});
   // NEW — one-click print from the Planner list: open the lesson AND print
   // it immediately, no second tap required.
   const openLesson=useCallback((l,opts)=>{setActiveLesson(l);setActiveLessonAutoPrint(!!opts?.autoPrint);setActiveLessonTab(opts?.tab||null);},[]);
@@ -8967,31 +8993,46 @@ export default function App() {
         );})}
       </div>
 
-      {/* NEW — global quick-pick: a floating button reachable from every
+      {/* NEW — global quick-tools: a floating button reachable from every
           screen (Home/Planner/Materials/AI/Tools alike), not just the
-          उपकरण tab's छनोट panel, so a teacher mid-lesson-plan or
-          mid-homework-review can call on a random student without
-          navigating away first. Hidden while a lesson/edit modal is open
-          on top, or once a section exists to draw from — with no section
-          picked yet there's nothing to pick from anyway (matches
-          ClassroomTools' own "पहिले सेक्सन छान्नुहोस्" gate). */}
-      {currentSection&&!activeLesson&&!editingLessonPopup&&(
-        <button onClick={()=>setPickerOpen(true)} title="विद्यार्थी छनोट" className="ss-btn no-print ss-quickpick-fab" style={{width:58,height:58,borderRadius:20,border:"none",background:`linear-gradient(145deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:11,boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 10px 24px color-mix(in srgb, ${ACCENT} 42%, transparent), 0 3px 8px rgba(var(--shadow-rgb),0.2)`}}>
+          उपकरण tab, so a teacher mid-lesson-plan or mid-homework-review
+          can call on a random student or check a countdown without
+          navigating away first. Now opens a small two-tab panel (छनोट /
+          समय) instead of just the picker. Hidden while a lesson/edit
+          modal is open on top. Shown even with no section picked (the
+          Timer needs no roster; RandomPicker shows its own "no roster"
+          message via ClassroomTools' same gate). The panel itself is
+          always rendered (never unmounted) — only its CSS visibility
+          toggles with pickerOpen — so a running Timer keeps counting
+          down in the background while the teacher browses other screens,
+          instead of resetting every time the panel closes. */}
+      {!activeLesson&&!editingLessonPopup&&(
+        <button onClick={()=>setPickerOpen(true)} title="कक्षा उपकरण" className="ss-btn no-print ss-quickpick-fab" style={{position:"fixed",width:58,height:58,borderRadius:20,border:"none",background:`linear-gradient(145deg, ${FUN_YELLOW} 0%, ${FUN_ORANGE} 100%)`,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:11,boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 10px 24px color-mix(in srgb, ${FUN_ORANGE} 42%, transparent), 0 3px 8px rgba(var(--shadow-rgb),0.2)`}}>
           <Dices size={26}/>
+          {timerState.running&&(
+            <div style={{position:"absolute",top:-7,right:-9,background:WARN,color:"#fff",fontSize:11.5,fontWeight:800,borderRadius:999,padding:"2px 7px",boxShadow:SHADOW.raised,fontVariantNumeric:"tabular-nums",border:`2px solid ${PAPER}`}}>
+              {String(Math.floor(timerState.remaining/60)).padStart(2,"0")}:{String(timerState.remaining%60).padStart(2,"0")}
+            </div>
+          )}
         </button>
       )}
-      {pickerOpen&&(
-        <div className="no-print" onClick={()=>setPickerOpen(false)} style={{position:"fixed",inset:0,zIndex:92,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:20}}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:24,width:"100%",maxWidth:"min(94vw, 480px)",maxHeight:"92vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative"}}>
-            <div style={{position:"sticky",top:0,zIndex:2,display:"flex",justifyContent:"flex-end",padding:"14px 14px 0",background:PAPER}}>
-              <IconButton icon={X} onClick={()=>setPickerOpen(false)} variant="surface"/>
+      <div className="no-print" onClick={()=>setPickerOpen(false)} style={{position:"fixed",inset:0,zIndex:92,display:pickerOpen?"flex":"none",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:20}}>
+        <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:24,width:"100%",maxWidth:"min(94vw, 480px)",maxHeight:"92vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative"}}>
+          <div style={{position:"sticky",top:0,zIndex:2,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"14px 14px 0",background:PAPER}}>
+            <div style={{display:"flex",gap:7}}>
+              <Chip active={quickTool==="picker"} onClick={()=>setQuickTool("picker")} color={FUN_ORANGE}>छनोट</Chip>
+              <Chip active={quickTool==="timer"} onClick={()=>setQuickTool("timer")} color={FUN_ORANGE_DARK}>समय</Chip>
             </div>
-            <div style={{padding:"0 16px 20px"}}>
-              <RandomPicker roster={currentSection?.roster||[]}/>
-            </div>
+            <IconButton icon={X} onClick={()=>setPickerOpen(false)} variant="surface"/>
+          </div>
+          <div style={{padding:"0 16px 20px",display:quickTool==="picker"?"block":"none"}}>
+            <RandomPicker roster={currentSection?.roster||[]}/>
+          </div>
+          <div style={{padding:"0 16px 20px",display:quickTool==="timer"?"block":"none"}}>
+            <ActivityTimer onStateChange={setTimerState}/>
           </div>
         </div>
-      )}
+      </div>
 
       {activeLesson&&<LessonMode lesson={activeLesson} onClose={()=>{setActiveLesson(null);setActiveLessonAutoPrint(false);setActiveLessonTab(null);}} onEdit={editLessonFromViewer} autoPrint={activeLessonAutoPrint} classLabel={classLabel} classContext={classContext} teacherName={teacherName} initialTab={activeLessonTab}/>}
       {editingLessonPopup&&<LessonEditModal lesson={editingLessonPopup} classContext={classContext} classLabel={classLabel}
