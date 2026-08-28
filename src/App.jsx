@@ -6607,7 +6607,7 @@ function ActivityTimer({ onStateChange }={}){
         <Chip dashed onClick={applyCustom} color={INK_SOFT}>राख्नुहोस्</Chip>
       </div>
       <div style={{textAlign:"center",padding:"18px 10px",position:"relative"}}>
-        <div style={{position:"relative",width:"min(260px, 60vw)",aspectRatio:"1",margin:"0 auto"}}>
+        <div style={{position:"relative",width:"min(400px, 72vw)",aspectRatio:"1",margin:"0 auto"}}>
           {/* Ambient glow behind the ring — same language as the wheel,
               pulsing faster and red once the last 10s kick in. */}
           <div style={{position:"absolute",inset:"-8%",borderRadius:"50%",background:`radial-gradient(circle at 50% 45%, color-mix(in srgb, ${ringColor} 30%, transparent) 0%, transparent 72%)`,animation:running?`ss-glow-pulse ${urgent?1.1:2.6}s ease-in-out infinite`:"none"}}/>
@@ -6632,7 +6632,7 @@ function ActivityTimer({ onStateChange }={}){
             <circle cx="50" cy="50" r="45" fill="none" stroke="url(#ssTimerRingGrad)" strokeWidth="8" strokeLinecap="round" strokeDasharray={2*Math.PI*45} strokeDashoffset={2*Math.PI*45*(1-pct/100)} style={{transition:"stroke-dashoffset .3s linear"}}/>
           </svg>
           <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",zIndex:2}}>
-            <div style={{fontSize:"clamp(30px, 8vw, 46px)",fontWeight:800,color:done?WARN:INK,fontVariantNumeric:"tabular-nums",animation:urgent?"ss-timer-shake .5s ease-in-out infinite":"none"}}>{mm}:{ss}</div>
+            <div style={{fontSize:"clamp(30px, 8vw, 64px)",fontWeight:800,color:done?WARN:INK,fontVariantNumeric:"tabular-nums",animation:urgent?"ss-timer-shake .5s ease-in-out infinite":"none"}}>{mm}:{ss}</div>
             {done&&<div style={{marginTop:4,fontSize:15,fontWeight:800,color:WARN,animation:"ss-timer-pop .38s cubic-bezier(0.34,1.56,0.64,1)"}}>⏰ समय सकियो!</div>}
           </div>
         </div>
