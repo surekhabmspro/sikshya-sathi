@@ -105,6 +105,8 @@ const Dices=ssMakeEmojiIcon("🎲");
 const UsersRound=ssMakeEmojiIcon("🧑‍🤝‍🧑");
 const Volume2=ssMakeEmojiIcon("🔊");
 const VolumeX=ssMakeEmojiIcon("🔇");
+const Phone=ssMakeEmojiIcon("📞");
+const Cake=ssMakeEmojiIcon("🎂");
 
 // NEW — every color below is a CSS custom property, not a hardcoded hex.
 // That's what makes dark/light mode possible without rewriting every
@@ -3778,6 +3780,29 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoMaterials, onGoAITools, onG
   const [journalCount,setJournalCount]=useState(null);
   useEffect(()=>{db.getJournalEntries(classLabel).then(({data})=>setJournalCount((data||[]).length));},[openPanel,classLabel]);
   const pendingHomework=homework.filter((h)=>h.checked_count<h.total_students).length;
+  // NEW — birthday reminder. Checks the current section's roster (dob
+  // field, added to CSV import) against today's date and surfaces anyone
+  // matching right on the daily dashboard — the one screen a teacher
+  // already opens every morning — instead of needing a separate check.
+  // Dates are expected as YYYY-MM-DD (what a CSV export or the <input
+  // type="date"> editor in नाम सूची both produce); anything else is
+  // silently skipped rather than guessed at.
+  const todaysBirthdays=useMemo(()=>{
+    const details=section?.student_details||[];
+    if(!details.length)return[];
+    const now=new Date();
+    const mm=String(now.getMonth()+1).padStart(2,"0"),dd=String(now.getDate()).padStart(2,"0");
+    return details.filter((d)=>{
+      const m=d.dob&&/^\d{4}-(\d{2})-(\d{2})/.exec(d.dob.trim());
+      return m&&m[1]===mm&&m[2]===dd;
+    });
+  },[section]);
+  // NEW — tapping a birthday name (or the banner itself, when there's
+  // only one) now pops a full-screen on-device celebration instead of
+  // messaging the parent — cake/candle/confetti rain plus a "Happy
+  // Birthday to you" banner, meant to be shown to the class on the
+  // projector/screen, not sent anywhere.
+  const [celebrating,setCelebrating]=useState(null);
 
   if(loading)return<Spinner/>;
   const hour=new Date().getHours();
@@ -3790,6 +3815,23 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoMaterials, onGoAITools, onG
           <div style={{fontSize:24,fontWeight:800,color:INK,fontFamily:"'SSText','Kalimati','Times New Roman',serif",letterSpacing:"-0.01em"}}>{timeGreeting}, {teacherName} जी</div>
           <span style={{fontSize:22}}>👋</span>
         </div>
+      )}
+
+      {todaysBirthdays.length>0&&(
+        <Card onClick={()=>todaysBirthdays.length===1&&setCelebrating(todaysBirthdays[0])} accentColor={ROSE} style={{marginBottom:16,background:`linear-gradient(155deg, color-mix(in srgb, ${ROSE} 12%, var(--surface)) 0%, var(--surface) 100%)`,cursor:todaysBirthdays.length===1?"pointer":"default"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+            <div style={{width:38,height:38,borderRadius:12,background:`linear-gradient(160deg, ${ROSE} 0%, color-mix(in srgb, ${ROSE} 70%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Cake size={19} color="#fff"/></div>
+            <div style={{fontSize:16.5,fontWeight:700,color:INK}}>🎉 आज जन्मदिन!</div>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {todaysBirthdays.map((d,i)=>(
+              <button key={i} onClick={(e)=>{e.stopPropagation();setCelebrating(d);}} className="ss-btn" style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"8px 12px",borderRadius:12,background:SURFACE_2,border:"none",cursor:"pointer",textAlign:"left",width:"100%",fontFamily:"inherit"}}>
+                <span style={{fontSize:15.5,fontWeight:600,color:INK}}>🎂 {d.name}</span>
+                <span style={{fontSize:13,fontWeight:700,color:ROSE}}>मनाउनुहोस् 🎉</span>
+              </button>
+            ))}
+          </div>
+        </Card>
       )}
 
       {!textbookReady&&(
@@ -3899,9 +3941,64 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoMaterials, onGoAITools, onG
         <SummaryPanel icon={CalendarDays} color={VIOLET} title="पात्रो" onOpen={()=>setOpenPanel("calendar")}
           subtitle="कार्यक्रम, बिदा, परीक्षा मिति हेर्नुहोस्"/>
       </div>
-      {openPanel==="homework"&&<ManagerPopup title="गृहकार्य" onClose={()=>setOpenPanel(null)}><HomeworkManager section={section} loading={hwLoading} homework={homework} onRefresh={onRefreshHomework} classLabel={classLabel}/></ManagerPopup>}
+      {openPanel==="homework"&&<ManagerPopup title="गृहकार्य" onClose={()=>setOpenPanel(null)}><HomeworkManager section={section} loading={hwLoading} homework={homework} onRefresh={onRefreshHomework} classLabel={classLabel} teacherName={teacherName}/></ManagerPopup>}
       {openPanel==="journal"&&<ManagerPopup title="डायरी" onClose={()=>setOpenPanel(null)}><TeachingJournal lessons={lessons} classLabel={classLabel}/></ManagerPopup>}
       {openPanel==="calendar"&&<ManagerPopup title="पात्रो" onClose={()=>setOpenPanel(null)}><CalendarView classLabel={classLabel} active={true}/></ManagerPopup>}
+      <BirthdayCelebration student={celebrating} onClose={()=>setCelebrating(null)}/>
+    </div>
+  );
+}
+
+// NEW — full-screen birthday celebration, triggered by tapping a name in
+// the आज dashboard's जन्मदिन banner. Meant to be shown to the class (e.g.
+// on a projector), not sent to anyone: continuous falling cake/candle/
+// confetti emoji plus a big glowing "Happy Birthday to you" banner with
+// the student's name. Tap anywhere (or the बन्द गर्नुहोस् button) to close.
+const SS_BIRTHDAY_EMOJIS=["🎂","🎉","🎈","🕯️","✨","🎁","🌟"];
+function ssMakeBirthdayRain(count=42){
+  return Array.from({length:count}).map((_,i)=>({
+    key:i,
+    left:Math.round(Math.random()*100),
+    size:20+Math.round(Math.random()*24),
+    duration:2600+Math.round(Math.random()*2400),
+    delay:Math.round(Math.random()*3200),
+    drift:Math.round(Math.random()*70-35),
+    rot:Math.round(Math.random()*360-180),
+    emoji:SS_BIRTHDAY_EMOJIS[i%SS_BIRTHDAY_EMOJIS.length],
+  }));
+}
+function BirthdayCelebration({ student, onClose }){
+  const rain=useMemo(()=>student?ssMakeBirthdayRain(42):[],[student]);
+  if(!student)return null;
+  return(
+    <div className="no-print" onClick={onClose} style={{position:"fixed",inset:0,zIndex:98,overflow:"hidden",background:`radial-gradient(circle at 50% 18%, color-mix(in srgb, ${ROSE} 32%, #120d09) 0%, rgba(12,9,7,0.94) 68%)`,display:"flex",alignItems:"center",justifyContent:"center",padding:24,cursor:"pointer"}}>
+      <style>{`
+        @keyframes ss-bday-fall{
+          0%{transform:translateY(-12vh) translateX(0) rotate(0deg);opacity:0;}
+          10%{opacity:1;}
+          100%{transform:translateY(115vh) translateX(var(--drift)) rotate(var(--rot));opacity:0.9;}
+        }
+        @keyframes ss-bday-pop{
+          0%{transform:scale(0.5);opacity:0;}
+          65%{transform:scale(1.08);opacity:1;}
+          100%{transform:scale(1);opacity:1;}
+        }
+        @keyframes ss-bday-glow{
+          0%,100%{text-shadow:0 0 18px color-mix(in srgb, ${MARIGOLD} 75%, transparent), 0 0 38px color-mix(in srgb, ${ROSE} 55%, transparent);}
+          50%{text-shadow:0 0 32px color-mix(in srgb, ${MARIGOLD} 95%, transparent), 0 0 58px color-mix(in srgb, ${ROSE} 75%, transparent);}
+        }
+      `}</style>
+      {rain.map((c)=>(
+        <span key={c.key} aria-hidden style={{position:"absolute",left:`${c.left}%`,top:0,fontSize:c.size,"--drift":`${c.drift}px`,"--rot":`${c.rot}deg`,animation:`ss-bday-fall ${c.duration}ms linear ${c.delay}ms infinite`,pointerEvents:"none",willChange:"transform"}}>{c.emoji}</span>
+      ))}
+      <div onClick={(e)=>e.stopPropagation()} style={{position:"relative",zIndex:2,textAlign:"center",maxWidth:560,animation:"ss-bday-pop .55s cubic-bezier(0.34,1.56,0.64,1)"}}>
+        <div style={{fontSize:68,marginBottom:8}}>🎂</div>
+        <div style={{fontSize:"clamp(15px, 3vw, 20px)",fontWeight:700,color:"color-mix(in srgb, #fff 80%, transparent)",marginBottom:4,letterSpacing:"0.02em"}}>Happy Birthday to you...</div>
+        <div style={{fontSize:"clamp(30px, 7vw, 48px)",fontWeight:900,color:"#fff",fontFamily:"'SSText','Kalimati','Times New Roman',serif",lineHeight:1.25,animation:"ss-bday-glow 1.8s ease-in-out infinite"}}>
+          {student.name}! 🎉
+        </div>
+        <button onClick={onClose} className="ss-btn" style={{marginTop:26,padding:"11px 26px",borderRadius:999,border:"none",background:"#fff",color:INK,fontWeight:700,fontSize:15,cursor:"pointer",boxShadow:SHADOW.lg}}>बन्द गर्नुहोस्</button>
+      </div>
     </div>
   );
 }
@@ -5792,10 +5889,29 @@ function Materials({ classLabel }) {
   );
 }
 
-function HomeworkManager({ section, loading, homework, onRefresh, classLabel }) {
+function HomeworkManager({ section, loading, homework, onRefresh, classLabel, teacherName }) {
   const [showForm,setShowForm]=useState(false);
   const [form,setForm]=useState({title:"",total_students:30,remark:""});
   const [saving,setSaving]=useState(false);
+  // NEW — bulk SMS reminder. There's no per-student submission tracking
+  // in this app (checked_count is just a class-wide tally, not who
+  // specifically submitted), so this can't selectively target only the
+  // students who haven't turned it in — it opens one pre-filled SMS per
+  // parent in the section instead, and the teacher decides who to
+  // actually send to. Browsers can't send SMS directly or in bulk on
+  // their own; each "पठाउनुहोस्" link just hands off to the phone's own
+  // SMS app with the message already typed, one tap from actually sending.
+  const [smsHw,setSmsHw]=useState(null);
+  const smsList=useMemo(()=>{
+    if(!smsHw)return[];
+    const details=section?.student_details||[];
+    const source=details.length?details:(section?.roster||[]).map((n)=>({name:n}));
+    return source.map((d)=>{
+      const phone=ssBestParentPhone(d);
+      const msg=`नमस्ते, तपाईंको बच्चा ${d.name} (${classLabel||""}) को "${smsHw.title}" गृहकार्य अझै बुझाउन बाँकी छ। कृपया मिलाई पूरा गराई पठाइदिनुहोला। धन्यवाद — ${teacherName||"शिक्षक"}`;
+      return {name:d.name,phone,href:phone?ssSmsHref(phone,msg):null};
+    });
+  },[smsHw,section,classLabel,teacherName]);
   const save=async()=>{
     if(!form.title.trim())return;setSaving(true);
     // FIX — class_label was never set here, so every गृहकार्य saved
@@ -5840,6 +5956,7 @@ function HomeworkManager({ section, loading, homework, onRefresh, classLabel }) 
                   <div style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:17,fontWeight:700,color:INK}}>{h.title}</div>
                   <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
                     <span style={{fontSize:15,fontWeight:700,color:done?ACCENT:WARN,background:done?ACCENT_LIGHT:WARN_BG,padding:"3px 8px",borderRadius:999}}>{h.checked_count}/{h.total_students}</span>
+                    <button className="ss-icon-btn" onClick={()=>setSmsHw(h)} title="अभिभावकलाई SMS सम्झना" style={{cursor:"pointer",color:BLUE,padding:6}}><MessageSquare size={14}/></button>
                     <button className="ss-icon-btn" onClick={()=>deleteHw(h)} style={{cursor:"pointer",color:INK_SOFT,padding:6}}><Trash2 size={14}/></button>
                   </div>
                 </div>
@@ -5855,6 +5972,35 @@ function HomeworkManager({ section, loading, homework, onRefresh, classLabel }) 
               </Card>
             );
           })}
+        </div>
+      )}
+      {smsHw&&(
+        <div className="no-print" onClick={()=>setSmsHw(null)} style={{position:"fixed",inset:0,zIndex:96,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:20}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:24,width:"100%",maxWidth:"min(94vw, 560px)",maxHeight:"88vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative"}}>
+            <div style={{position:"sticky",top:0,zIndex:2,display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,padding:"14px 16px 0",background:PAPER}}>
+              <div>
+                <div style={{fontSize:17,fontWeight:700,color:INK}}>SMS सम्झना — {smsHw.title}</div>
+                <div style={{fontSize:13.5,color:INK_SOFT,marginTop:4,lineHeight:1.5}}>
+                  ब्राउजरले एकैचोटि धेरैलाई SMS पठाउन सक्दैन, त्यसैले हरेक अभिभावकको SMS एप छुट्टै खुल्छ (सन्देश पहिल्यै लेखिएको) — तपाईंले पठाउने बटन मात्र थिच्नुपर्छ।
+                </div>
+              </div>
+              <IconButton icon={X} onClick={()=>setSmsHw(null)} variant="surface"/>
+            </div>
+            <div style={{padding:"12px 16px 16px",display:"flex",flexDirection:"column",gap:6}}>
+              {smsList.length===0?(
+                <div style={{fontSize:14.5,color:INK_SOFT}}>यस सेक्सनमा कुनै विद्यार्थी भेटिएन।</div>
+              ):smsList.map((s,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"9px 12px",borderRadius:12,border:`1px solid ${BORDER}`,background:SURFACE_2}}>
+                  <span style={{fontSize:15,fontWeight:600,color:INK}}>{s.name}</span>
+                  {s.href?(
+                    <a href={s.href} style={{display:"flex",alignItems:"center",gap:5,fontSize:13.5,fontWeight:700,color:"#fff",background:`linear-gradient(160deg, ${BLUE} 0%, color-mix(in srgb, ${BLUE} 72%, black) 100%)`,padding:"6px 12px",borderRadius:999,textDecoration:"none"}}><MessageSquare size={12}/>पठाउनुहोस्</a>
+                  ):(
+                    <span style={{fontSize:13,color:INK_SOFT}}>फोन नम्बर छैन</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -6199,7 +6345,46 @@ const CSV_HEADER_KEY_MAP={
   gender:"gender", type:"type",
   fatherphone:"fatherPhone", motherphone:"motherPhone", studentphone:"studentPhone",
   loginid:"loginId", login:"loginId",
+  // NEW — जन्म मिति (date of birth), for the birthday-reminder feature.
+  // Several header spellings map to the same field so most school-export
+  // CSVs work without the teacher having to rename a column first.
+  dob:"dob", dateofbirth:"dob", birthdate:"dob", birthday:"dob", janmamiti:"dob",
 };
+// NEW — one-tap call/SMS to a parent, and the bulk homework-reminder
+// feature, both need a real tel:/sms: link built from whatever phone
+// number the CSV import happened to store (raw, with spaces/dashes, no
+// country code — however the school's own system exported it). This
+// normalizes that into something a phone actually dials/texts correctly:
+// strips everything but digits and a leading +, and — only for a bare
+// 10-digit number with no country code at all, the normal case for a
+// locally-exported roster — adds Nepal's +977 so it works identically
+// whether the phone's own region is set to Nepal or not. A number that
+// already has a country code (starts with +, or isn't 10 digits) is left
+// exactly as it is rather than guessed at.
+function ssCleanPhoneDigits(phone){
+  if(!phone)return null;
+  const digits=String(phone).trim().replace(/[^\d+]/g,"");
+  if(!digits)return null;
+  if(digits.startsWith("+"))return digits;
+  if(digits.length===10)return `+977${digits}`;
+  return digits;
+}
+function ssTelHref(phone){
+  const d=ssCleanPhoneDigits(phone);
+  return d?`tel:${d}`:null;
+}
+function ssSmsHref(phone,message){
+  const d=ssCleanPhoneDigits(phone);
+  if(!d)return null;
+  // ?body= works for both Android's and iOS's SMS app in current browsers.
+  return `sms:${d}${message?`?body=${encodeURIComponent(message)}`:""}`;
+}
+// Picks the best available number for a student: father's phone first
+// (most rosters list it first for a reason), then mother's, then the
+// student's own if that's all that was recorded.
+function ssBestParentPhone(d){
+  return d?.fatherPhone||d?.motherPhone||d?.studentPhone||null;
+}
 function parseStudentCsv(rawText){
   const lines=rawText.replace(/^\uFEFF/,"").split(/\r\n|\n|\r/).filter((l)=>l.trim().length>0);
   if(lines.length<2) return{rows:[],error:"फाइलमा डाटा भेटिएन।"};
@@ -6389,7 +6574,7 @@ function RosterEditor({ section, onSectionUpdated }){
           </div>
         )}
         <div style={{fontSize:13,color:INK_SOFT,marginTop:8,lineHeight:1.5}}>
-          विद्यालयको student-management प्रणालीबाट export गरिएको CSV (Section, Roll, Name, Gender, Type, Father_Phone, Mother_Phone, Student_Phone, Login_ID स्तम्भसहित) यहाँ छान्नुहोस् — नामहरू र पूरा विवरण एकैचोटि यस सेक्सनमा बचत हुन्छ। नयाँ वर्ष सुरु हुँदा माथिको बटनले हालको सूची सुरक्षित (अभिलेख) गरी खाली गर्नुहोस्, अनि यहाँबाट नयाँ CSV ल्याउनुहोस् — पुरानो वर्षको सूची तल "पुराना वर्षको विद्यार्थी अभिलेख" मा जहिलेसुकै हेर्न मिल्छ।
+          विद्यालयको student-management प्रणालीबाट export गरिएको CSV (Section, Roll, Name, Gender, Type, Father_Phone, Mother_Phone, Student_Phone, Login_ID, र वैकल्पिक रूपमा DOB/Date_of_Birth स्तम्भसहित) यहाँ छान्नुहोस् — नामहरू र पूरा विवरण एकैचोटि यस सेक्सनमा बचत हुन्छ। DOB (जन्म मिति) थपेमा जन्मदिनको सम्झना आजको पानामा देखिन्छ। नयाँ वर्ष सुरु हुँदा माथिको बटनले हालको सूची सुरक्षित (अभिलेख) गरी खाली गर्नुहोस्, अनि यहाँबाट नयाँ CSV ल्याउनुहोस् — पुरानो वर्षको सूची तल "पुराना वर्षको विद्यार्थी अभिलेख" मा जहिलेसुकै हेर्न मिल्छ।
         </div>
         {importError&&<div style={{fontSize:14,color:DANGER,marginTop:8,fontWeight:600}}>{importError}</div>}
         {importSections.length>1&&(
@@ -6409,7 +6594,7 @@ function RosterEditor({ section, onSectionUpdated }){
       <Card accentColor={TEAL} style={{marginTop:16}}>
         <SectionLabel icon={ListChecks} color={TEAL}>आयात गरिएको पूरा विवरण — {details.length} जना</SectionLabel>
         <div style={{overflowX:"auto"}}>
-          <table style={{width:"100%",borderCollapse:"collapse",fontSize:13.5,minWidth:560}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:13.5,minWidth:680}}>
             <thead>
               <tr style={{textAlign:"left",color:INK_SOFT}}>
                 <th style={{padding:"6px 8px"}}>रोल</th>
@@ -6417,6 +6602,7 @@ function RosterEditor({ section, onSectionUpdated }){
                 <th style={{padding:"6px 8px"}}>लिङ्ग</th>
                 <th style={{padding:"6px 8px"}}>बुबाको फोन</th>
                 <th style={{padding:"6px 8px"}}>आमाको फोन</th>
+                <th style={{padding:"6px 8px"}}>जन्म मिति</th>
                 <th style={{padding:"6px 8px"}}>लगइन आइडी</th>
                 <th style={{padding:"6px 8px"}}></th>
               </tr>
@@ -6431,6 +6617,7 @@ function RosterEditor({ section, onSectionUpdated }){
                     <td style={{padding:"6px 8px"}}><input style={editInputStyle} value={editDraft.gender||""} onChange={(e)=>setEditDraft({...editDraft,gender:e.target.value})}/></td>
                     <td style={{padding:"6px 8px"}}><input style={editInputStyle} value={editDraft.fatherPhone||""} onChange={(e)=>setEditDraft({...editDraft,fatherPhone:e.target.value})}/></td>
                     <td style={{padding:"6px 8px"}}><input style={editInputStyle} value={editDraft.motherPhone||""} onChange={(e)=>setEditDraft({...editDraft,motherPhone:e.target.value})}/></td>
+                    <td style={{padding:"6px 8px"}}><input type="date" style={editInputStyle} value={editDraft.dob||""} onChange={(e)=>setEditDraft({...editDraft,dob:e.target.value})}/></td>
                     <td style={{padding:"6px 8px"}}><input style={editInputStyle} value={editDraft.loginId||""} onChange={(e)=>setEditDraft({...editDraft,loginId:e.target.value})}/></td>
                     <td style={{padding:"6px 8px",display:"flex",gap:2}}>
                       <IconButton icon={CheckCircle2} size={16} variant="ghost" color={TEAL} title="बचत गर्नुहोस्" disabled={importing} onClick={saveEdit}/>
@@ -6438,6 +6625,14 @@ function RosterEditor({ section, onSectionUpdated }){
                     </td>
                   </tr>
                 );
+                // NEW — one-tap call/SMS: opens the phone's own dialer or
+                // SMS app pre-filled, using father's phone first, then
+                // mother's, then the student's own (see ssBestParentPhone).
+                // These are real <a> links, not onClick handlers — that's
+                // what lets a phone browser hand off to the dialer/SMS app
+                // directly instead of needing any special permission.
+                const phone=ssBestParentPhone(d);
+                const smsMsg=`नमस्ते, म ${d.name} को शिक्षक बोल्दैछु।`;
                 return(
                   <tr key={`${d.roll||""}-${d.name||i}`} style={{borderTop:`1px solid ${BORDER}`}}>
                     <td style={{padding:"6px 8px"}}>{d.roll}</td>
@@ -6445,8 +6640,11 @@ function RosterEditor({ section, onSectionUpdated }){
                     <td style={{padding:"6px 8px"}}>{d.gender}</td>
                     <td style={{padding:"6px 8px"}}>{d.fatherPhone}</td>
                     <td style={{padding:"6px 8px"}}>{d.motherPhone}</td>
+                    <td style={{padding:"6px 8px"}}>{d.dob}</td>
                     <td style={{padding:"6px 8px"}}>{d.loginId}</td>
-                    <td style={{padding:"6px 8px",display:"flex",gap:2}}>
+                    <td style={{padding:"6px 8px",display:"flex",gap:2,alignItems:"center"}}>
+                      {phone&&<a href={ssTelHref(phone)} title={`${d.name} लाई फोन गर्नुहोस्`} style={{display:"flex",padding:5,borderRadius:8,color:TEAL,textDecoration:"none"}}><Phone size={14}/></a>}
+                      {phone&&<a href={ssSmsHref(phone,smsMsg)} title={`${d.name} लाई SMS पठाउनुहोस्`} style={{display:"flex",padding:5,borderRadius:8,color:TEAL,textDecoration:"none"}}><MessageSquare size={14}/></a>}
                       <IconButton icon={PenSquare} size={14} variant="ghost" color={TEAL} title="सम्पादन गर्नुहोस्" disabled={importing||editingIdx!==null} onClick={()=>startEdit(i)}/>
                       <IconButton icon={X} size={14} variant="ghost" color={DANGER} title="यो विद्यार्थी हटाउनुहोस्" disabled={importing||editingIdx!==null} onClick={()=>removeDetailRow(i)}/>
                     </td>
