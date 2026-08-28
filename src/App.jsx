@@ -8380,8 +8380,10 @@ function CalendarView({ classLabel, active }) {
   // weeks so a small details panel can be dropped in right after whichever
   // week the selected day sits in — it appears in place, directly under
   // that date, with nothing to scroll past to see it.
-  const selDateObj=parseDate(selected);
-  const selInThisMonth=selDateObj.getFullYear()===year&&selDateObj.getMonth()===month;
+  // FIX — selDateObj/selInThisMonth used to gate which week the details
+  // panel spliced into; no longer needed now that the panel always
+  // renders once, below the whole grid (see the FIX comment near the
+  // grid render below).
   const totalCells=firstDay+daysInMonth;
   const totalWeeks=Math.ceil(totalCells/7);
   const weeks=Array.from({length:totalWeeks},(_,w)=>Array.from({length:7},(_,d)=>{
@@ -8439,10 +8441,17 @@ function CalendarView({ classLabel, active }) {
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4}}>
           {(()=>{
-            // NEW — live calendar: the grid is built week-by-week instead
-            // of as one flat run of days, so a details panel can be
-            // dropped in as its own full-width row right after the week
-            // that holds the selected date — in place, not at the bottom.
+            // FIX — this used to build the grid week-by-week and splice the
+            // selected-day details panel in as its own full-width row right
+            // after whichever week held the selected date. Visually that
+            // meant the panel could land in the MIDDLE of the month (e.g.
+            // between the row ending on the 28th and the trailing 30/31 —
+            // exactly the screenshot report: "the notification appears in
+            // between the calendar"). It looked like a popup breaking the
+            // grid rather than a normal details section. The grid now
+            // renders as a plain flat run of day cells only; the details
+            // panel is rendered once, after this whole grid, always at the
+            // bottom regardless of which week the selected date falls in.
             const nodes=[];
             weeks.forEach((week,wi)=>{
               week.forEach((day,di)=>{
@@ -8475,43 +8484,41 @@ function CalendarView({ classLabel, active }) {
                   </div>
                 );
               });
-              // NEW — clicking (or already having selected) a date in this
-              // week drops its full details in right here, as its own row,
-              // instead of at the very bottom of the page.
-              if(selInThisMonth&&week.includes(selDateObj.getDate())){
-                nodes.push(
-                  <div key={`panel-${wi}`} className="cal-day-panel" style={{background:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:14,padding:"11px 12px 9px",margin:"6px 0 2px"}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,gap:8}}>
-                      <div style={{fontSize:14.5,fontWeight:800,color:INK}}>{selectedLabel}</div>
-                      <button className="ss-btn" onClick={()=>openNew(selected)} style={{display:"flex",alignItems:"center",gap:4,background:"none",border:`1.5px dashed ${VIOLET}`,borderRadius:999,padding:"4px 10px",fontSize:13,fontWeight:700,color:VIOLET,cursor:"pointer",flexShrink:0}}><Plus size={13}/>थप्नुहोस्</button>
-                    </div>
-                    {loading?<Spinner small/>:selectedItems.length===0?(
-                      <div style={{color:INK_SOFT,fontSize:14.5,padding:"2px 0 4px"}}>यो दिन कुनै कार्यक्रम छैन।</div>
-                    ):(
-                      <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                        {selectedItems.map((it)=>{
-                          const meta=EVENT_CATEGORY_META[it.category]||EVENT_CATEGORY_META.event;const Icon=meta.icon;
-                          return(
-                            <div key={it.id} style={{display:"flex",alignItems:"center",gap:9,padding:"8px 10px",borderRadius:10,background:SURFACE,border:`1px solid ${BORDER}`,borderLeft:`4px solid ${meta.color}`}}>
-                              <Icon size={15} color={meta.color} style={{flexShrink:0}}/>
-                              <div style={{flex:1,minWidth:0}} onClick={()=>openEdit(it)} title={it.editable?"सम्पादन गर्नुहोस्":""} className={it.editable?"ss-btn":""}>
-                                <div style={{fontSize:15,color:INK,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.title}</div>
-                                <div style={{fontSize:12.5,color:INK_SOFT,display:"flex",gap:5,flexWrap:"wrap"}}>
-                                  <span>{meta.label}</span>{it.time&&<span>· {it.time}</span>}{!it.editable&&<span>· मूल्याङ्कनबाट</span>}{it.start!==it.end&&<span>· {parseDate(it.start).getDate()}–{parseDate(it.end).getDate()} {MONTHS[parseDate(it.end).getMonth()]}</span>}
-                                </div>
-                              </div>
-                              {it.editable&&<button className="ss-icon-btn" onClick={()=>deleteEvent(it.raw)} style={{cursor:"pointer",color:INK_SOFT,padding:5,flexShrink:0}}><Trash2 size={14}/></button>}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              }
             });
             return nodes;
           })()}
+        </div>
+
+        {/* FIX — the selected-day details panel now always renders here,
+            below the complete month grid, instead of being spliced in
+            mid-grid (see the long comment above). Its content is
+            unchanged — same title, थप्नुहोस् button, and event list. */}
+        <div className="cal-day-panel" style={{background:SURFACE_2,border:`1px solid ${BORDER}`,borderRadius:14,padding:"11px 12px 9px",margin:"10px 0 2px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,gap:8}}>
+            <div style={{fontSize:14.5,fontWeight:800,color:INK}}>{selectedLabel}</div>
+            <button className="ss-btn" onClick={()=>openNew(selected)} style={{display:"flex",alignItems:"center",gap:4,background:"none",border:`1.5px dashed ${VIOLET}`,borderRadius:999,padding:"4px 10px",fontSize:13,fontWeight:700,color:VIOLET,cursor:"pointer",flexShrink:0}}><Plus size={13}/>थप्नुहोस्</button>
+          </div>
+          {loading?<Spinner small/>:selectedItems.length===0?(
+            <div style={{color:INK_SOFT,fontSize:14.5,padding:"2px 0 4px"}}>यो दिन कुनै कार्यक्रम छैन।</div>
+          ):(
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {selectedItems.map((it)=>{
+                const meta=EVENT_CATEGORY_META[it.category]||EVENT_CATEGORY_META.event;const Icon=meta.icon;
+                return(
+                  <div key={it.id} style={{display:"flex",alignItems:"center",gap:9,padding:"8px 10px",borderRadius:10,background:SURFACE,border:`1px solid ${BORDER}`,borderLeft:`4px solid ${meta.color}`}}>
+                    <Icon size={15} color={meta.color} style={{flexShrink:0}}/>
+                    <div style={{flex:1,minWidth:0}} onClick={()=>openEdit(it)} title={it.editable?"सम्पादन गर्नुहोस्":""} className={it.editable?"ss-btn":""}>
+                      <div style={{fontSize:15,color:INK,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.title}</div>
+                      <div style={{fontSize:12.5,color:INK_SOFT,display:"flex",gap:5,flexWrap:"wrap"}}>
+                        <span>{meta.label}</span>{it.time&&<span>· {it.time}</span>}{!it.editable&&<span>· मूल्याङ्कनबाट</span>}{it.start!==it.end&&<span>· {parseDate(it.start).getDate()}–{parseDate(it.end).getDate()} {MONTHS[parseDate(it.end).getMonth()]}</span>}
+                      </div>
+                    </div>
+                    {it.editable&&<button className="ss-icon-btn" onClick={()=>deleteEvent(it.raw)} style={{cursor:"pointer",color:INK_SOFT,padding:5,flexShrink:0}}><Trash2 size={14}/></button>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </Card>
 
