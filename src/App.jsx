@@ -107,6 +107,7 @@ const Volume2=ssMakeEmojiIcon("🔊");
 const VolumeX=ssMakeEmojiIcon("🔇");
 const Phone=ssMakeEmojiIcon("📞");
 const Cake=ssMakeEmojiIcon("🎂");
+const Mic=ssMakeEmojiIcon("🎤");
 
 // NEW — every color below is a CSS custom property, not a hardcoded hex.
 // That's what makes dark/light mode possible without rewriting every
@@ -6074,6 +6075,71 @@ function HomeworkManager({ section, loading, homework, onRefresh, classLabel, te
   );
 }
 
+// NEW — quick voice note. Records a short clip with the browser's own
+// MediaRecorder (no extra library needed), sends it to Gemini for
+// transcription, and hands the resulting text back to the caller — meant
+// for डायरी's three textareas, so a teacher can speak an entry after a
+// long day instead of typing it. Self-contained: caller only supplies
+// onResult(text) and gets a small mic button back.
+function VoiceNoteButton({ onResult, disabled }){
+  const [state,setState]=useState("idle"); // idle | recording | transcribing
+  const [error,setError]=useState("");
+  const mediaRecorderRef=useRef(null);
+  const chunksRef=useRef([]);
+  const streamRef=useRef(null);
+  // Cleanup if the form/component disappears mid-recording (e.g. रद्द
+  // tapped while still recording) — stops the mic instead of leaving it
+  // running in the background.
+  useEffect(()=>()=>{
+    try{mediaRecorderRef.current?.stop();}catch{}
+    try{streamRef.current?.getTracks().forEach((t)=>t.stop());}catch{}
+  },[]);
+  const start=async()=>{
+    setError("");
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+      streamRef.current=stream;
+      const mimeType=["audio/webm;codecs=opus","audio/webm","audio/mp4"].find((t)=>window.MediaRecorder&&MediaRecorder.isTypeSupported?.(t))||"";
+      const mr=new MediaRecorder(stream, mimeType?{mimeType}:undefined);
+      chunksRef.current=[];
+      mr.ondataavailable=(e)=>{if(e.data&&e.data.size>0)chunksRef.current.push(e.data);};
+      mr.onstop=async()=>{
+        try{stream.getTracks().forEach((t)=>t.stop());}catch{}
+        streamRef.current=null;
+        if(!chunksRef.current.length){setState("idle");return;}
+        setState("transcribing");
+        try{
+          const blob=new Blob(chunksRef.current,{type:mr.mimeType||"audio/webm"});
+          const base64=await gemini.blobToBase64(blob);
+          const text=await gemini.transcribeAudio(base64,blob.type||"audio/webm");
+          if((text||"").trim())onResult(text.trim());
+          else setError("केही सुनिएन — फेरि प्रयास गर्नुहोस्।");
+        }catch(e){
+          setError("आवाज बुझ्न सकिएन — फेरि प्रयास गर्नुहोस्।");
+        }
+        setState("idle");
+      };
+      mediaRecorderRef.current=mr;
+      mr.start();
+      setState("recording");
+    }catch(e){
+      setError("माइक्रोफोन प्रयोगको अनुमति चाहिन्छ।");
+      setState("idle");
+    }
+  };
+  const stop=()=>{ try{mediaRecorderRef.current?.stop();}catch{} };
+  if(state==="transcribing")return<span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:13,color:INK_SOFT,padding:"4px 2px",flexShrink:0}}><Loader size={12}/>लेख्दै...</span>;
+  return(
+    <div style={{display:"inline-flex",alignItems:"center",gap:6,flexShrink:0}}>
+      <button type="button" disabled={disabled} onClick={state==="recording"?stop:start} title={state==="recording"?"रोक्नुहोस्":"बोलेर लेख्नुहोस्"}
+        className="ss-btn" style={{display:"inline-flex",alignItems:"center",gap:5,padding:"5px 11px",borderRadius:999,border:`1.5px solid ${state==="recording"?DANGER:BORDER}`,background:state==="recording"?DANGER_BG:SURFACE_2,color:state==="recording"?DANGER:INK_SOFT,fontSize:12.5,fontWeight:700,cursor:disabled?"default":"pointer",whiteSpace:"nowrap"}}>
+        <Mic size={12}/>{state==="recording"?"रोक्नुहोस् ●":"बोल्नुहोस्"}
+      </button>
+      {error&&<span style={{fontSize:12,color:DANGER}}>{error}</span>}
+    </div>
+  );
+}
+
 function TeachingJournal({ lessons, classLabel }) {
   const [entries,setEntries]=useState([]);
   const [loading,setLoading]=useState(true);
@@ -6115,9 +6181,22 @@ function TeachingJournal({ lessons, classLabel }) {
                 </select>
               )}
             </div>
-            <textarea placeholder="के पढाइयो?" value={form.taught} onChange={(e)=>setForm({...form,taught:e.target.value})} rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
-            <textarea placeholder="के गाह्रो भयो?" value={form.difficulty} onChange={(e)=>setForm({...form,difficulty:e.target.value})} rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
-            <textarea placeholder="अर्को पटककालागि सुझाव" value={form.idea} onChange={(e)=>setForm({...form,idea:e.target.value})} rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
+            {/* NEW — each textarea now has its own voice-note mic button.
+                Transcribed text is appended (with a space) if the field
+                already has something typed, rather than overwriting it,
+                so speaking doesn't erase a note already started by hand. */}
+            <div>
+              <textarea placeholder="के पढाइयो?" value={form.taught} onChange={(e)=>setForm({...form,taught:e.target.value})} rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
+              <div style={{marginTop:5,display:"flex"}}><VoiceNoteButton onResult={(t)=>setForm((f)=>({...f,taught:f.taught?`${f.taught} ${t}`:t}))}/></div>
+            </div>
+            <div>
+              <textarea placeholder="के गाह्रो भयो?" value={form.difficulty} onChange={(e)=>setForm({...form,difficulty:e.target.value})} rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
+              <div style={{marginTop:5,display:"flex"}}><VoiceNoteButton onResult={(t)=>setForm((f)=>({...f,difficulty:f.difficulty?`${f.difficulty} ${t}`:t}))}/></div>
+            </div>
+            <div>
+              <textarea placeholder="अर्को पटककालागि सुझाव" value={form.idea} onChange={(e)=>setForm({...form,idea:e.target.value})} rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
+              <div style={{marginTop:5,display:"flex"}}><VoiceNoteButton onResult={(t)=>setForm((f)=>({...f,idea:f.idea?`${f.idea} ${t}`:t}))}/></div>
+            </div>
             <div style={{display:"flex",gap:8}}>
               {Object.entries(MOOD_META).map(([key,m])=>{const Icon=m.icon;const active=form.mood===key;return(
                 <button key={key} onClick={()=>setForm({...form,mood:key})} style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:7,padding:"7px 8px",borderRadius:11,border:`1.5px solid ${active?m.color:`color-mix(in srgb, ${m.color} 25%, ${BORDER})`}`,background:active?`color-mix(in srgb, ${m.color} 14%, ${SURFACE})`:SURFACE,color:active?m.color:INK,fontSize:15,fontWeight:700,cursor:"pointer",boxShadow:active?`0 4px 10px color-mix(in srgb, ${m.color} 30%, transparent)`:"none"}}>

@@ -500,6 +500,23 @@ export const generateWithMaterials = (prompt, materialParts = [], textbookBase64
   return callGemini(parts);
 };
 
+// NEW — quick voice note transcription for डायरी. Takes a short recorded
+// clip (base64 + its actual mime type, e.g. audio/webm from the browser's
+// MediaRecorder) and returns plain transcribed text in whichever language
+// the teacher spoke (Nepali or English) — no JSON mode needed, this is
+// just prose. A generous but bounded timeout: a 1-2 minute voice note is
+// small compared to the PDFs/materials other calls here already handle,
+// but slower than a text-only prompt since Gemini has to listen to it
+// first.
+export const transcribeAudio = (base64, mimeType) =>
+  callGemini(
+    [
+      { inline_data: { mime_type: mimeType, data: base64 } },
+      { text: "यो अडियो क्लिप ध्यानपूर्वक सुनेर हुबहु सुनेजस्तै लेखिदिनुहोस् (नेपाली वा अंग्रेजी, जुन भाषामा बोलेको छ सोही भाषामा)। कुनै व्याख्या, शीर्षक, वा थप टिप्पणी नथप्नुहोस् — केवल बोलेको कुरा मात्र लेख्नुहोस्।" },
+    ],
+    { maxOutputTokens: 1024, timeoutMs: 40000, retries: 1 }
+  );
+
 // ─── JSON generation (lesson plans, questions, activities, rubrics) ─────────
 // Same shapes as above, but with jsonMode on — this is what actually fixes
 // the "AI ले डाटा बनाउन सकेन" failures, since Gemini can no longer wrap the
