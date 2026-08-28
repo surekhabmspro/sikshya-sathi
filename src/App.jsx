@@ -5674,12 +5674,12 @@ function Materials({ classLabel }) {
         </div>
         {/* NEW — browse materials by chapter, same concept the Planner now
             uses, instead of only being able to filter by file category. */}
-        <select value={chapterFilter} onChange={(e)=>setChapterFilter(e.target.value)} style={{border:`1px solid ${chapterFilter!=="all"?ACCENT:BORDER}`,borderRadius:12,padding:"11px 14px",fontSize:16,fontFamily:"'SSText','Kalimati','Times New Roman',serif",background:chapterFilter!=="all"?ACCENT_LIGHT:SURFACE,color:chapterFilter!=="all"?ACCENT:INK,fontWeight:600}}>
+        <select value={chapterFilter} onChange={(e)=>setChapterFilter(e.target.value)} style={{border:`1px solid ${chapterFilter!=="all"?ACCENT:BORDER}`,borderRadius:12,padding:"11px 14px",fontSize:16,fontFamily:"'SSText','Kalimati','Times New Roman',serif",background:chapterFilter!=="all"?ACCENT_LIGHT:SURFACE,color:chapterFilter!=="all"?ACCENT:INK,fontWeight:600,minWidth:0,maxWidth:"100%",flex:"1 1 150px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
           <option value="all">सबै एकाइ</option>
           <option value="untagged">एकाइ नतोकिएका</option>
           {(chapters||[]).map((c)=><option key={c.id} value={c.id}>{c.title}</option>)}
         </select>
-        <select value={sortBy} onChange={(e)=>setSortBy(e.target.value)} style={{border:`1px solid ${BORDER}`,borderRadius:12,padding:"11px 14px",fontSize:16,fontFamily:"'SSText','Kalimati','Times New Roman',serif",background:SURFACE,color:INK,fontWeight:600}}>
+        <select value={sortBy} onChange={(e)=>setSortBy(e.target.value)} style={{border:`1px solid ${BORDER}`,borderRadius:12,padding:"11px 14px",fontSize:16,fontFamily:"'SSText','Kalimati','Times New Roman',serif",background:SURFACE,color:INK,fontWeight:600,minWidth:0,maxWidth:"100%",flex:"1 1 130px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
           <option value="newest">नयाँ पहिले</option>
           <option value="name">नाम अनुसार (क-ज्ञ)</option>
         </select>
@@ -6701,31 +6701,39 @@ function ssSpeakName(name,attempt){
     window.speechSynthesis.cancel();
     const nepali=voices.find((v)=>/^ne([-_]|$)/i.test(v.lang));
     const hindi=voices.find((v)=>/^hi([-_]|$)/i.test(v.lang));
-    // FIX — some names were still coming out spelled letter-by-letter even
-    // after preferring a matching voice/lang. Root cause is different from
-    // the earlier voice/lang-mismatch fix: with a Hindi voice (or no
-    // matching voice at all, i.e. the plain default English one), names
-    // outside that voice's pronunciation dictionary are unrecognized
-    // "words" — a well-known TTS behavior is to fall back to spelling
-    // those out letter-by-letter, and that happens per-name depending on
-    // its dictionary, which is why only SOME names were affected and it
-    // can't be fixed by voice/lang selection alone. Real fix: when no
-    // genuine Nepali voice exists, transliterate the Devanagari name to a
-    // phonetic Roman-script approximation and read it with an
-    // English-family voice — English engines synthesize any Latin "word"
-    // via letter-to-sound rules rather than requiring it in a dictionary
-    // first, which avoids the spelling fallback entirely regardless of
-    // which specific name it is.
+    const englishIN=voices.find((v)=>/^en[-_]in/i.test(v.lang));
+    const englishAny=voices.find((v)=>/^en([-_]|$)/i.test(v.lang));
+    const english=englishIN||englishAny;
+    // FIX — this is what was spelling names out on phone specifically (PC
+    // was fine): the Roman transliteration below only synthesizes cleanly
+    // through an English-family voice (English engines sound out any
+    // Latin "word" via letter-to-sound rules). Whenever no English voice
+    // was found, the code still handed that same Roman text to the Hindi
+    // voice as a fallback — but a Hindi voice has no dictionary entry for
+    // Latin letters, so it fell back to spelling them out one by one.
+    // This is exactly what happens on phones that only ship Nepali/Hindi
+    // TTS voice packs with no English one downloaded (common on budget
+    // Android devices), while a PC's default OS voices almost always
+    // include an English one — hence "fine on PC, spelling on phone".
+    // Fix: only transliterate+use the Roman form when a real English
+    // voice is actually available; otherwise keep the original Devanagari
+    // text and read it with the Hindi voice, which can approximate an
+    // actual Devanagari word instead of definitely spelling out Latin text
+    // it has no dictionary entry for.
     let textToSpeak=name,voice=null;
     if(nepali){voice=nepali;}
-    else{
-      textToSpeak=transliterateDevanagariToRoman(name);
-      const englishIN=voices.find((v)=>/^en[-_]in/i.test(v.lang));
-      const englishAny=voices.find((v)=>/^en([-_]|$)/i.test(v.lang));
-      voice=englishIN||englishAny||hindi||null;
-    }
+    else if(english){textToSpeak=transliterateDevanagariToRoman(name);voice=english;}
+    else if(hindi){voice=hindi;}
+    else if(voices&&voices.length){voice=voices[0];}
     const utter=new SpeechSynthesisUtterance(textToSpeak);
-    if(voice){utter.voice=voice;utter.lang=voice.lang;}
+    // FIX — utter.lang was only ever set when a matching voice object was
+    // found in the list; if it wasn't, the utterance's lang stayed unset
+    // and some mobile browsers fall back to the page's own language
+    // (Nepali, for this app) to pick a voice — pulling in exactly the
+    // wrong engine for whatever text we're actually sending. Always set
+    // an explicit lang now so voice selection can't silently drift.
+    utter.lang=voice?voice.lang:"en-US";
+    if(voice)utter.voice=voice;
     utter.rate=0.92;
     utter.pitch=1.05;
     window.speechSynthesis.speak(utter);
@@ -7718,6 +7726,13 @@ function DocumentSearch({ lessons, homework, classLabel, sections, onOpenLesson,
   // materials/etc. Only sections belonging to the current class are
   // searched, same scope as everything else here. Tapping a result jumps
   // to that student's section's roster in उपकरण.
+  // NEW — student search used to only match a name against the plain
+  // roster list and show just "name · section". It now also searches the
+  // fuller CSV-imported student_details (roll number, father/mother/
+  // student phone, login ID) — matching a phone number or roll number now
+  // finds the student too — and shows whichever detail actually matched
+  // (roll no. / phone / login ID) alongside the section, not just the
+  // section name.
   const classSections=useMemo(()=>(sections||[]).filter((s)=>!s.class_label||s.class_label===classLabel),[sections,classLabel]);
   const results=useMemo(()=>{
     const q=query.trim().toLowerCase();if(!q)return[];
@@ -7726,7 +7741,24 @@ function DocumentSearch({ lessons, homework, classLabel, sections, onOpenLesson,
       ...allMaterials.filter((m)=>m.name?.toLowerCase().includes(q)||m.chapters?.title?.toLowerCase().includes(q)).map((m)=>({kind:"सामग्री",title:m.name,sub:(m.chapters?.title?m.chapters.title+" · ":"")+(m.file_type?.toUpperCase()||""),icon:FileText,color:DANGER,onClick:onGoMaterials})),
       ...allAssessments.filter((a)=>a.title?.toLowerCase().includes(q)).map((a)=>{const l=lessons.find((x)=>x.id===a.lesson_id);return{kind:"मूल्याङ्कन",title:a.title,sub:a.chapters?.title||"",icon:NotebookPen,color:BLUE,onClick:l?()=>onOpenLesson?.(l,{tab:"rubric"}):undefined};}),
       ...homework.filter((h)=>h.title?.toLowerCase().includes(q)).map((h)=>({kind:"गृहकार्य",title:h.title,sub:`${h.checked_count}/${h.total_students}`,icon:ListChecks,color:WARN,onClick:onGoHomework})),
-      ...classSections.flatMap((s)=>(s.roster||[]).filter((name)=>name?.toLowerCase().includes(q)).map((name)=>({kind:"विद्यार्थी",title:name,sub:s.name,icon:UsersRound,color:TEAL,onClick:onGoStudent?()=>onGoStudent(s):undefined}))),
+      ...classSections.flatMap((s)=>{
+        const detailRows=s.student_details||[];
+        const detailNames=new Set(detailRows.map((d)=>d.name));
+        // Students who only exist in the plain roster (no imported CSV
+        // detail row for them) still get searched by name, just with
+        // nothing extra to match against.
+        const plainOnly=(s.roster||[]).filter((n)=>n&&!detailNames.has(n)).map((n)=>({name:n}));
+        return [...detailRows,...plainOnly]
+          .filter((d)=>[d.name,d.roll,d.fatherPhone,d.motherPhone,d.studentPhone,d.loginId,d.gender].filter(Boolean).join(" ").toLowerCase().includes(q))
+          .map((d)=>{
+            const bits=[s.name];
+            if(d.roll)bits.push(`रोल ${d.roll}`);
+            const phoneMatch=[d.studentPhone,d.fatherPhone,d.motherPhone].find((p)=>p&&p.toLowerCase().includes(q));
+            if(phoneMatch)bits.push(phoneMatch);
+            else if(d.loginId&&d.loginId.toLowerCase().includes(q))bits.push(`लगइन ${d.loginId}`);
+            return{kind:"विद्यार्थी",title:d.name,sub:bits.join(" · "),icon:UsersRound,color:TEAL,onClick:onGoStudent?()=>onGoStudent(s):undefined};
+          });
+      }),
     ];
   },[query,lessons,allMaterials,allAssessments,homework,classSections,onOpenLesson,onGoMaterials,onGoHomework,onGoStudent]);
   return(
@@ -8792,7 +8824,7 @@ export default function App() {
     const d=fabDragRef.current;
     if(!d.dragging)return;
     const dx=e.clientX-d.startX, dy=e.clientY-d.startY;
-    if(!d.moved&&Math.hypot(dx,dy)<6)return; // small threshold: still a tap, not a drag
+    if(!d.moved&&Math.hypot(dx,dy)<18)return; // finger jitter on a real touchscreen easily exceeds a few px even for a stationary tap — too tight a threshold here was swallowing ordinary taps as tiny "drags"
     d.moved=true;
     const size=d.size;
     const maxLeft=window.innerWidth-size-4, maxTop=window.innerHeight-size-4;
