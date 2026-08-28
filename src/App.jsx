@@ -1366,17 +1366,19 @@ function CenteredSelect({ value, onChange, options, placeholder, style, disabled
       </button>
       {open&&(
         <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:95,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:16}}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:16,border:`1.5px solid ${BORDER}`,width:"100%",maxWidth:520,maxHeight:"70vh",overflowY:"auto",boxShadow:SHADOW.raised,padding:8}}>
-            {options.map((o)=>{
-              const active=String(o.value)===String(value);
-              return(
-                <div
-                  key={o.value}
-                  onClick={()=>{onChange(o.value);setOpen(false);}}
-                  style={{padding:"12px 14px",borderRadius:10,cursor:"pointer",fontSize:15.5,fontWeight:active?700:600,color:active?ACCENT:INK,background:active?ACCENT_LIGHT:"transparent",fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}
-                >{o.label}</div>
-              );
-            })}
+          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,border:`1.5px solid ${BORDER}`,width:"min(94vw, 760px)",maxHeight:"82vh",overflowY:"auto",boxShadow:SHADOW.raised,padding:10}}>
+            <div style={{display:"grid",gridTemplateColumns:options.length>6?"repeat(auto-fill, minmax(260px, 1fr))":"1fr",gap:4}}>
+              {options.map((o)=>{
+                const active=String(o.value)===String(value);
+                return(
+                  <div
+                    key={o.value}
+                    onClick={()=>{onChange(o.value);setOpen(false);}}
+                    style={{padding:"14px 16px",borderRadius:10,cursor:"pointer",fontSize:15.5,fontWeight:active?700:600,color:active?ACCENT:INK,background:active?ACCENT_LIGHT:"transparent",fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}
+                  >{o.label}</div>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
@@ -7427,8 +7429,16 @@ function QuestionRoulette({ lessons, classLabel }){
   );
 }
 
-function ClassroomTools({ section, onSectionUpdated, lessons, classLabel }){
+function ClassroomTools({ section, onSectionUpdated, lessons, classLabel, initialTab, onInitialTabConsumed }){
   const [tab,setTab]=useState("picker");
+  // NEW — lets Search's student-name results jump straight to the नाम
+  // सूची (roster) tab for the matched section, same jump-to-subtab
+  // pattern already used by AI Sahayak/Home panel results.
+  useEffect(()=>{
+    if(!initialTab)return;
+    setTab(initialTab);
+    onInitialTabConsumed?.();
+  },[initialTab,onInitialTabConsumed]);
   const roster=section?.roster||[];
   const TABS=[
     {id:"picker",label:"छनोट",icon:Dices,color:FUN_ORANGE},
@@ -7684,7 +7694,7 @@ function SavedResources({ classLabel, embedded, refreshKey }) {
 }
 
 
-function DocumentSearch({ lessons, homework, classLabel, onOpenLesson, onGoMaterials, onGoHomework }) {
+function DocumentSearch({ lessons, homework, classLabel, sections, onOpenLesson, onGoMaterials, onGoHomework, onGoStudent }) {
   const [query,setQuery]=useState("");
   const [allMaterials,setAllMaterials]=useState([]);
   const [allAssessments,setAllAssessments]=useState([]);
@@ -7703,6 +7713,12 @@ function DocumentSearch({ lessons, homework, classLabel, onOpenLesson, onGoMater
   },[classLabel]);
   // FIX — results were pure display, tapping one did nothing. Each result
   // now knows how to jump to where it actually lives.
+  // NEW — student names (from each सेक्सन's saved नाम सूची roster) are now
+  // searchable too, matching the same "sबैतिर खोज" behavior as lessons/
+  // materials/etc. Only sections belonging to the current class are
+  // searched, same scope as everything else here. Tapping a result jumps
+  // to that student's section's roster in उपकरण.
+  const classSections=useMemo(()=>(sections||[]).filter((s)=>!s.class_label||s.class_label===classLabel),[sections,classLabel]);
   const results=useMemo(()=>{
     const q=query.trim().toLowerCase();if(!q)return[];
     return[
@@ -7710,8 +7726,9 @@ function DocumentSearch({ lessons, homework, classLabel, onOpenLesson, onGoMater
       ...allMaterials.filter((m)=>m.name?.toLowerCase().includes(q)||m.chapters?.title?.toLowerCase().includes(q)).map((m)=>({kind:"सामग्री",title:m.name,sub:(m.chapters?.title?m.chapters.title+" · ":"")+(m.file_type?.toUpperCase()||""),icon:FileText,color:DANGER,onClick:onGoMaterials})),
       ...allAssessments.filter((a)=>a.title?.toLowerCase().includes(q)).map((a)=>{const l=lessons.find((x)=>x.id===a.lesson_id);return{kind:"मूल्याङ्कन",title:a.title,sub:a.chapters?.title||"",icon:NotebookPen,color:BLUE,onClick:l?()=>onOpenLesson?.(l,{tab:"rubric"}):undefined};}),
       ...homework.filter((h)=>h.title?.toLowerCase().includes(q)).map((h)=>({kind:"गृहकार्य",title:h.title,sub:`${h.checked_count}/${h.total_students}`,icon:ListChecks,color:WARN,onClick:onGoHomework})),
+      ...classSections.flatMap((s)=>(s.roster||[]).filter((name)=>name?.toLowerCase().includes(q)).map((name)=>({kind:"विद्यार्थी",title:name,sub:s.name,icon:UsersRound,color:TEAL,onClick:onGoStudent?()=>onGoStudent(s):undefined}))),
     ];
-  },[query,lessons,allMaterials,allAssessments,homework,onOpenLesson,onGoMaterials,onGoHomework]);
+  },[query,lessons,allMaterials,allAssessments,homework,classSections,onOpenLesson,onGoMaterials,onGoHomework,onGoStudent]);
   return(
     <div className="ss-page-read" style={{padding:"20px 20px 130px",maxWidth:820,margin:"0 auto"}}>
       <div style={{marginBottom:4}}><PageHeader icon={Search} title="सबैतिर खोज" color={TEAL}/></div>
@@ -8685,6 +8702,13 @@ export default function App() {
   useEffect(()=>{
     setVisitedScreens((prev)=>prev.has(screen)?prev:new Set(prev).add(screen));
   },[screen]);
+  // NEW — screens stay mounted in the background (see visitedScreens above)
+  // and the whole app scrolls at the window level, so switching tabs used
+  // to leave whichever scroll position you'd left a screen at untouched —
+  // coming back to it later dropped you back in the middle of the page
+  // instead of at the top. Every screen switch now resets the window
+  // scroll to the top, matching how a fresh navigation normally feels.
+  useEffect(()=>{ window.scrollTo(0,0); },[screen]);
   const [activeLesson,setActiveLesson]=useState(null);
   const [activeLessonAutoPrint,setActiveLessonAutoPrint]=useState(false);
   // NEW — lets Search jump into a specific lesson's मूल्याङ्कन tab
@@ -8718,6 +8742,10 @@ export default function App() {
   // tab. Same jump-straight-to-panel pattern as AI Sahayak above.
   const [homePanel,setHomePanel]=useState(null);
   const goHomePanel=useCallback((tab)=>{setHomePanel(typeof tab==="string"?tab:null);setScreen("dashboard");},[]);
+  // NEW — lets Search's student-name results jump straight into उपकरण's
+  // नाम सूची (roster) sub-tab, same jump-straight-to-subtab pattern as
+  // aiToolsTab/homePanel above.
+  const [toolsTab,setToolsTab]=useState(null);
   const [settingsOpen,setSettingsOpen]=useState(false);
   const [searchOpen,setSearchOpen]=useState(false);
   // NEW — a global "pick a student" button/modal, reachable from any
@@ -8735,6 +8763,59 @@ export default function App() {
   // the FAB can show a live mm:ss badge even while the panel is closed.
   const [quickTool,setQuickTool]=useState("picker");
   const [timerState,setTimerState]=useState({remaining:0,running:false,totalSec:0});
+  // NEW — the FAB used to be pinned to a fixed corner (CSS only), which on
+  // some screens sat on top of real content (print buttons, floating
+  // "बदल्नुहोस्" etc.) with no way to get it out of the way. It's
+  // draggable now: dragging switches it to an explicit left/top position
+  // (saved to localStorage so it stays where it was put across reloads);
+  // until it's ever dragged, it keeps using the original CSS corner
+  // position, so nothing moves for a teacher who never touches it.
+  const FAB_POS_KEY="ss-fab-pos";
+  const [fabPos,setFabPos]=useState(()=>{
+    try{const raw=localStorage.getItem(FAB_POS_KEY);return raw?JSON.parse(raw):null;}catch{return null;}
+  });
+  const fabDragRef=useRef({dragging:false,moved:false,startX:0,startY:0,startLeft:0,startTop:0,size:58});
+  const fabBtnRef=useRef(null);
+  const onFabPointerDown=useCallback((e)=>{
+    const btn=fabBtnRef.current;
+    if(!btn)return;
+    const rect=btn.getBoundingClientRect();
+    fabDragRef.current={
+      dragging:true,moved:false,
+      startX:e.clientX,startY:e.clientY,
+      startLeft:rect.left,startTop:rect.top,
+      size:rect.width,
+    };
+    btn.setPointerCapture?.(e.pointerId);
+  },[]);
+  const onFabPointerMove=useCallback((e)=>{
+    const d=fabDragRef.current;
+    if(!d.dragging)return;
+    const dx=e.clientX-d.startX, dy=e.clientY-d.startY;
+    if(!d.moved&&Math.hypot(dx,dy)<6)return; // small threshold: still a tap, not a drag
+    d.moved=true;
+    const size=d.size;
+    const maxLeft=window.innerWidth-size-4, maxTop=window.innerHeight-size-4;
+    const left=Math.min(Math.max(d.startLeft+dx,4),Math.max(maxLeft,4));
+    const top=Math.min(Math.max(d.startTop+dy,4),Math.max(maxTop,4));
+    setFabPos({left,top});
+  },[]);
+  const onFabPointerUp=useCallback((e)=>{
+    const d=fabDragRef.current;
+    if(!d.dragging)return;
+    d.dragging=false;
+    fabBtnRef.current?.releasePointerCapture?.(e.pointerId);
+    if(d.moved){
+      setFabPos((p)=>{
+        try{if(p)localStorage.setItem(FAB_POS_KEY,JSON.stringify(p));}catch{}
+        return p;
+      });
+    }
+  },[]);
+  const onFabClick=useCallback(()=>{
+    if(fabDragRef.current.moved){ fabDragRef.current.moved=false; return; } // was a drag, not a tap — don't open
+    setPickerOpen(true);
+  },[]);
   // NEW — one-click print from the Planner list: open the lesson AND print
   // it immediately, no second tap required.
   const openLesson=useCallback((l,opts)=>{setActiveLesson(l);setActiveLessonAutoPrint(!!opts?.autoPrint);setActiveLessonTab(opts?.tab||null);},[]);
@@ -9086,9 +9167,21 @@ export default function App() {
 
   return(
     <DataProvider value={dataValue}>
-    <div data-theme={theme} style={{fontFamily:"'SSText','Kalimati','Times New Roman',serif",background:PAPER,minHeight:"100vh",color:INK,fontSize:17,transition:"background .2s ease, color .2s ease",overflowX:"hidden"}}>
+    <div data-theme={theme} style={{fontFamily:"'SSText','Kalimati','Times New Roman',serif",background:PAPER,minHeight:"100vh",color:INK,fontSize:17,transition:"background .2s ease, color .2s ease"}}>
       <style>{`
-        *{box-sizing:border-box;}body{margin:0;-webkit-font-smoothing:antialiased;}
+        /* FIX — overflow-x:hidden used to live on this top-level wrapper
+           div. Per the CSS spec, when overflow-x is anything other than
+           "visible" and overflow-y is left as "visible", the browser
+           silently computes overflow-y as "auto" too — turning this div
+           into its own scroll container even though nothing ever actually
+           scrolled inside it (it just grows taller than the viewport
+           instead). Because of that, this div — not the real window — was
+           what position:sticky children (the topbar) measured "top:0"
+           against, and since this div's own box never scrolls, sticky
+           never had anything to stick to and just scrolled away with the
+           page. Moved the horizontal clip to <body> below instead, which
+           is the real scrolling element and doesn't trigger this. */
+        *{box-sizing:border-box;}body{margin:0;overflow-x:hidden;-webkit-font-smoothing:antialiased;}
         @font-face{
           /* Devanagari (Nepali) text — Kalimati. Uses the copy already
              installed on this computer (the standard Nepali-government
@@ -9455,7 +9548,7 @@ export default function App() {
           <AITools lessons={lessons} classContext={classContext} classLabel={classLabel} initialTab={aiToolsTab} onInitialTabConsumed={()=>setAiToolsTab(null)}/>
         </div>}
         {visitedScreens.has("tools")&&<div style={{display:screen==="tools"?undefined:"none"}}>
-          <ClassroomTools section={currentSection} lessons={lessons} classLabel={classLabel} onSectionUpdated={(s)=>{setSections((prev)=>prev.map((x)=>x.id===s.id?s:x));if(currentSection?.id===s.id)setCurrentSection(s);}}/>
+          <ClassroomTools section={currentSection} lessons={lessons} classLabel={classLabel} onSectionUpdated={(s)=>{setSections((prev)=>prev.map((x)=>x.id===s.id?s:x));if(currentSection?.id===s.id)setCurrentSection(s);}} initialTab={toolsTab} onInitialTabConsumed={()=>setToolsTab(null)}/>
         </div>}
       </div>
 
@@ -9469,10 +9562,11 @@ export default function App() {
             <div style={{position:"sticky",top:0,zIndex:2,display:"flex",justifyContent:"flex-end",padding:"10px 10px 0",background:PAPER}}>
               <IconButton icon={X} onClick={()=>setSearchOpen(false)} variant="surface"/>
             </div>
-            <DocumentSearch lessons={lessons} homework={homework} classLabel={classLabel}
+            <DocumentSearch lessons={lessons} homework={homework} classLabel={classLabel} sections={sections}
               onOpenLesson={(l,opts)=>{setSearchOpen(false);openLesson(l,opts);}}
               onGoMaterials={()=>{setSearchOpen(false);setScreen("materials");}}
               onGoHomework={()=>{setSearchOpen(false);goHomePanel("homework");}}
+              onGoStudent={(section)=>{setSearchOpen(false);switchToSection(section);setToolsTab("roster");setScreen("tools");}}
             />
           </div>
         </div>
@@ -9530,7 +9624,16 @@ export default function App() {
           visibility toggles with pickerOpen — so a running Timer keeps
           counting down in the background while the teacher browses other
           screens, instead of resetting every time the panel closes. */}
-      <button onClick={()=>setPickerOpen(true)} title="कक्षा उपकरण" className="ss-btn no-print ss-quickpick-fab" style={{position:"fixed",width:58,height:58,borderRadius:20,border:"none",background:`linear-gradient(145deg, ${FUN_YELLOW} 0%, ${FUN_ORANGE} 100%)`,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:93,boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 10px 24px color-mix(in srgb, ${FUN_ORANGE} 42%, transparent), 0 3px 8px rgba(var(--shadow-rgb),0.2)`}}>
+      <button
+        ref={fabBtnRef}
+        onPointerDown={onFabPointerDown}
+        onPointerMove={onFabPointerMove}
+        onPointerUp={onFabPointerUp}
+        onPointerCancel={onFabPointerUp}
+        onClick={onFabClick}
+        title="कक्षा उपकरण — तान्न मिल्छ"
+        className={`ss-btn no-print ${fabPos?"":"ss-quickpick-fab"}`}
+        style={{position:"fixed",...(fabPos?{left:fabPos.left,top:fabPos.top,right:"auto",bottom:"auto"}:{}),width:58,height:58,borderRadius:20,border:"none",background:`linear-gradient(145deg, ${FUN_YELLOW} 0%, ${FUN_ORANGE} 100%)`,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"grab",zIndex:93,touchAction:"none",boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 10px 24px color-mix(in srgb, ${FUN_ORANGE} 42%, transparent), 0 3px 8px rgba(var(--shadow-rgb),0.2)`}}>
         <Dices size={26}/>
         {timerState.running&&(
           <div style={{position:"absolute",top:-7,right:-9,background:WARN,color:"#fff",fontSize:11.5,fontWeight:800,borderRadius:999,padding:"2px 7px",boxShadow:SHADOW.raised,fontVariantNumeric:"tabular-nums",border:`2px solid ${PAPER}`}}>
