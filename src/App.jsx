@@ -3967,32 +3967,55 @@ function ssMakeBirthdayRain(count=42){
     emoji:SS_BIRTHDAY_EMOJIS[i%SS_BIRTHDAY_EMOJIS.length],
   }));
 }
-// Plays "Happy Birthday to You" (first line) as a simple WebAudio melody —
-// used as a always-available musical cue. Runs alongside ssSpeakName below
-// (spoken name), not instead of it, so there's both a tune and the name
-// itself.
+// Plays the FULL "Happy Birthday to You" song (all four lines) as a
+// WebAudio melody, looped 3x back-to-back to comfortably clear ~30
+// seconds of music for the celebration — a single pass through the song
+// is only ~10s. Two detuned oscillators per note (triangle + sine) are
+// layered for a fuller, noticeably louder sound than a single thin tone.
+// Runs alongside ssSpeakName below (spoken name), not instead of it.
 function ssPlayHappyBirthdayTune(){
   try{
     const Ctx=window.AudioContext||window.webkitAudioContext;
     if(!Ctx)return;
     const ctx=new Ctx();
-    // "Hap-py birth-day to you" — note, beats(*0.4s unit)
-    const notes=[
-      [392.00,0.75],[392.00,0.25],[440.00,1],[392.00,1],[523.25,1],[493.88,2],
+    const N={G4:392.00,A4:440.00,B4:493.88,C5:523.25,D5:587.33,E5:659.25,F5:698.46,G5:783.99};
+    // Full song, all 4 lines — [note, beats]
+    const SONG=[
+      [N.G4,0.75],[N.G4,0.25],[N.A4,1],[N.G4,1],[N.C5,1],[N.B4,2],
+      [N.G4,0.75],[N.G4,0.25],[N.A4,1],[N.G4,1],[N.D5,1],[N.C5,2],
+      [N.G4,0.75],[N.G4,0.25],[N.G5,1],[N.E5,1],[N.C5,1],[N.B4,1],[N.A4,2],
+      [N.F5,0.75],[N.F5,0.25],[N.E5,1],[N.C5,1],[N.D5,1],[N.C5,2],
     ];
+    const BEAT=0.38, GAP=0.03, REPEATS=3, PAUSE_BETWEEN=0.5;
+    const masterGain=ctx.createGain();
+    masterGain.gain.value=1;
+    masterGain.connect(ctx.destination);
     let t=ctx.currentTime+0.05;
-    notes.forEach(([freq,beats])=>{
-      const dur=beats*0.34;
-      const osc=ctx.createOscillator(), gain=ctx.createGain();
-      osc.connect(gain);gain.connect(ctx.destination);
-      osc.type="triangle";osc.frequency.value=freq;
-      gain.gain.setValueAtTime(0.0001,t);
-      gain.gain.exponentialRampToValueAtTime(0.3,t+0.03);
-      gain.gain.exponentialRampToValueAtTime(0.0001,t+dur*0.92);
-      osc.start(t);osc.stop(t+dur);
-      t+=dur+0.03;
-    });
-    setTimeout(()=>ctx.close(),(t-ctx.currentTime+1)*1000);
+    for(let r=0;r<REPEATS;r++){
+      SONG.forEach(([freq,beats])=>{
+        const dur=beats*BEAT;
+        // Layer 1: triangle, the main body of the tone.
+        const osc1=ctx.createOscillator(), gain1=ctx.createGain();
+        osc1.type="triangle";osc1.frequency.value=freq;
+        osc1.connect(gain1);gain1.connect(masterGain);
+        gain1.gain.setValueAtTime(0.0001,t);
+        gain1.gain.exponentialRampToValueAtTime(0.55,t+0.03);
+        gain1.gain.exponentialRampToValueAtTime(0.0001,t+dur*0.92);
+        osc1.start(t);osc1.stop(t+dur);
+        // Layer 2: sine one octave up, slightly detuned — adds brightness
+        // and perceived loudness without turning harsh.
+        const osc2=ctx.createOscillator(), gain2=ctx.createGain();
+        osc2.type="sine";osc2.frequency.value=freq*2.003;
+        osc2.connect(gain2);gain2.connect(masterGain);
+        gain2.gain.setValueAtTime(0.0001,t);
+        gain2.gain.exponentialRampToValueAtTime(0.22,t+0.03);
+        gain2.gain.exponentialRampToValueAtTime(0.0001,t+dur*0.92);
+        osc2.start(t);osc2.stop(t+dur);
+        t+=dur+GAP;
+      });
+      if(r<REPEATS-1)t+=PAUSE_BETWEEN;
+    }
+    setTimeout(()=>{try{ctx.close();}catch{}},(t-ctx.currentTime+1)*1000);
   }catch{ /* audio unavailable — silent no-op */ }
 }
 function BirthdayCelebration({ student, onClose }){
