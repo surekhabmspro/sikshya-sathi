@@ -1342,6 +1342,48 @@ function MaterialAttach({ chapterTitle, lessonId, onEnsureLessonId }) {
   );
 }
 
+// NEW — a drop-in replacement for a bare <select> whose open list needs to
+// be centered on screen. A native <select>'s dropdown is drawn by the OS
+// (Windows/the browser), not by our CSS, so it always opens anchored under
+// the control (hugging whichever edge the control sits near) no matter what
+// styles are applied to it — there is no CSS that can move it. This
+// component keeps the same value/onChange/options API as a <select> but
+// renders the open list itself, as a centered modal overlay, using the same
+// backdrop pattern as every other modal in this app.
+function CenteredSelect({ value, onChange, options, placeholder, style, disabled }) {
+  const [open,setOpen]=useState(false);
+  const current=options.find((o)=>String(o.value)===String(value));
+  return(
+    <>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={()=>setOpen(true)}
+        style={{width:"100%",borderRadius:10,padding:"8px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontWeight:600,fontFamily:"'SSText','Kalimati','Times New Roman',serif",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,cursor:disabled?"default":"pointer",textAlign:"left",opacity:disabled?0.6:1,...style}}
+      >
+        <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{current?current.label:(placeholder||"")}</span>
+        <ChevronDown size={12} style={{flexShrink:0,opacity:0.6}}/>
+      </button>
+      {open&&(
+        <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:95,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:16}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:16,border:`1.5px solid ${BORDER}`,width:"100%",maxWidth:520,maxHeight:"70vh",overflowY:"auto",boxShadow:SHADOW.raised,padding:8}}>
+            {options.map((o)=>{
+              const active=String(o.value)===String(value);
+              return(
+                <div
+                  key={o.value}
+                  onClick={()=>{onChange(o.value);setOpen(false);}}
+                  style={{padding:"12px 14px",borderRadius:10,cursor:"pointer",fontSize:15.5,fontWeight:active?700:600,color:active?ACCENT:INK,background:active?ACCENT_LIGHT:"transparent",fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}
+                >{o.label}</div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // THE single door for choosing (or creating) an एकाइ, used everywhere a
 // chapter needs to be picked (Materials, Planner, Question Bank, Activities,
 // Assessment). Reads the one shared chapters list straight from context —
@@ -5997,9 +6039,13 @@ function AIAssistant({ lessons, classContext, classLabel }) {
       <div style={{padding:"14px 16px 8px"}}>
         <div style={{fontSize:19,fontWeight:800,color:INK,display:"flex",alignItems:"center",gap:9,fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}><div style={{width:34,height:34,borderRadius:10,background:`linear-gradient(160deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:`0 3px 8px color-mix(in srgb, ${ACCENT} 30%, transparent)`}}><Bot size={17} color="#fff"/></div>AI शिक्षण सहायक</div>
         {sortedLessons.length>0&&(
-          <select value={lessonId} onChange={(e)=>setLessonId(e.target.value)} style={{marginTop:8,width:"100%",borderRadius:10,padding:"8px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontWeight:600,fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}>
-            {sortedLessons.map((l)=><option key={l.id} value={l.id}>{lessonOptionLabel(l)}</option>)}
-          </select>
+          <div style={{marginTop:8}}>
+            <CenteredSelect
+              value={lessonId}
+              onChange={setLessonId}
+              options={sortedLessons.map((l)=>({value:l.id,label:lessonOptionLabel(l)}))}
+            />
+          </div>
         )}
         {/* FIX — this used to be one dense, wrapping sentence ("Google
             Gemini AI · पाठ्यपुस्तक लोड भएको छैन (...) · "X" का ३ सामग्री")
@@ -7049,7 +7095,7 @@ function ActivityTimer({ onStateChange }={}){
         @keyframes ss-timer-pop{0%{transform:scale(0.8) translateY(4px);opacity:0;}55%{transform:scale(1.08) translateY(0);opacity:1;}100%{transform:scale(1) translateY(0);opacity:1;}}
         @keyframes ss-timer-invite-pulse{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb, ${FUN_ORANGE_DARK} 55%, transparent);}50%{box-shadow:0 0 0 10px color-mix(in srgb, ${FUN_ORANGE_DARK} 0%, transparent);}}
       `}</style>
-      <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:16,alignItems:"center"}}>
+      <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:10,alignItems:"center"}}>
         {PRESETS.map((sec)=>(
           <Chip key={sec} active={totalSec===sec} color={FUN_ORANGE_DARK} onClick={()=>setPreset(sec)}>{sec<60?`${sec}से`:`${sec/60}मि`}</Chip>
         ))}
@@ -7060,8 +7106,16 @@ function ActivityTimer({ onStateChange }={}){
         </div>
         <Chip dashed onClick={applyCustom} color={INK_SOFT}>राख्नुहोस्</Chip>
       </div>
-      <div style={{textAlign:"center",padding:"18px 10px",position:"relative"}}>
-        <div style={{position:"relative",width:"min(400px, 72vw)",aspectRatio:"1",margin:"0 auto"}}>
+      <div style={{textAlign:"center",padding:"10px 10px 4px",position:"relative"}}>
+        {/* FIX — was sized off viewport WIDTH only (min(400px, 72vw)), so on
+            a short/wide screen (a laptop with limited vertical space) the
+            ring stayed large while there was little height left for it,
+            pushing the panel's total content past 92vh and forcing a
+            scrollbar. Bounding by viewport HEIGHT too (34vh) makes the ring
+            shrink on short screens so the whole timer fits without
+            scrolling, while still capping at 400px/62vw as before on
+            taller/roomier screens. */}
+        <div style={{position:"relative",width:"min(400px, 62vw, 34vh)",aspectRatio:"1",margin:"0 auto"}}>
           {/* Ambient glow behind the ring — same language as the wheel,
               pulsing faster and red once the last 10s kick in. */}
           <div style={{position:"absolute",inset:"-8%",borderRadius:"50%",background:`radial-gradient(circle at 50% 45%, color-mix(in srgb, ${ringColor} 30%, transparent) 0%, transparent 72%)`,animation:running?`ss-glow-pulse ${urgent?1.1:2.6}s ease-in-out infinite`:"none"}}/>
@@ -7090,7 +7144,7 @@ function ActivityTimer({ onStateChange }={}){
             {done&&<div style={{marginTop:4,fontSize:15,fontWeight:800,color:WARN,animation:"ss-timer-pop .38s cubic-bezier(0.34,1.56,0.64,1)"}}>⏰ समय सकियो!</div>}
           </div>
         </div>
-        <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:22}}>
+        <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:14}}>
           <Button size="sm" onClick={toggle} disabled={remaining<=0} style={!everStarted&&!running?{animation:"ss-timer-invite-pulse 1.8s ease-in-out infinite"}:undefined}>{running?<><Pause size={16}/> रोक्नुहोस्</>:<><Play size={16}/> सुरु</>}</Button>
           <Chip onClick={reset} color={INK_SOFT}>रिसेट</Chip>
           <button
