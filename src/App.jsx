@@ -6683,6 +6683,33 @@ if(typeof window!=="undefined"&&"speechSynthesis" in window){
     if(v&&v.length)ssVoiceCache=v;
   };
 }
+// NEW — once a voice is confirmed working (teacher tested 21 names
+// correctly), remember it by voiceURI so every future call goes straight
+// to that exact voice instead of re-running detection each time. Keyed
+// separately for Roman-script vs Devanagari-script names, since a device
+// can (and often does) have a good voice for one script and a poor one
+// for the other. If the saved voice ever isn't in the current voice list
+// (different browser/device, or it was uninstalled), we silently fall
+// back to normal detection — never throws, never blocks speech.
+const SS_VOICE_KEY="ss-tts-voice-prefs";
+function ssGetSavedVoiceURI(scriptKey){
+  try{
+    const raw=localStorage.getItem(SS_VOICE_KEY);
+    if(!raw)return null;
+    const prefs=JSON.parse(raw);
+    return prefs&&prefs[scriptKey]||null;
+  }catch{return null;}
+}
+function ssSaveVoiceURI(scriptKey,voiceURI){
+  if(!voiceURI)return;
+  try{
+    const raw=localStorage.getItem(SS_VOICE_KEY);
+    const prefs=raw?JSON.parse(raw):{};
+    if(prefs[scriptKey]===voiceURI)return; // already saved, avoid a redundant write every speak
+    prefs[scriptKey]=voiceURI;
+    localStorage.setItem(SS_VOICE_KEY,JSON.stringify(prefs));
+  }catch{}
+}
 // Speaks the winning student's full name aloud via the browser's built-in
 // text-to-speech.
 function ssSpeakName(name,attempt){
@@ -6733,8 +6760,19 @@ function ssSpeakName(name,attempt){
     // Devanagari voice (still unavoidably spelling) if literally no
     // English voice is installed at all.
     const isDevanagari=/[\u0900-\u097F]/.test(name);
+    const scriptKey=isDevanagari?"devanagari":"roman";
+    // NEW — a confirmed-working voice for this script, remembered from a
+    // previous successful call (see ssSaveVoiceURI below), takes priority
+    // over re-running the detection above from scratch — as long as it's
+    // still present in the current voice list.
+    const savedURI=ssGetSavedVoiceURI(scriptKey);
+    const savedVoice=savedURI?voices.find((v)=>v.voiceURI===savedURI):null;
     let textToSpeak=name,voice=null;
-    if(isDevanagari){
+    if(savedVoice){
+      voice=savedVoice;
+      if(!isDevanagari)textToSpeak=name; // roman text stays as-is for an english-family voice
+      else if(!/^(ne|hi)/i.test(savedVoice.lang))textToSpeak=transliterateDevanagariToRoman(name); // saved voice turned out to be an english one last time
+    }else if(isDevanagari){
       if(nepali){voice=nepali;}
       else if(hindi){voice=hindi;}
       else if(english){textToSpeak=transliterateDevanagariToRoman(name);voice=english;}
@@ -6745,6 +6783,7 @@ function ssSpeakName(name,attempt){
       else if(hindi){voice=hindi;}
       else if(voices&&voices.length){voice=voices[0];}
     }
+    if(voice)ssSaveVoiceURI(scriptKey,voice.voiceURI);
     // FIX — even with the right English voice now selected (previous fix),
     // short/unfamiliar capitalized proper nouns ("Urlab", "Priyanjan")
     // still got spelled out. This is a separate, well-known TTS engine
