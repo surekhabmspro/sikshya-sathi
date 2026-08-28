@@ -121,6 +121,51 @@ export const setSectionStudentDetails = async (id, studentDetails) => {
   return { data, error };
 };
 
+// NEW — backs the "नयाँ शैक्षिक सत्र" archive-then-clear flow (App.jsx's
+// RosterEditor). Snapshots the section's current roster + student_details
+// into roster_archives under a teacher-typed academic-year label, so last
+// year's students stay looked-up-able after the section itself is cleared
+// for the new year. section_name/class_label are copied in at archive
+// time (not just a section_id reference) so the snapshot still reads
+// correctly even if the section is later renamed or deleted. Requires the
+// `roster_archives` table added by roster_archives.sql.
+export const archiveSectionRoster = async (section, academicYear) => {
+  const { data: { user } } = await supabase.auth.getUser();
+  const { data, error } = await supabase
+    .from("roster_archives")
+    .insert({
+      teacher_id: user.id,
+      section_id: section.id,
+      section_name: section.name,
+      class_label: section.class_label || null,
+      academic_year: academicYear,
+      roster: section.roster || [],
+      student_details: section.student_details || [],
+    })
+    .select()
+    .single();
+  return { data, error };
+};
+
+// NEW — lists a section's past-year snapshots, most recent first, for the
+// "पुराना वर्षको विद्यार्थी अभिलेख" viewer in RosterEditor.
+export const getRosterArchives = async (sectionId) => {
+  const { data, error } = await supabase
+    .from("roster_archives")
+    .select("*")
+    .eq("section_id", sectionId)
+    .order("archived_at", { ascending: false });
+  return { data, error };
+};
+
+// NEW — lets a teacher remove a mistaken/duplicate snapshot (e.g. archived
+// with the wrong year label). Snapshots have no update policy — fixing a
+// label means deleting and re-archiving, not editing history in place.
+export const deleteRosterArchive = async (id) => {
+  const { error } = await supabase.from("roster_archives").delete().eq("id", id);
+  return { error };
+};
+
 export const deleteSection = async (id) => {
   await supabase.from("lessons").update({ section_id: null }).eq("section_id", id);
   await supabase.from("homework").update({ section_id: null }).eq("section_id", id);

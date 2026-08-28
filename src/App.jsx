@@ -1594,11 +1594,17 @@ function SectionSelector({ sections, current, onChange, onAdd, classLabel }) {
     setLoading(false);
     if(!error){onAdd(data);setName("");setAdding(false);}
   };
+  // FIX — this used to render every section as a full-width "lg" pill in a
+  // flex-wrap row, so 5-6 sections wrapped across 3+ tall rows and pushed
+  // all real home-screen content down. Now it's a single horizontally
+  // scrollable strip of compact "sm" chips (own scrollbar hidden via
+  // .ss-section-scroll), so any number of sections stays one short row
+  // regardless of count.
   return(
-    <div style={{padding:"11px 16px",background:SURFACE,borderBottom:`1px solid ${BORDER}`}}>
-      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+    <div style={{padding:"8px 16px",background:SURFACE,borderBottom:`1px solid ${BORDER}`}}>
+      <div className="ss-section-scroll" style={{display:"flex",gap:6,alignItems:"center",overflowX:"auto"}}>
         {sections.map((s)=>(
-          <Chip key={s.id} onClick={()=>onChange(s)} active={current?.id===s.id} size="lg">{s.name}</Chip>
+          <Chip key={s.id} onClick={()=>onChange(s)} active={current?.id===s.id} size="sm">{s.name}</Chip>
         ))}
         {adding?(
           <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
@@ -1607,9 +1613,10 @@ function SectionSelector({ sections, current, onChange, onAdd, classLabel }) {
             <IconButton icon={X} onClick={()=>setAdding(false)} size={16}/>
           </div>
         ):(
-          <Chip onClick={()=>setAdding(true)} icon={Plus} dashed>नयाँ सेक्सन</Chip>
+          <Chip onClick={()=>setAdding(true)} icon={Plus} dashed size="sm">नयाँ सेक्सन</Chip>
         )}
       </div>
+      <style>{`.ss-section-scroll{scrollbar-width:none;-ms-overflow-style:none;}.ss-section-scroll::-webkit-scrollbar{display:none;}`}</style>
     </div>
   );
 }
@@ -6169,6 +6176,24 @@ function RosterEditor({ section, onSectionUpdated }){
   const [importSections,setImportSections]=useState([]);
   const fileInputRef=useRef(null);
   useEffect(()=>{setText((section?.roster||[]).join("\n"));setSaved(false);setImportError("");setImportRows(null);setImportSections([]);},[section?.id]);
+  // NEW — past-year student archive. Loaded per section so switching
+  // सेक्सन shows that section's own archived years, not another one's.
+  const [archives,setArchives]=useState([]);
+  const [archivesLoading,setArchivesLoading]=useState(false);
+  const [viewingArchive,setViewingArchive]=useState(null);
+  const loadArchives=async()=>{
+    if(!section?.id)return;
+    setArchivesLoading(true);
+    const{data,error}=await db.getRosterArchives(section.id);
+    setArchivesLoading(false);
+    if(!error)setArchives(data||[]);
+  };
+  useEffect(()=>{setArchives([]);setViewingArchive(null);loadArchives();},[section?.id]);
+  const deleteArchive=async(id)=>{
+    if(!window.confirm("यो पुरानो अभिलेख मेटाउने? यो कारबाही फिर्ता हुँदैन।"))return;
+    const{error}=await db.deleteRosterArchive(id);
+    if(!error){setArchives((prev)=>prev.filter((a)=>a.id!==id));if(viewingArchive?.id===id)setViewingArchive(null);}
+  };
   const names=text.split("\n").map((n)=>n.trim()).filter(Boolean);
   const save=async()=>{
     setSaving(true);
@@ -6218,15 +6243,27 @@ function RosterEditor({ section, onSectionUpdated }){
   // section (and everything scoped to it) stays put. Section *name* itself
   // is still renamed from Settings (renameSection), unrelated to roster
   // data — this only clears students.
-  const clearAll=async()=>{
-    if(!names.length&&!details.length)return;
-    if(!window.confirm(`${section?.name} का सबै विद्यार्थी (नामसूची र विवरण) हटाउने? यो कारबाही फिर्ता हुँदैन।`))return;
+  // NEW — this used to just delete the roster/details outright with no
+  // copy kept, so last year's students became permanently unlookupable
+  // the moment a new academic year started. Now it's a two-step inline
+  // form (year label → confirm) that ARCHIVES the current roster+details
+  // into roster_archives under that year first, and only clears the
+  // section afterwards — archiving failure stops the clear entirely so
+  // nothing is ever lost.
+  const [archivingYear,setArchivingYear]=useState(false);
+  const [yearLabel,setYearLabel]=useState("");
+  const confirmArchiveAndClear=async()=>{
+    if(!yearLabel.trim())return;
+    if(!window.confirm(`"${yearLabel.trim()}" का रूपमा सुरक्षित गरेर ${section?.name} का हालका विद्यार्थी खाली गर्ने? पछि "पुराना वर्षको विद्यार्थी अभिलेख" बाट हेर्न सकिन्छ।`))return;
     setImporting(true);
+    const{error:eArch}=await db.archiveSectionRoster(section,yearLabel.trim());
+    if(eArch){setImporting(false);setImportError("अभिलेख सुरक्षित गर्न सकिएन — पछि प्रयास गर्नुहोस्, हाल केही खाली गरिएन।");return;}
     const{data:d1,error:e1}=await db.setSectionRoster(section.id,[]);
-    if(e1){setImporting(false);setImportError("खाली गर्न सकिएन — पछि प्रयास गर्नुहोस्।");return;}
+    if(e1){setImporting(false);setImportError("अभिलेख सुरक्षित भयो तर खाली गर्न सकिएन — पछि प्रयास गर्नुहोस्।");return;}
     const{data:d2,error:e2}=await db.setSectionStudentDetails(section.id,[]);
     setImporting(false);
-    setText("");
+    setText("");setArchivingYear(false);setYearLabel("");
+    loadArchives();
     if(!e2){onSectionUpdated?.(d2);}else{onSectionUpdated?.(d1);}
   };
   // NEW — a single student leaving/roll change shouldn't force a full CSV
@@ -6287,14 +6324,24 @@ function RosterEditor({ section, onSectionUpdated }){
           <Button size="sm" variant="secondary" icon={Upload} onClick={()=>fileInputRef.current?.click()} disabled={importing||!section}>
             {importing?"ल्याउँदै...":"CSV फाइलबाट विद्यार्थी ल्याउनुहोस्"}
           </Button>
-          {(names.length>0||details.length>0)&&(
-            <Button size="sm" variant="danger" icon={Trash2} onClick={clearAll} disabled={importing||!section}>
-              नयाँ शैक्षिक सत्र — सबै खाली गर्नुहोस्
+          {(names.length>0||details.length>0)&&!archivingYear&&(
+            <Button size="sm" variant="danger" icon={Trash2} onClick={()=>setArchivingYear(true)} disabled={importing||!section}>
+              नयाँ शैक्षिक सत्र — अभिलेख गरी खाली गर्नुहोस्
             </Button>
           )}
         </div>
+        {archivingYear&&(
+          <div style={{marginTop:12,padding:12,borderRadius:14,border:`1.5px dashed ${TEAL}`,background:`color-mix(in srgb, ${TEAL} 6%, transparent)`}}>
+            <div style={{fontSize:14,fontWeight:700,color:INK,marginBottom:8}}>यो वर्षलाई कुन नामले सुरक्षित गर्ने?</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+              <input autoFocus value={yearLabel} onChange={(e)=>setYearLabel(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&confirmArchiveAndClear()} placeholder="जस्तै: २०८१" className="ss-field" style={{borderRadius:10,padding:"8px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE,width:130}}/>
+              <Button size="sm" onClick={confirmArchiveAndClear} disabled={importing||!yearLabel.trim()} style={{background:`linear-gradient(135deg, ${TEAL} 0%, color-mix(in srgb, ${TEAL} 70%, black) 100%)`}}>{importing?"सुरक्षित गर्दै...":"सुरक्षित गरी खाली गर्नुहोस्"}</Button>
+              <IconButton icon={X} onClick={()=>{setArchivingYear(false);setYearLabel("");}} size={16}/>
+            </div>
+          </div>
+        )}
         <div style={{fontSize:13,color:INK_SOFT,marginTop:8,lineHeight:1.5}}>
-          विद्यालयको student-management प्रणालीबाट export गरिएको CSV (Section, Roll, Name, Gender, Type, Father_Phone, Mother_Phone, Student_Phone, Login_ID स्तम्भसहित) यहाँ छान्नुहोस् — नामहरू र पूरा विवरण एकैचोटि यस सेक्सनमा बचत हुन्छ। नयाँ वर्ष सुरु हुँदा उही बटनबाट नयाँ CSV फेरि ल्याउँदा पुरानो सूची र विवरण दुवै स्वतः बदलिन्छ — वा माथिको बटनले पहिले पूरै खाली गर्नुहोस्।
+          विद्यालयको student-management प्रणालीबाट export गरिएको CSV (Section, Roll, Name, Gender, Type, Father_Phone, Mother_Phone, Student_Phone, Login_ID स्तम्भसहित) यहाँ छान्नुहोस् — नामहरू र पूरा विवरण एकैचोटि यस सेक्सनमा बचत हुन्छ। नयाँ वर्ष सुरु हुँदा माथिको बटनले हालको सूची सुरक्षित (अभिलेख) गरी खाली गर्नुहोस्, अनि यहाँबाट नयाँ CSV ल्याउनुहोस् — पुरानो वर्षको सूची तल "पुराना वर्षको विद्यार्थी अभिलेख" मा जहिलेसुकै हेर्न मिल्छ।
         </div>
         {importError&&<div style={{fontSize:14,color:DANGER,marginTop:8,fontWeight:600}}>{importError}</div>}
         {importSections.length>1&&(
@@ -6362,6 +6409,64 @@ function RosterEditor({ section, onSectionUpdated }){
           </table>
         </div>
       </Card>
+    )}
+    {/* NEW — past-year student lookup. Every "नयाँ शैक्षिक सत्र" archive
+        shows up here as a year chip; tapping it opens the same detail
+        table (read-only) in a full-screen sheet so a teacher can look up
+        a former student's roll/phone/login-id any time, even years
+        later, without that data ever blocking this year's fresh roster. */}
+    {(archivesLoading||archives.length>0)&&(
+      <Card accentColor={VIOLET} style={{marginTop:16}}>
+        <SectionLabel icon={UsersRound} color={VIOLET}>पुराना वर्षको विद्यार्थी अभिलेख</SectionLabel>
+        {archivesLoading?(
+          <div style={{fontSize:14.5,color:INK_SOFT}}>लोड हुँदै...</div>
+        ):(
+          <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+            {archives.map((a)=>(
+              <div key={a.id} style={{display:"flex",alignItems:"center",gap:4}}>
+                <Chip color={VIOLET} onClick={()=>setViewingArchive(a)}>{a.academic_year} ({(a.student_details?.length||a.roster?.length||0)} जना)</Chip>
+                <IconButton icon={X} size={13} variant="ghost" color={DANGER} title="यो अभिलेख मेटाउनुहोस्" onClick={()=>deleteArchive(a.id)}/>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+    )}
+    {viewingArchive&&(
+      <PrintableSheet title={`${viewingArchive.section_name||section?.name||""} — ${viewingArchive.academic_year}`} subtitle="पुराना वर्षको विद्यार्थी अभिलेख" chip={`${viewingArchive.student_details?.length||viewingArchive.roster?.length||0} जना`} chipColor={VIOLET} onClose={()=>setViewingArchive(null)}>
+        {(viewingArchive.student_details||[]).length>0?(
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13.5,minWidth:560}}>
+              <thead>
+                <tr style={{textAlign:"left",color:INK_SOFT}}>
+                  <th style={{padding:"6px 8px"}}>रोल</th>
+                  <th style={{padding:"6px 8px"}}>नाम</th>
+                  <th style={{padding:"6px 8px"}}>लिङ्ग</th>
+                  <th style={{padding:"6px 8px"}}>बुबाको फोन</th>
+                  <th style={{padding:"6px 8px"}}>आमाको फोन</th>
+                  <th style={{padding:"6px 8px"}}>लगइन आइडी</th>
+                </tr>
+              </thead>
+              <tbody>
+                {viewingArchive.student_details.map((d,i)=>(
+                  <tr key={`${d.roll||""}-${d.name||i}`} style={{borderTop:`1px solid ${BORDER}`}}>
+                    <td style={{padding:"6px 8px"}}>{d.roll}</td>
+                    <td style={{padding:"6px 8px",fontWeight:600}}>{d.name}</td>
+                    <td style={{padding:"6px 8px"}}>{d.gender}</td>
+                    <td style={{padding:"6px 8px"}}>{d.fatherPhone}</td>
+                    <td style={{padding:"6px 8px"}}>{d.motherPhone}</td>
+                    <td style={{padding:"6px 8px"}}>{d.loginId}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ):(
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {(viewingArchive.roster||[]).map((n,i)=>(<div key={i} style={{fontSize:15.5,padding:"6px 4px",borderBottom:`1px solid ${BORDER}`}}>{n}</div>))}
+          </div>
+        )}
+      </PrintableSheet>
     )}
     </>
   );
@@ -9166,19 +9271,6 @@ export default function App() {
 
       <style>{`@media (max-width:420px){.ss-sync-label{display:none;}}`}</style>
 
-      {/* FIX — this used to list every section from every class, so a pill
-          named for a different class (e.g. "कक्षा ६ क") could sit right
-          next to the current class's pills. Tapping it looked like a class
-          switch but silently did nothing whenever that section's own
-          class_label didn't actually match its name (see the Settings
-          सेक्सनहरू card, which is where that binding gets fixed). Now this
-          bar only ever shows sections that belong to the CURRENT class
-          (plus any legacy section with no class_label at all) — switching
-          class itself happens only from the कक्षा toggle in Settings, so
-          this bar is purely "which division of this class" (क/ख/ग), never
-          a hidden class switch. */}
-      <div className="no-print ss-section-bar"><SectionSelector sections={sections.filter((s)=>!s.class_label||s.class_label===classLabel)} current={currentSection} onChange={switchToSection} onAdd={(s)=>{setSections((prev)=>[...prev,s]);switchToSection(s);}} classLabel={classLabel}/></div>
-
       <div className="desktop-sidebar no-print" style={{position:"fixed",top:0,left:0,bottom:0,width:232,background:`linear-gradient(170deg, color-mix(in srgb, color-mix(in srgb, ${ACCENT} 6%, ${SURFACE}) 90%, transparent) 0%, color-mix(in srgb, color-mix(in srgb, ${TEAL} 5%, ${SURFACE}) 90%, transparent) 100%)`,backdropFilter:"blur(14px)",WebkitBackdropFilter:"blur(14px)",borderRight:`1px solid ${BORDER}`,flexDirection:"column",paddingTop:118,paddingLeft:12,paddingRight:12,zIndex:5,overflowY:"auto",gap:2}}>
         <div style={{fontSize:12.5,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:INK_SOFT,padding:"0 14px",marginBottom:6}}>मुख्य</div>
         {nav.map((n,i)=>{const Icon=n.icon;const active=screen===n.id;return(
@@ -9191,6 +9283,13 @@ export default function App() {
 
       <div className="main-content">
         {visitedScreens.has("dashboard")&&<div style={{display:screen==="dashboard"?undefined:"none"}}>
+          {/* FIX — the सेक्सन strip used to sit above main-content outside
+              the per-screen blocks, so it showed on every tab (Planner,
+              सामग्री, AI सहायक, उपकरण) even though switching सेक्सन only
+              matters for home-screen content (आजको पाठ/homework). Moved
+              inside the dashboard-only block so it now appears on the
+              मुख्य/Home page only. */}
+          <div className="no-print ss-section-bar"><SectionSelector sections={sections.filter((s)=>!s.class_label||s.class_label===classLabel)} current={currentSection} onChange={switchToSection} onAdd={(s)=>{setSections((prev)=>[...prev,s]);switchToSection(s);}} classLabel={classLabel}/></div>
           <HomeScreen onOpenLesson={openLesson} onGoPlanner={goPlanner} onGoMaterials={()=>setScreen("materials")} onGoAITools={goAITools} onGoSettings={()=>setSettingsOpen(true)} section={currentSection} homework={homework} hwLoading={hwLoading} onRefreshHomework={loadHomework} loading={lessonsLoading} teacherName={teacherName} classContext={classContext} classLabel={classLabel} initialPanel={homePanel} onInitialPanelConsumed={()=>setHomePanel(null)} active={screen==="dashboard"}/>
         </div>}
         {visitedScreens.has("planner")&&<div style={{display:screen==="planner"?undefined:"none"}}>
