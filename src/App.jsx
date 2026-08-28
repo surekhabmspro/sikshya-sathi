@@ -6745,7 +6745,20 @@ function ssSpeakName(name,attempt){
       else if(hindi){voice=hindi;}
       else if(voices&&voices.length){voice=voices[0];}
     }
-    const utter=new SpeechSynthesisUtterance(textToSpeak);
+    // FIX — even with the right English voice now selected (previous fix),
+    // short/unfamiliar capitalized proper nouns ("Urlab", "Priyanjan")
+    // still got spelled out. This is a separate, well-known TTS engine
+    // quirk: dictionary-based engines (Samsung's included) fall back to
+    // spelling out a token letter-by-letter when it looks like an
+    // abbreviation — capitalized, short, no dictionary match, and spoken
+    // as a single isolated word with no sentence context all feed that
+    // heuristic. Two low-risk mitigations that don't change what's
+    // audibly said (just how the engine decides to say it): lowercase the
+    // text (capitalized isolated tokens are the main abbreviation signal)
+    // and end it with a period so the engine treats it as an ordinary
+    // sentence to pronounce rather than a bare identifier to identify.
+    if(!isDevanagari)textToSpeak=textToSpeak.toLowerCase();
+    const utter=new SpeechSynthesisUtterance(textToSpeak+".");
     // FIX — utter.lang was only ever set when a matching voice object was
     // found in the list; if it wasn't, the utterance's lang stayed unset
     // and some mobile browsers fall back to the page's own language
