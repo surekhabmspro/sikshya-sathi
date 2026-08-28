@@ -6578,31 +6578,74 @@ function ssStopSpinSound(ref){
     setTimeout(()=>{try{ctx.close();}catch{}},60);
   }catch{ /* already stopped/unavailable — nothing to clean up */ }
 }
+// NEW — Devanagari → Roman phonetic transliteration, used ONLY as a
+// text-to-speech fallback inside ssSpeakName below (never for display or
+// storage anywhere else in the app). Approximate, not linguistically
+// exact — it exists purely so a name can be handed to an English-family
+// voice as ordinary Latin letters.
+function transliterateDevanagariToRoman(str){
+  if(!str)return str;
+  const VOWELS={"अ":"a","आ":"aa","इ":"i","ई":"ee","उ":"u","ऊ":"oo","ऋ":"ri","ए":"e","ऐ":"ai","ओ":"o","औ":"au"};
+  const MATRAS={"ा":"aa","ि":"i","ी":"ee","ु":"u","ू":"oo","ृ":"ri","े":"e","ै":"ai","ो":"o","ौ":"au"};
+  const CONSONANTS={"क":"k","ख":"kh","ग":"g","घ":"gh","ङ":"ng","च":"ch","छ":"chh","ज":"j","झ":"jh","ञ":"ny","ट":"t","ठ":"th","ड":"d","ढ":"dh","ण":"n","त":"t","थ":"th","द":"d","ध":"dh","न":"n","प":"p","फ":"ph","ब":"b","भ":"bh","म":"m","य":"y","र":"r","ल":"l","व":"v","श":"sh","ष":"sh","स":"s","ह":"h","ळ":"l","ड़":"r","ढ़":"rh"};
+  const chars=[...str];
+  let out="",i=0;
+  while(i<chars.length){
+    const c=chars[i];
+    if(CONSONANTS[c]){
+      let syll=CONSONANTS[c];i++;
+      if(chars[i]==="्"){i++;} // halant — no vowel sound
+      else if(chars[i]&&MATRAS[chars[i]]){syll+=MATRAS[chars[i]];i++;}
+      else{syll+="a";}
+      if(chars[i]==="ं"||chars[i]==="ँ"){syll+="n";i++;}
+      else if(chars[i]==="ः"){syll+="h";i++;}
+      out+=syll;
+    }else if(VOWELS[c]){
+      let syll=VOWELS[c];i++;
+      if(chars[i]==="ं"||chars[i]==="ँ"){syll+="n";i++;}
+      else if(chars[i]==="ः"){syll+="h";i++;}
+      out+=syll;
+    }else if(c==="ं"||c==="ँ"){out+="n";i++;}
+    else if(c==="ः"){out+="h";i++;}
+    else if(c==="्"){i++;} // stray halant with no preceding consonant
+    else{out+=c;i++;} // spaces, Latin letters, digits, punctuation as-is
+  }
+  return out;
+}
 // Speaks the winning student's full name aloud via the browser's built-in
-// text-to-speech. Devanagari is read far more naturally by a Nepali/Hindi
-// voice than the default English one, so one is preferred when the device
-// has one installed; falls back to whatever default voice exists.
+// text-to-speech.
 function ssSpeakName(name){
   try{
     if(!("speechSynthesis" in window)||!name)return;
     window.speechSynthesis.cancel();
-    const utter=new SpeechSynthesisUtterance(name);
     const voices=window.speechSynthesis.getVoices();
-    // FIX — some names were coming out spelled letter-by-letter instead
-    // of pronounced. Root cause: lang was being force-set to "hi-IN"
-    // even when no matching voice existed on the device, so the browser
-    // spoke through its default (often English) voice while the text was
-    // still tagged as Hindi — that voice/lang mismatch is what makes
-    // several TTS engines fall back to spelling unfamiliar words out
-    // instead of reading them as a whole. A genuine Nepali voice is also
-    // tried first (proper Nepali names are less likely to be treated as
-    // unrecognized/out-of-dictionary words by an actual ne-NP voice than
-    // by a Hindi one), and lang is only ever set to match a voice that
-    // was actually found — never forced when falling back to default.
     const nepali=voices.find((v)=>/^ne([-_]|$)/i.test(v.lang));
     const hindi=voices.find((v)=>/^hi([-_]|$)/i.test(v.lang));
-    const preferred=nepali||hindi;
-    if(preferred){utter.voice=preferred;utter.lang=preferred.lang;}
+    // FIX — some names were still coming out spelled letter-by-letter even
+    // after preferring a matching voice/lang. Root cause is different from
+    // the earlier voice/lang-mismatch fix: with a Hindi voice (or no
+    // matching voice at all, i.e. the plain default English one), names
+    // outside that voice's pronunciation dictionary are unrecognized
+    // "words" — a well-known TTS behavior is to fall back to spelling
+    // those out letter-by-letter, and that happens per-name depending on
+    // its dictionary, which is why only SOME names were affected and it
+    // can't be fixed by voice/lang selection alone. Real fix: when no
+    // genuine Nepali voice exists, transliterate the Devanagari name to a
+    // phonetic Roman-script approximation and read it with an
+    // English-family voice — English engines synthesize any Latin "word"
+    // via letter-to-sound rules rather than requiring it in a dictionary
+    // first, which avoids the spelling fallback entirely regardless of
+    // which specific name it is.
+    let textToSpeak=name,voice=null;
+    if(nepali){voice=nepali;}
+    else{
+      textToSpeak=transliterateDevanagariToRoman(name);
+      const englishIN=voices.find((v)=>/^en[-_]in/i.test(v.lang));
+      const englishAny=voices.find((v)=>/^en([-_]|$)/i.test(v.lang));
+      voice=englishIN||englishAny||hindi||null;
+    }
+    const utter=new SpeechSynthesisUtterance(textToSpeak);
+    if(voice){utter.voice=voice;utter.lang=voice.lang;}
     utter.rate=0.92;
     utter.pitch=1.05;
     window.speechSynthesis.speak(utter);
