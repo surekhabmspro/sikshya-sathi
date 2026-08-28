@@ -110,6 +110,17 @@ export const setSectionRoster = async (id, roster) => {
   return { data, error };
 };
 
+// NEW — backs RosterEditor's CSV import button (App.jsx). Stores the full
+// per-student record (roll, gender, type, father/mother/student phone,
+// login id — whatever the imported CSV had) on the section, separate from
+// the plain-name `roster` column so the random picker / group splitter
+// keep working exactly as before on just names. Requires the
+// `student_details` jsonb column added by add_student_details_column.sql.
+export const setSectionStudentDetails = async (id, studentDetails) => {
+  const { data, error } = await supabase.from("sections").update({ student_details: studentDetails }).eq("id", id).select().single();
+  return { data, error };
+};
+
 export const deleteSection = async (id) => {
   await supabase.from("lessons").update({ section_id: null }).eq("section_id", id);
   await supabase.from("homework").update({ section_id: null }).eq("section_id", id);

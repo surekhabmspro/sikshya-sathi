@@ -6117,11 +6117,58 @@ function shuffleArr(arr){
   return a;
 }
 
+// NEW — CSV import for RosterEditor. Reads a student-management export
+// (Section, Roll, Name, Class, Gender, Type, Father_Phone, Mother_Phone,
+// Student_Phone, Login_ID columns — case/spacing-insensitive on the header)
+// and turns it into roster rows. Handles quoted cells (in case a phone or
+// name ever contains a comma) but otherwise stays a plain comma splitter —
+// this data has no embedded commas in practice.
+function splitCsvLine(line){
+  const out=[]; let cur=""; let inQ=false;
+  for(let i=0;i<line.length;i++){
+    const c=line[i];
+    if(inQ){
+      if(c==='"'){ if(line[i+1]==='"'){cur+='"';i++;} else {inQ=false;} }
+      else cur+=c;
+    } else {
+      if(c==='"') inQ=true;
+      else if(c===','){out.push(cur);cur="";}
+      else cur+=c;
+    }
+  }
+  out.push(cur);
+  return out.map((s)=>s.trim());
+}
+const CSV_HEADER_KEY_MAP={
+  section:"section", roll:"roll", name:"name", class:"class",
+  gender:"gender", type:"type",
+  fatherphone:"fatherPhone", motherphone:"motherPhone", studentphone:"studentPhone",
+  loginid:"loginId", login:"loginId",
+};
+function parseStudentCsv(rawText){
+  const lines=rawText.replace(/^\uFEFF/,"").split(/\r\n|\n|\r/).filter((l)=>l.trim().length>0);
+  if(lines.length<2) return{rows:[],error:"फाइलमा डाटा भेटिएन।"};
+  const headerCells=splitCsvLine(lines[0]).map((h)=>h.toLowerCase().replace(/[^a-z]/g,""));
+  const rows=[];
+  for(let i=1;i<lines.length;i++){
+    const cells=splitCsvLine(lines[i]);
+    const row={};
+    headerCells.forEach((h,idx)=>{const key=CSV_HEADER_KEY_MAP[h];if(key)row[key]=(cells[idx]||"").trim();});
+    if(row.name)rows.push(row);
+  }
+  return{rows,error:rows.length?null:"कुनै विद्यार्थीको नाम भेटिएन — फाइलको स्तम्भ शीर्षक जाँच्नुहोस्।"};
+}
+
 function RosterEditor({ section, onSectionUpdated }){
   const [text,setText]=useState((section?.roster||[]).join("\n"));
   const [saving,setSaving]=useState(false);
   const [saved,setSaved]=useState(false);
-  useEffect(()=>{setText((section?.roster||[]).join("\n"));setSaved(false);},[section?.id]);
+  const [importing,setImporting]=useState(false);
+  const [importError,setImportError]=useState("");
+  const [importRows,setImportRows]=useState(null);
+  const [importSections,setImportSections]=useState([]);
+  const fileInputRef=useRef(null);
+  useEffect(()=>{setText((section?.roster||[]).join("\n"));setSaved(false);setImportError("");setImportRows(null);setImportSections([]);},[section?.id]);
   const names=text.split("\n").map((n)=>n.trim()).filter(Boolean);
   const save=async()=>{
     setSaving(true);
@@ -6129,7 +6176,100 @@ function RosterEditor({ section, onSectionUpdated }){
     setSaving(false);
     if(!error&&data){setSaved(true);onSectionUpdated?.(data);setTimeout(()=>setSaved(false),1800);}
   };
+  // Imports both the plain roster (names, for the picker/group-splitter
+  // tools which stay unchanged) and the full row detail (roll/phones/login
+  // id, for the table below) in one save — a single click from the
+  // teacher's side once a file (or, when the file holds several सेक्सन, a
+  // section within it) is chosen.
+  const commitImport=async(rows)=>{
+    const importedNames=rows.map((r)=>r.name).filter(Boolean);
+    setText(importedNames.join("\n"));
+    setImporting(true);
+    const{data:d1,error:e1}=await db.setSectionRoster(section.id,importedNames);
+    if(e1){setImporting(false);setImportError("बचत गर्न सकिएन — पछि प्रयास गर्नुहोस्।");return;}
+    const{data:d2,error:e2}=await db.setSectionStudentDetails(section.id,rows);
+    setImporting(false);
+    if(e2){setImportError("नामहरू ल्याइयो तर पूरा विवरण बचत हुन सकेन।");onSectionUpdated?.(d1);return;}
+    setImportError("");setImportRows(null);setImportSections([]);
+    setSaved(true);onSectionUpdated?.(d2);setTimeout(()=>setSaved(false),1800);
+  };
+  const handleFile=async(e)=>{
+    const file=e.target.files?.[0];
+    e.target.value="";
+    if(!file||!section)return;
+    setImportError("");
+    const rawText=await file.text();
+    const{rows,error}=parseStudentCsv(rawText);
+    if(error){setImportError(error);return;}
+    const uniqueSections=[...new Set(rows.map((r)=>r.section).filter(Boolean))];
+    if(uniqueSections.length>1){setImportRows(rows);setImportSections(uniqueSections);}
+    else commitImport(rows);
+  };
+  const pickImportSection=(secName)=>{
+    const rows=(importRows||[]).filter((r)=>r.section===secName);
+    commitImport(rows);
+  };
+  const details=section?.student_details||[];
+  // NEW — साल बदलिँदा (new academic year) or a section's name changing
+  // shouldn't require deleting and recreating the section itself — that
+  // would orphan its lessons/homework, same reason deleteSection only
+  // un-assigns rather than cascades. This just empties the roster + detail
+  // table so a fresh CSV import for the new year starts clean, while the
+  // section (and everything scoped to it) stays put. Section *name* itself
+  // is still renamed from Settings (renameSection), unrelated to roster
+  // data — this only clears students.
+  const clearAll=async()=>{
+    if(!names.length&&!details.length)return;
+    if(!window.confirm(`${section?.name} का सबै विद्यार्थी (नामसूची र विवरण) हटाउने? यो कारबाही फिर्ता हुँदैन।`))return;
+    setImporting(true);
+    const{data:d1,error:e1}=await db.setSectionRoster(section.id,[]);
+    if(e1){setImporting(false);setImportError("खाली गर्न सकिएन — पछि प्रयास गर्नुहोस्।");return;}
+    const{data:d2,error:e2}=await db.setSectionStudentDetails(section.id,[]);
+    setImporting(false);
+    setText("");
+    if(!e2){onSectionUpdated?.(d2);}else{onSectionUpdated?.(d1);}
+  };
+  // NEW — a single student leaving/roll change shouldn't force a full CSV
+  // re-import. Removes one row from both the detail table and (if the name
+  // still matches exactly) the plain roster text, in one save.
+  const removeDetailRow=async(idx)=>{
+    const row=details[idx];
+    const newDetails=details.filter((_,i)=>i!==idx);
+    const newNames=names.filter((n)=>n!==row?.name);
+    setText(newNames.join("\n"));
+    setImporting(true);
+    const{data:d1,error:e1}=await db.setSectionRoster(section.id,newNames);
+    if(e1){setImporting(false);setImportError("हटाउन सकिएन — पछि प्रयास गर्नुहोस्।");return;}
+    const{data:d2,error:e2}=await db.setSectionStudentDetails(section.id,newDetails);
+    setImporting(false);
+    if(!e2){setSaved(true);onSectionUpdated?.(d2);setTimeout(()=>setSaved(false),1800);}
+    else{setImportError("नामसूचीबाट हट्यो तर विवरण अद्यावधिक हुन सकेन।");onSectionUpdated?.(d1);}
+  };
+  // NEW — फोन नम्बर/रोल जस्ता एक-दुई क्षेत्रमा टाइपो सच्याउन पूरै CSV फेरि
+  // ल्याउनु पर्दैन। Edit(✏️) ले त्यो row लाई inline input मा बदल्छ; Save ले
+  // roster (नाम बदलिएको भए त्यहाँ पनि) र student_details दुवैमा एकैचोटि
+  // बचत गर्छ, Cancel ले draft मात्र फ्याँक्छ।
+  const [editingIdx,setEditingIdx]=useState(null);
+  const [editDraft,setEditDraft]=useState(null);
+  const startEdit=(idx)=>{setEditingIdx(idx);setEditDraft({...details[idx]});};
+  const cancelEdit=()=>{setEditingIdx(null);setEditDraft(null);};
+  const saveEdit=async()=>{
+    if(editingIdx===null||!editDraft)return;
+    const oldName=details[editingIdx]?.name;
+    const newDetails=details.map((d,i)=>i===editingIdx?{...editDraft}:d);
+    const newNames=(oldName&&editDraft.name&&oldName!==editDraft.name)?names.map((n)=>n===oldName?editDraft.name:n):names;
+    setText(newNames.join("\n"));
+    setImporting(true);
+    const{data:d1,error:e1}=await db.setSectionRoster(section.id,newNames);
+    if(e1){setImporting(false);setImportError("बचत गर्न सकिएन — पछि प्रयास गर्नुहोस्।");return;}
+    const{data:d2,error:e2}=await db.setSectionStudentDetails(section.id,newDetails);
+    setImporting(false);
+    if(!e2){setEditingIdx(null);setEditDraft(null);setSaved(true);onSectionUpdated?.(d2);setTimeout(()=>setSaved(false),1800);}
+    else{setImportError("नाम बच्यो तर पूरा विवरण बचत हुन सकेन।");onSectionUpdated?.(d1);}
+  };
+  const editInputStyle={width:"100%",minWidth:70,padding:"5px 7px",fontSize:13.5,borderRadius:8,border:`1.5px solid ${TEAL}`,background:"var(--surface)",color:INK,fontFamily:"inherit"};
   return(
+    <>
     <Card accentColor={TEAL}>
       <SectionLabel icon={UsersRound} color={TEAL}>नाम सूची — {section?.name}</SectionLabel>
       <div style={{fontSize:14.5,color:INK_SOFT,marginBottom:10,lineHeight:1.6}}>
@@ -6141,7 +6281,89 @@ function RosterEditor({ section, onSectionUpdated }){
         <span style={{fontSize:14,fontWeight:700,color:TEAL,background:`color-mix(in srgb, ${TEAL} 14%, transparent)`,padding:"5px 12px",borderRadius:999}}>{names.length} जना</span>
         {saved&&<span style={{fontSize:14,color:"#fff",fontWeight:700,background:TEAL,padding:"5px 12px",borderRadius:999,boxShadow:`0 3px 8px color-mix(in srgb, ${TEAL} 45%, transparent)`}}>✓ बचत भयो</span>}
       </div>
+      <div style={{marginTop:16,paddingTop:16,borderTop:`1px dashed ${BORDER}`}}>
+        <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={handleFile} style={{display:"none"}}/>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+          <Button size="sm" variant="secondary" icon={Upload} onClick={()=>fileInputRef.current?.click()} disabled={importing||!section}>
+            {importing?"ल्याउँदै...":"CSV फाइलबाट विद्यार्थी ल्याउनुहोस्"}
+          </Button>
+          {(names.length>0||details.length>0)&&(
+            <Button size="sm" variant="danger" icon={Trash2} onClick={clearAll} disabled={importing||!section}>
+              नयाँ शैक्षिक सत्र — सबै खाली गर्नुहोस्
+            </Button>
+          )}
+        </div>
+        <div style={{fontSize:13,color:INK_SOFT,marginTop:8,lineHeight:1.5}}>
+          विद्यालयको student-management प्रणालीबाट export गरिएको CSV (Section, Roll, Name, Gender, Type, Father_Phone, Mother_Phone, Student_Phone, Login_ID स्तम्भसहित) यहाँ छान्नुहोस् — नामहरू र पूरा विवरण एकैचोटि यस सेक्सनमा बचत हुन्छ। नयाँ वर्ष सुरु हुँदा उही बटनबाट नयाँ CSV फेरि ल्याउँदा पुरानो सूची र विवरण दुवै स्वतः बदलिन्छ — वा माथिको बटनले पहिले पूरै खाली गर्नुहोस्।
+        </div>
+        {importError&&<div style={{fontSize:14,color:DANGER,marginTop:8,fontWeight:600}}>{importError}</div>}
+        {importSections.length>1&&(
+          <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:8}}>
+            <div style={{fontSize:14,fontWeight:700,color:INK}}>फाइलमा {importSections.length} सेक्सन भेटियो — यस सेक्सनमा कुन ल्याउने?</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+              {importSections.map((s)=>{
+                const count=(importRows||[]).filter((r)=>r.section===s).length;
+                return <Chip key={s} onClick={()=>pickImportSection(s)} color={TEAL}>{s} ({count})</Chip>;
+              })}
+            </div>
+          </div>
+        )}
+      </div>
     </Card>
+    {details.length>0&&(
+      <Card accentColor={TEAL} style={{marginTop:16}}>
+        <SectionLabel icon={ListChecks} color={TEAL}>आयात गरिएको पूरा विवरण — {details.length} जना</SectionLabel>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:13.5,minWidth:560}}>
+            <thead>
+              <tr style={{textAlign:"left",color:INK_SOFT}}>
+                <th style={{padding:"6px 8px"}}>रोल</th>
+                <th style={{padding:"6px 8px"}}>नाम</th>
+                <th style={{padding:"6px 8px"}}>लिङ्ग</th>
+                <th style={{padding:"6px 8px"}}>बुबाको फोन</th>
+                <th style={{padding:"6px 8px"}}>आमाको फोन</th>
+                <th style={{padding:"6px 8px"}}>लगइन आइडी</th>
+                <th style={{padding:"6px 8px"}}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {details.map((d,i)=>{
+                const isEditing=editingIdx===i;
+                if(isEditing)return(
+                  <tr key={`${d.roll||""}-${d.name||i}`} style={{borderTop:`1px solid ${BORDER}`,background:`color-mix(in srgb, ${TEAL} 8%, transparent)`}}>
+                    <td style={{padding:"6px 8px"}}><input style={editInputStyle} value={editDraft.roll||""} onChange={(e)=>setEditDraft({...editDraft,roll:e.target.value})}/></td>
+                    <td style={{padding:"6px 8px"}}><input style={editInputStyle} value={editDraft.name||""} onChange={(e)=>setEditDraft({...editDraft,name:e.target.value})}/></td>
+                    <td style={{padding:"6px 8px"}}><input style={editInputStyle} value={editDraft.gender||""} onChange={(e)=>setEditDraft({...editDraft,gender:e.target.value})}/></td>
+                    <td style={{padding:"6px 8px"}}><input style={editInputStyle} value={editDraft.fatherPhone||""} onChange={(e)=>setEditDraft({...editDraft,fatherPhone:e.target.value})}/></td>
+                    <td style={{padding:"6px 8px"}}><input style={editInputStyle} value={editDraft.motherPhone||""} onChange={(e)=>setEditDraft({...editDraft,motherPhone:e.target.value})}/></td>
+                    <td style={{padding:"6px 8px"}}><input style={editInputStyle} value={editDraft.loginId||""} onChange={(e)=>setEditDraft({...editDraft,loginId:e.target.value})}/></td>
+                    <td style={{padding:"6px 8px",display:"flex",gap:2}}>
+                      <IconButton icon={CheckCircle2} size={16} variant="ghost" color={TEAL} title="बचत गर्नुहोस्" disabled={importing} onClick={saveEdit}/>
+                      <IconButton icon={X} size={14} variant="ghost" title="रद्द गर्नुहोस्" disabled={importing} onClick={cancelEdit}/>
+                    </td>
+                  </tr>
+                );
+                return(
+                  <tr key={`${d.roll||""}-${d.name||i}`} style={{borderTop:`1px solid ${BORDER}`}}>
+                    <td style={{padding:"6px 8px"}}>{d.roll}</td>
+                    <td style={{padding:"6px 8px",fontWeight:600}}>{d.name}</td>
+                    <td style={{padding:"6px 8px"}}>{d.gender}</td>
+                    <td style={{padding:"6px 8px"}}>{d.fatherPhone}</td>
+                    <td style={{padding:"6px 8px"}}>{d.motherPhone}</td>
+                    <td style={{padding:"6px 8px"}}>{d.loginId}</td>
+                    <td style={{padding:"6px 8px",display:"flex",gap:2}}>
+                      <IconButton icon={PenSquare} size={14} variant="ghost" color={TEAL} title="सम्पादन गर्नुहोस्" disabled={importing||editingIdx!==null} onClick={()=>startEdit(i)}/>
+                      <IconButton icon={X} size={14} variant="ghost" color={DANGER} title="यो विद्यार्थी हटाउनुहोस्" disabled={importing||editingIdx!==null} onClick={()=>removeDetailRow(i)}/>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    )}
+    </>
   );
 }
 
