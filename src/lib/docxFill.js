@@ -308,6 +308,44 @@ export async function fillLessonPlanDocx(templateBlob, data) {
   return { blob: await saveDocxXml(zip, doc), matched: matchedKeys.size > 0, matchedKeys: Array.from(matchedKeys), unmatchedKeys, headerFilled };
 }
 
+// FIX — a real teacher's rubric template (confirmed against an actual
+// uploaded reference + exported output) has NO "Unit:"/"Lesson:" labelled
+// field at all — instead the very first paragraph in the document is a
+// single, plain title run naming whatever the original sample project
+// was ("राष्ट्रिय विभूति परियोजना कार्य मूल्याङ्कन रुब्रिक्स"), with no
+// label to match against. fillHeaderField can't catch this (it only
+// matches a label-run followed by a separate value-run); the whole title
+// text IS the value here. Confirmed via the real export that the rubric
+// TABLE content was in fact already being filled correctly per lesson —
+// only this title line was staying as the original sample's own project
+// name on every export, which is what made the file look like an exact
+// copy. Finds the first non-blank top-level paragraph before any table
+// and replaces its whole text (collapsing multiple runs onto the first,
+// same approach as fillHeaderField) — keeping that run's own formatting.
+function fillTitleParagraph(doc, value) {
+  const body = doc.getElementsByTagName("w:body")[0];
+  if (!body) return false;
+  const topLevel = Array.from(body.childNodes).filter((n) => n.nodeType === 1 && n.tagName === "w:p");
+  for (const p of topLevel) {
+    const runs = Array.from(p.getElementsByTagName("w:r")).filter((r) => r.parentNode === p);
+    if (!runs.length) continue;
+    if (!getCellText(p).trim()) continue;
+    const firstRun = runs[0];
+    const ts = Array.from(firstRun.getElementsByTagName("w:t"));
+    let tNode = ts[0];
+    if (!tNode) {
+      tNode = doc.createElementNS(W_NS, "w:t");
+      firstRun.appendChild(tNode);
+    }
+    for (let k = ts.length - 1; k >= 1; k--) ts[k].parentNode.removeChild(ts[k]);
+    tNode.setAttribute("xml:space", "preserve");
+    tNode.textContent = value;
+    for (let j = runs.length - 1; j > 0; j--) runs[j].parentNode.removeChild(runs[j]);
+    return true;
+  }
+  return false;
+}
+
 // ─── RUBRIC ───────────────────────────────────────────────────────────────
 const RUBRIC_LEVEL_LABELS = {
   "उत्कृष्ट": ["उत्कृष्ट", "excellent"],
@@ -325,12 +363,20 @@ function findLevelForHeader(text) {
 }
 
 // rubricRows: [{ criteria, levels:[{level, desc}] }]
+// headerData: { chapter_title?, lesson_header? } — same "Unit: " / "Lesson: "
+// run-label fields as fillLessonPlanDocx's data. FIX — the rubric export
+// never called fillHeaderField at all (only the lesson-plan export did),
+// so every exported rubric file silently kept the original reference
+// template's own Unit/Lesson header text, exactly the bug already fixed
+// for lesson plans in ROUND 6 — the teacher was right that it's the same
+// problem, just never applied here. Reuses the identical run-matching
+// logic/keywords so both exports behave the same way.
 // Finds the rubric table by its header row (the row containing the 4 level
 // names), maps existing data rows 1:1 onto rubricRows (cloning/removing
 // rows if the counts differ so the table always matches exactly), and fills
 // each column by the level it was matched to in the header — not by
 // position — so column order in the teacher's template doesn't matter.
-export async function fillRubricDocx(templateBlob, rubricRows) {
+export async function fillRubricDocx(templateBlob, rubricRows, headerData = {}) {
   const { zip, doc } = await loadDocxXml(templateBlob);
   const tables = Array.from(doc.getElementsByTagName("w:tbl"));
   let targetTable = null, headerRow = null, columnLevels = null;
@@ -387,7 +433,17 @@ export async function fillRubricDocx(templateBlob, rubricRows) {
   // template didn't line up with any of the AI's level names for that
   // row (e.g. teacher's rubric uses different level names than
   // उत्कृष्ट/राम्रो/सामान्य/सुधार आवश्यक) — surfaced so the caller can warn.
-  return { blob: await saveDocxXml(zip, doc), unmatchedLevelCells };
+  const headerFilled = { unit: false, lesson: false, title: false };
+  if (headerData.chapter_title) headerFilled.unit = fillHeaderField(doc, HEADER_RUN_LABELS.unit, headerData.chapter_title);
+  if (headerData.lesson_header) headerFilled.lesson = fillHeaderField(doc, HEADER_RUN_LABELS.lesson, headerData.lesson_header);
+  // Only touch the title line if neither labelled Unit/Lesson field existed
+  // in this template — a template that DOES use labelled fields shouldn't
+  // also have its plain title line overwritten.
+  if (headerData.lesson_header && !headerFilled.unit && !headerFilled.lesson) {
+    headerFilled.title = fillTitleParagraph(doc, `${headerData.lesson_header} — मूल्याङ्कन रुब्रिक्स`);
+  }
+
+  return { blob: await saveDocxXml(zip, doc), unmatchedLevelCells, headerFilled };
 }
 
 // FIX — on mobile (installed PWA / in-app webviews on Android & iOS), the
