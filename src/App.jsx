@@ -3967,8 +3967,45 @@ function ssMakeBirthdayRain(count=42){
     emoji:SS_BIRTHDAY_EMOJIS[i%SS_BIRTHDAY_EMOJIS.length],
   }));
 }
+// Plays "Happy Birthday to You" (first line) as a simple WebAudio melody —
+// used as a always-available musical cue. Runs alongside ssSpeakName below
+// (spoken name), not instead of it, so there's both a tune and the name
+// itself.
+function ssPlayHappyBirthdayTune(){
+  try{
+    const Ctx=window.AudioContext||window.webkitAudioContext;
+    if(!Ctx)return;
+    const ctx=new Ctx();
+    // "Hap-py birth-day to you" — note, beats(*0.4s unit)
+    const notes=[
+      [392.00,0.75],[392.00,0.25],[440.00,1],[392.00,1],[523.25,1],[493.88,2],
+    ];
+    let t=ctx.currentTime+0.05;
+    notes.forEach(([freq,beats])=>{
+      const dur=beats*0.34;
+      const osc=ctx.createOscillator(), gain=ctx.createGain();
+      osc.connect(gain);gain.connect(ctx.destination);
+      osc.type="triangle";osc.frequency.value=freq;
+      gain.gain.setValueAtTime(0.0001,t);
+      gain.gain.exponentialRampToValueAtTime(0.3,t+0.03);
+      gain.gain.exponentialRampToValueAtTime(0.0001,t+dur*0.92);
+      osc.start(t);osc.stop(t+dur);
+      t+=dur+0.03;
+    });
+    setTimeout(()=>ctx.close(),(t-ctx.currentTime+1)*1000);
+  }catch{ /* audio unavailable — silent no-op */ }
+}
 function BirthdayCelebration({ student, onClose }){
   const rain=useMemo(()=>student?ssMakeBirthdayRain(42):[],[student]);
+  // NEW — plays the Happy Birthday tune plus the student's spoken name the
+  // moment the celebration opens (once per student shown), same speech
+  // engine already used by विद्यार्थी छनोट's winner announcement.
+  useEffect(()=>{
+    if(!student)return;
+    ssPlayHappyBirthdayTune();
+    const t=setTimeout(()=>ssSpeakName(student.name),900);
+    return ()=>clearTimeout(t);
+  },[student]);
   if(!student)return null;
   return(
     <div className="no-print" onClick={onClose} style={{position:"fixed",inset:0,zIndex:98,overflow:"hidden",background:`radial-gradient(circle at 50% 18%, color-mix(in srgb, ${ROSE} 32%, #120d09) 0%, rgba(12,9,7,0.94) 68%)`,display:"flex",alignItems:"center",justifyContent:"center",padding:24,cursor:"pointer"}}>
@@ -3997,7 +4034,14 @@ function BirthdayCelebration({ student, onClose }){
         <div style={{fontSize:"clamp(30px, 7vw, 48px)",fontWeight:900,color:"#fff",fontFamily:"'SSText','Kalimati','Times New Roman',serif",lineHeight:1.25,animation:"ss-bday-glow 1.8s ease-in-out infinite"}}>
           {student.name}! 🎉
         </div>
-        <button onClick={onClose} className="ss-btn" style={{marginTop:26,padding:"11px 26px",borderRadius:999,border:"none",background:"#fff",color:INK,fontWeight:700,fontSize:15,cursor:"pointer",boxShadow:SHADOW.lg}}>बन्द गर्नुहोस्</button>
+        {/* FIX — this button's background is hardcoded white regardless of
+            theme, but its text used INK, which in dark mode is a
+            near-white color meant for dark surfaces (same class of bug as
+            the native-select fix elsewhere in this file). On a dark-mode
+            phone that made the label invisible: white text on a white
+            button. Using a fixed dark color here instead, since the
+            button's own background never changes with theme. */}
+        <button onClick={onClose} className="ss-btn" style={{marginTop:26,padding:"11px 26px",borderRadius:999,border:"none",background:"#fff",color:"#2B1A0E",fontWeight:700,fontSize:15,cursor:"pointer",boxShadow:SHADOW.lg}}>बन्द गर्नुहोस्</button>
       </div>
     </div>
   );
