@@ -6612,13 +6612,45 @@ function transliterateDevanagariToRoman(str){
   }
   return out;
 }
+// FIX — the real cause of names being spelled out letter-by-letter: this
+// function used to call window.speechSynthesis.getVoices() synchronously
+// and just proceed. On most Android/Chrome setups getVoices() returns an
+// EMPTY array on the first call after page load — voices load
+// asynchronously and only populate once the 'voiceschanged' event fires.
+// The student picker is usually the first thing opened and spun, so this
+// was hitting the empty-array case most of the time (matching the ~90%
+// failure rate). With voices=[], every voice lookup below came back
+// undefined, so utter.voice/utter.lang were never set at all — the
+// utterance fell through to whichever default engine+language the OS
+// happened to pick, which is what was actually spelling names out. This
+// had nothing to do with script (the reported failing names are already
+// Roman) or per-name dictionary lookups, which is why neither earlier fix
+// changed anything. Fix: cache voices, listen for voiceschanged, and wait
+// briefly for a real voice list before speaking instead of proceeding
+// with none.
+let ssVoiceCache=(typeof window!=="undefined"&&"speechSynthesis" in window)?window.speechSynthesis.getVoices():[];
+if(typeof window!=="undefined"&&"speechSynthesis" in window){
+  window.speechSynthesis.onvoiceschanged=()=>{
+    const v=window.speechSynthesis.getVoices();
+    if(v&&v.length)ssVoiceCache=v;
+  };
+}
 // Speaks the winning student's full name aloud via the browser's built-in
 // text-to-speech.
-function ssSpeakName(name){
+function ssSpeakName(name,attempt){
+  attempt=attempt||0;
   try{
     if(!("speechSynthesis" in window)||!name)return;
+    let voices=window.speechSynthesis.getVoices();
+    if(voices&&voices.length){ssVoiceCache=voices;}else{voices=ssVoiceCache;}
+    // Voices genuinely not loaded yet — wait for them instead of speaking
+    // blind. Retries every 100ms for up to ~1.5s, then gives up waiting
+    // and speaks with whatever's available (better than never speaking).
+    if((!voices||!voices.length)&&attempt<15){
+      setTimeout(()=>ssSpeakName(name,attempt+1),100);
+      return;
+    }
     window.speechSynthesis.cancel();
-    const voices=window.speechSynthesis.getVoices();
     const nepali=voices.find((v)=>/^ne([-_]|$)/i.test(v.lang));
     const hindi=voices.find((v)=>/^hi([-_]|$)/i.test(v.lang));
     // FIX — some names were still coming out spelled letter-by-letter even
