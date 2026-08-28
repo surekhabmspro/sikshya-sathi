@@ -6699,10 +6699,23 @@ function ssSpeakName(name,attempt){
       return;
     }
     window.speechSynthesis.cancel();
-    const nepali=voices.find((v)=>/^ne([-_]|$)/i.test(v.lang));
-    const hindi=voices.find((v)=>/^hi([-_]|$)/i.test(v.lang));
-    const englishIN=voices.find((v)=>/^en[-_]in/i.test(v.lang));
-    const englishAny=voices.find((v)=>/^en([-_]|$)/i.test(v.lang));
+    // FIX — Samsung's own TTS engine (visible in the screenshot: "Samsung
+    // text-to-speech engine", language "English (United Kingdom)") reports
+    // voice.lang using 3-letter ISO 639-2 codes like "eng-GBR" instead of
+    // the standard 2-letter BCP-47 "en-GB". The old regexes only matched
+    // "en"/"ne"/"hi" followed immediately by "-", "_", or end-of-string —
+    // "eng-GBR" has a "g" right after "en", so it matched NONE of them.
+    // That's why an English voice that was genuinely installed (as your
+    // settings screenshot confirms) was never found: it silently fell
+    // through to whatever voice DID match, which then spelled the Latin
+    // name out letter by letter. Accepting the optional 3-letter suffix
+    // (en/eng, ne/nep, hi/hin) fixes this on Samsung devices without
+    // changing behavior anywhere the standard 2-letter codes were already
+    // working fine.
+    const nepali=voices.find((v)=>/^ne(p)?([-_]|$)/i.test(v.lang));
+    const hindi=voices.find((v)=>/^hi(n)?([-_]|$)/i.test(v.lang));
+    const englishIN=voices.find((v)=>/^en(g)?[-_]in/i.test(v.lang));
+    const englishAny=voices.find((v)=>/^en(g)?([-_]|$)/i.test(v.lang));
     const english=englishIN||englishAny;
     // FIX — the earlier fix only handled the "no English voice at all"
     // case; it still spelled names out because it never checked what
