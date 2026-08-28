@@ -6579,18 +6579,30 @@ function ssStopSpinSound(ref){
   }catch{ /* already stopped/unavailable — nothing to clean up */ }
 }
 // Speaks the winning student's full name aloud via the browser's built-in
-// text-to-speech. Devanagari is read far more naturally by a Hindi voice
-// than the default English one, so a Hindi voice is preferred when the
-// device has one installed; falls back to whatever default voice exists.
+// text-to-speech. Devanagari is read far more naturally by a Nepali/Hindi
+// voice than the default English one, so one is preferred when the device
+// has one installed; falls back to whatever default voice exists.
 function ssSpeakName(name){
   try{
     if(!("speechSynthesis" in window)||!name)return;
     window.speechSynthesis.cancel();
     const utter=new SpeechSynthesisUtterance(name);
     const voices=window.speechSynthesis.getVoices();
-    const preferred=voices.find((v)=>/^(ne|hi)([-_]|$)/i.test(v.lang));
-    if(preferred)utter.voice=preferred;
-    utter.lang=preferred?preferred.lang:"hi-IN";
+    // FIX — some names were coming out spelled letter-by-letter instead
+    // of pronounced. Root cause: lang was being force-set to "hi-IN"
+    // even when no matching voice existed on the device, so the browser
+    // spoke through its default (often English) voice while the text was
+    // still tagged as Hindi — that voice/lang mismatch is what makes
+    // several TTS engines fall back to spelling unfamiliar words out
+    // instead of reading them as a whole. A genuine Nepali voice is also
+    // tried first (proper Nepali names are less likely to be treated as
+    // unrecognized/out-of-dictionary words by an actual ne-NP voice than
+    // by a Hindi one), and lang is only ever set to match a voice that
+    // was actually found — never forced when falling back to default.
+    const nepali=voices.find((v)=>/^ne([-_]|$)/i.test(v.lang));
+    const hindi=voices.find((v)=>/^hi([-_]|$)/i.test(v.lang));
+    const preferred=nepali||hindi;
+    if(preferred){utter.voice=preferred;utter.lang=preferred.lang;}
     utter.rate=0.92;
     utter.pitch=1.05;
     window.speechSynthesis.speak(utter);
