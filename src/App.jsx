@@ -6380,7 +6380,7 @@ function RandomPicker({ roster }){
       `}</style>
       <div style={{textAlign:"center",padding:"6px 4px 4px",position:"relative"}}>
         {/* THE WHEEL */}
-        <div style={{position:"relative",width:"clamp(230px, 68vw, 300px)",aspectRatio:"1",margin:"10px auto 0"}}>
+        <div style={{position:"relative",width:"clamp(260px, 72vw, 440px)",aspectRatio:"1",margin:"10px auto 0"}}>
           {/* Ambient glow behind the whole wheel */}
           <div style={{position:"absolute",inset:"-8%",borderRadius:"50%",background:`radial-gradient(circle at 50% 45%, color-mix(in srgb, ${FUN_YELLOW} 30%, transparent) 0%, transparent 72%)`,animation:"ss-glow-pulse 2.6s ease-in-out infinite"}}/>
           {/* Marquee lights — static ring around the rim (doesn't rotate) */}
@@ -8994,30 +8994,32 @@ export default function App() {
       </div>
 
       {/* NEW — global quick-tools: a floating button reachable from every
-          screen (Home/Planner/Materials/AI/Tools alike), not just the
-          उपकरण tab, so a teacher mid-lesson-plan or mid-homework-review
-          can call on a random student or check a countdown without
-          navigating away first. Now opens a small two-tab panel (छनोट /
-          समय) instead of just the picker. Hidden while a lesson/edit
-          modal is open on top. Shown even with no section picked (the
-          Timer needs no roster; RandomPicker shows its own "no roster"
-          message via ClassroomTools' same gate). The panel itself is
-          always rendered (never unmounted) — only its CSS visibility
-          toggles with pickerOpen — so a running Timer keeps counting
-          down in the background while the teacher browses other screens,
-          instead of resetting every time the panel closes. */}
-      {!activeLesson&&!editingLessonPopup&&(
-        <button onClick={()=>setPickerOpen(true)} title="कक्षा उपकरण" className="ss-btn no-print ss-quickpick-fab" style={{position:"fixed",width:58,height:58,borderRadius:20,border:"none",background:`linear-gradient(145deg, ${FUN_YELLOW} 0%, ${FUN_ORANGE} 100%)`,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:11,boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 10px 24px color-mix(in srgb, ${FUN_ORANGE} 42%, transparent), 0 3px 8px rgba(var(--shadow-rgb),0.2)`}}>
-          <Dices size={26}/>
-          {timerState.running&&(
-            <div style={{position:"absolute",top:-7,right:-9,background:WARN,color:"#fff",fontSize:11.5,fontWeight:800,borderRadius:999,padding:"2px 7px",boxShadow:SHADOW.raised,fontVariantNumeric:"tabular-nums",border:`2px solid ${PAPER}`}}>
-              {String(Math.floor(timerState.remaining/60)).padStart(2,"0")}:{String(timerState.remaining%60).padStart(2,"0")}
-            </div>
-          )}
-        </button>
-      )}
-      <div className="no-print" onClick={()=>setPickerOpen(false)} style={{position:"fixed",inset:0,zIndex:92,display:pickerOpen?"flex":"none",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:20}}>
-        <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:24,width:"100%",maxWidth:"min(94vw, 480px)",maxHeight:"92vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative"}}>
+          screen AND from every sub-page/overlay that opens on top
+          (SimulationViewerOverlay, LessonMode, LessonEditModal...), not
+          just the top-level tabs — a teacher running a simulation or
+          reviewing a lesson can still call on a random student or check
+          a countdown without closing out first. Previously hidden
+          whenever a lesson/edit popup was open; now always shown, and
+          both the button and its panel sit above every overlay in the
+          app (SimulationViewerOverlay=90, LessonEditModal=88,
+          LessonMode=50 are all below FAB=93/panel=94, the two highest
+          z-indices anywhere in the app). Shown even with no section
+          picked (the Timer needs no roster; RandomPicker shows its own
+          "no roster" message via ClassroomTools' same gate). The panel
+          itself is always rendered (never unmounted) — only its CSS
+          visibility toggles with pickerOpen — so a running Timer keeps
+          counting down in the background while the teacher browses other
+          screens, instead of resetting every time the panel closes. */}
+      <button onClick={()=>setPickerOpen(true)} title="कक्षा उपकरण" className="ss-btn no-print ss-quickpick-fab" style={{position:"fixed",width:58,height:58,borderRadius:20,border:"none",background:`linear-gradient(145deg, ${FUN_YELLOW} 0%, ${FUN_ORANGE} 100%)`,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:93,boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 10px 24px color-mix(in srgb, ${FUN_ORANGE} 42%, transparent), 0 3px 8px rgba(var(--shadow-rgb),0.2)`}}>
+        <Dices size={26}/>
+        {timerState.running&&(
+          <div style={{position:"absolute",top:-7,right:-9,background:WARN,color:"#fff",fontSize:11.5,fontWeight:800,borderRadius:999,padding:"2px 7px",boxShadow:SHADOW.raised,fontVariantNumeric:"tabular-nums",border:`2px solid ${PAPER}`}}>
+            {String(Math.floor(timerState.remaining/60)).padStart(2,"0")}:{String(timerState.remaining%60).padStart(2,"0")}
+          </div>
+        )}
+      </button>
+      <div className="no-print" onClick={()=>setPickerOpen(false)} style={{position:"fixed",inset:0,zIndex:94,display:pickerOpen?"flex":"none",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:20}}>
+        <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:24,width:"100%",maxWidth:"min(94vw, 640px)",maxHeight:"92vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative"}}>
           <div style={{position:"sticky",top:0,zIndex:2,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"14px 14px 0",background:PAPER}}>
             <div style={{display:"flex",gap:7}}>
               <Chip active={quickTool==="picker"} onClick={()=>setQuickTool("picker")} color={FUN_ORANGE}>छनोट</Chip>
