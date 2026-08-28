@@ -2440,7 +2440,11 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                                     projector can flatten the color-mix
                                     tint against a light card to near-
                                     invisible. */}
-                                {!isEditingCard&&<span style={{fontSize:13.5,fontWeight:700,flexShrink:0,color:item.source==="ai"?MARIGOLD_DARK:ACCENT,background:item.source==="ai"?`color-mix(in srgb, ${MARIGOLD_DARK} 15%, white)`:`color-mix(in srgb, ${ACCENT} 15%, white)`,border:`1.5px solid ${item.source==="ai"?MARIGOLD_DARK:ACCENT}`,padding:"2px 9px",borderRadius:999}}>{item.source==="ai"?"AI ज्ञानबाट":"पाठ्यपुस्तकबाट"}</span>}
+                                {/* FIX — removed the "पाठ्यपुस्तकबाट"/"AI
+                                    ज्ञानबाट" source badge per request — it
+                                    was taking up space next to each
+                                    question without being something the
+                                    teacher wanted shown on cards. */}
                                 {!isEditingCard&&<button className="ss-icon-btn" onClick={()=>removeExercise(item.id)} title="हटाउनुहोस्" style={{cursor:"pointer",padding:4,color:DANGER,display:"flex",flexShrink:0}}><Trash2 size={14}/></button>}
                               </div>
                               {isMCQ&&(
@@ -5886,10 +5890,24 @@ function TeachingJournal({ lessons, classLabel }) {
 }
 
 function AIAssistant({ lessons, classContext, classLabel }) {
+  // FIX — this picker used raw `lessons` order (sorted by scheduled_date,
+  // which is null for most lessons until actually taught), so एकाइ/पाठ
+  // entries appeared scrambled instead of in unit/lesson order — same
+  // root cause already fixed for Planner and प्रश्न रुलेट via this exact
+  // sort (extractUnitNumber on chapter title, then lesson title).
+  const sortedLessons=useMemo(()=>{
+    return [...(lessons||[])].sort((a,b)=>{
+      const an=extractUnitNumber(a.chapters?.title||a.chapter_title||""), bn=extractUnitNumber(b.chapters?.title||b.chapter_title||"");
+      if(an!==bn){ if(an===null)return 1; if(bn===null)return -1; return an-bn; }
+      const aln=extractUnitNumber(a.title), bln=extractUnitNumber(b.title);
+      if(aln!==bln){ if(aln===null)return 1; if(bln===null)return -1; return aln-bln; }
+      return 0;
+    });
+  },[lessons]);
   // FIX — this used to hard-pick lessons[0] with no way to change it, so
   // the assistant could silently be answering about the wrong chapter with
   // no indication why. A visible picker replaces the blind guess.
-  const [lessonId,setLessonId]=useState(lessons[0]?.id||"");
+  const [lessonId,setLessonId]=useState(sortedLessons[0]?.id||"");
   // FIX — that initial useState only ever ran once, on mount. If lessons
   // was still loading at that point (empty array), lessonId got stuck at
   // "" forever — the dropdown would visually default to showing the
@@ -5899,10 +5917,10 @@ function AIAssistant({ lessons, classContext, classLabel }) {
   // lesson selected". Also covers the currently-picked lesson being
   // deleted from Planner while this tab is open.
   useEffect(()=>{
-    if(!lessons.length){ if(lessonId) setLessonId(""); return; }
-    if(!lessons.some((l)=>l.id===lessonId)) setLessonId(lessons[0].id);
-  },[lessons]);
-  const lesson=lessons.find((l)=>l.id===lessonId)||null;
+    if(!sortedLessons.length){ if(lessonId) setLessonId(""); return; }
+    if(!sortedLessons.some((l)=>l.id===lessonId)) setLessonId(sortedLessons[0].id);
+  },[sortedLessons]);
+  const lesson=sortedLessons.find((l)=>l.id===lessonId)||null;
   const chapterTitle=lesson?.chapters?.title||lesson?.chapter_title||"";
   const [messages,setMessages]=useState([{role:"ai",text:lesson?`नमस्ते! म "${lesson.title}" पाठ, ट्याग गरिएका सामग्री, र पाठ्यपुस्तकबाट उत्तर दिन्छु। तलका छिटो प्रश्न थिच्नुहोस्।`:"नमस्ते! पहिले पाठ योजनामा एउटा पाठ थप्नुहोस्।"}]);
   const [input,setInput]=useState("");
@@ -5971,9 +5989,9 @@ function AIAssistant({ lessons, classContext, classLabel }) {
     <div className="ss-page-read" style={{display:"flex",flexDirection:"column",height:"calc(100vh - 170px)",maxWidth:720,margin:"0 auto",width:"100%"}}>
       <div style={{padding:"14px 16px 8px"}}>
         <div style={{fontSize:19,fontWeight:800,color:INK,display:"flex",alignItems:"center",gap:9,fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}><div style={{width:34,height:34,borderRadius:10,background:`linear-gradient(160deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:`0 3px 8px color-mix(in srgb, ${ACCENT} 30%, transparent)`}}><Bot size={17} color="#fff"/></div>AI शिक्षण सहायक</div>
-        {lessons.length>0&&(
+        {sortedLessons.length>0&&(
           <select value={lessonId} onChange={(e)=>setLessonId(e.target.value)} style={{marginTop:8,width:"100%",borderRadius:10,padding:"8px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontWeight:600,fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}>
-            {lessons.map((l)=><option key={l.id} value={l.id}>{lessonOptionLabel(l)}</option>)}
+            {sortedLessons.map((l)=><option key={l.id} value={l.id}>{lessonOptionLabel(l)}</option>)}
           </select>
         )}
         {/* FIX — this used to be one dense, wrapping sentence ("Google
@@ -8784,9 +8802,25 @@ export default function App() {
 
         /* Native <select> — replace the default OS arrow with a themed
            chevron and give it room to breathe; the stock browser arrow next
-           to hand-styled borders/radii is what made dropdowns look cheap. */
+           to hand-styled borders/radii is what made dropdowns look cheap.
+           FIX — in dark mode, --ink is a near-white color (#FBEEDD) applied
+           to the <select>'s own text. The closed control looks fine (it
+           also gets our dark --surface-2 background), but the OPEN native
+           options popup is rendered by the OS/browser, not by us — on
+           desktop browsers that popup is white regardless of our page's
+           dark theme, while the near-white --ink color still applies to
+           the option text, so it comes out white-on-white and
+           unreadable (the report: "on PC it has white background with
+           text not clearly visible"). Mobile looked fine only because
+           Android's own native picker respects the OS's dark theme
+           independently of our page colors. Forcing color-scheme:light
+           tells the browser to always render this control (and its
+           popup) with light-UA text/background pairing, so the option
+           text stays dark and legible against the popup's white
+           background on every platform, dark mode or not. */
         select{
           appearance:none; -webkit-appearance:none; -moz-appearance:none;
+          color-scheme:light;
           background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236B6557' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
           background-repeat:no-repeat; background-position:right 12px center;
           padding-right:34px !important; cursor:pointer;
