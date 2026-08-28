@@ -6704,27 +6704,34 @@ function ssSpeakName(name,attempt){
     const englishIN=voices.find((v)=>/^en[-_]in/i.test(v.lang));
     const englishAny=voices.find((v)=>/^en([-_]|$)/i.test(v.lang));
     const english=englishIN||englishAny;
-    // FIX — this is what was spelling names out on phone specifically (PC
-    // was fine): the Roman transliteration below only synthesizes cleanly
-    // through an English-family voice (English engines sound out any
-    // Latin "word" via letter-to-sound rules). Whenever no English voice
-    // was found, the code still handed that same Roman text to the Hindi
-    // voice as a fallback — but a Hindi voice has no dictionary entry for
-    // Latin letters, so it fell back to spelling them out one by one.
-    // This is exactly what happens on phones that only ship Nepali/Hindi
-    // TTS voice packs with no English one downloaded (common on budget
-    // Android devices), while a PC's default OS voices almost always
-    // include an English one — hence "fine on PC, spelling on phone".
-    // Fix: only transliterate+use the Roman form when a real English
-    // voice is actually available; otherwise keep the original Devanagari
-    // text and read it with the Hindi voice, which can approximate an
-    // actual Devanagari word instead of definitely spelling out Latin text
-    // it has no dictionary entry for.
+    // FIX — the earlier fix only handled the "no English voice at all"
+    // case; it still spelled names out because it never checked what
+    // script the NAME ITSELF is in, only which voice happened to be
+    // installed. Whenever a Nepali voice was present it was always used
+    // as-is — but most rosters have names typed in plain Roman/English
+    // letters (e.g. "Sabin", "Anish"), and a Devanagari (Nepali/Hindi)
+    // voice has no dictionary entry for Latin letters, so it reads them
+    // one at a time — the exact "spelling instead of pronouncing" behavior
+    // reported, and it happened regardless of the voiceschanged timing fix
+    // because it's a completely different cause.
+    // Fix: check the actual script of the name first. Devanagari names go
+    // to a Devanagari-capable voice (Nepali, then Hindi) unchanged. Roman
+    // names go to an English voice unchanged — and only fall back to a
+    // Devanagari voice (still unavoidably spelling) if literally no
+    // English voice is installed at all.
+    const isDevanagari=/[\u0900-\u097F]/.test(name);
     let textToSpeak=name,voice=null;
-    if(nepali){voice=nepali;}
-    else if(english){textToSpeak=transliterateDevanagariToRoman(name);voice=english;}
-    else if(hindi){voice=hindi;}
-    else if(voices&&voices.length){voice=voices[0];}
+    if(isDevanagari){
+      if(nepali){voice=nepali;}
+      else if(hindi){voice=hindi;}
+      else if(english){textToSpeak=transliterateDevanagariToRoman(name);voice=english;}
+      else if(voices&&voices.length){voice=voices[0];}
+    }else{
+      if(english){voice=english;}
+      else if(nepali){voice=nepali;}
+      else if(hindi){voice=hindi;}
+      else if(voices&&voices.length){voice=voices[0];}
+    }
     const utter=new SpeechSynthesisUtterance(textToSpeak);
     // FIX — utter.lang was only ever set when a matching voice object was
     // found in the list; if it wasn't, the utterance's lang stayed unset
@@ -8803,8 +8810,31 @@ export default function App() {
   // until it's ever dragged, it keeps using the original CSS corner
   // position, so nothing moves for a teacher who never touches it.
   const FAB_POS_KEY="ss-fab-pos";
+  // FIX — a saved drag position from a different screen size (or a stale/
+  // corrupted value left over from before the FAB was rebuilt) could place
+  // the button completely outside the current viewport with no way to see
+  // or re-drag it back — it LOOKED like the feature had vanished, when it
+  // was actually just rendering off-screen. Validate the stored value on
+  // load: both numbers must be finite and within the current window minus
+  // the button's own size, or we discard it and fall back to the normal
+  // CSS corner position instead of trusting it blindly.
+  const clampFabPos=(pos)=>{
+    if(!pos||typeof pos.left!=="number"||typeof pos.top!=="number")return null;
+    if(!Number.isFinite(pos.left)||!Number.isFinite(pos.top))return null;
+    const size=58;
+    const maxLeft=window.innerWidth-size-4, maxTop=window.innerHeight-size-4;
+    if(maxLeft<4||maxTop<4)return null; // window not ready / absurdly small
+    if(pos.left<0||pos.top<0||pos.left>maxLeft||pos.top>maxTop)return null;
+    return pos;
+  };
   const [fabPos,setFabPos]=useState(()=>{
-    try{const raw=localStorage.getItem(FAB_POS_KEY);return raw?JSON.parse(raw):null;}catch{return null;}
+    try{
+      const raw=localStorage.getItem(FAB_POS_KEY);
+      if(!raw)return null;
+      const parsed=clampFabPos(JSON.parse(raw));
+      if(!parsed){try{localStorage.removeItem(FAB_POS_KEY);}catch{}}
+      return parsed;
+    }catch{return null;}
   });
   const fabDragRef=useRef({dragging:false,moved:false,startX:0,startY:0,startLeft:0,startTop:0,size:58});
   const fabBtnRef=useRef(null);
