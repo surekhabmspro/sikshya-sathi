@@ -6822,9 +6822,19 @@ function RandomPicker({ roster }){
         @keyframes ss-pick-pop{0%{transform:scale(0.8) translateY(4px);opacity:0;}55%{transform:scale(1.08) translateY(0);opacity:1;}100%{transform:scale(1) translateY(0);opacity:1;}}
         @keyframes ss-hub-pulse{0%,100%{box-shadow:inset 0 2px 0 rgba(255,255,255,0.5), inset 0 -3px 6px rgba(0,0,0,0.22), 0 0 0 0 color-mix(in srgb, ${FUN_ORANGE} 55%, transparent);}50%{box-shadow:inset 0 2px 0 rgba(255,255,255,0.5), inset 0 -3px 6px rgba(0,0,0,0.22), 0 0 0 12px color-mix(in srgb, ${FUN_ORANGE} 0%, transparent);}}
       `}</style>
-      <div style={{textAlign:"center",padding:"6px 4px 4px",position:"relative"}}>
-        {/* THE WHEEL */}
-        <div style={{position:"relative",width:"clamp(260px, 72vw, 440px)",aspectRatio:"1",margin:"10px auto 0"}}>
+      <div style={{textAlign:"center",padding:"4px 4px 2px",position:"relative"}}>
+        {/* THE WHEEL — sized off BOTH viewport width and height (not just
+            width) so it — and the banner/buttons below it — always fit
+            inside the quick-tools popup's 92vh cap without forcing that
+            popup to scroll. The old width-only clamp(260px,72vw,440px)
+            looked fine on a tall phone (plenty of vh to spare) but on a
+            wide-but-short PC browser window, 72vw routinely hit the
+            440px ceiling while the window's actual height had no room
+            for a 440px circle plus the banner/buttons/header around it —
+            that's what forced the scrollbar. Capping by min(vw,vh) keeps
+            the wheel from ever claiming more height than the viewport
+            actually has to give. */}
+        <div style={{position:"relative",width:"clamp(190px, min(62vw, 40vh), 380px)",aspectRatio:"1",margin:"8px auto 0"}}>
           {/* Ambient glow behind the whole wheel */}
           <div style={{position:"absolute",inset:"-8%",borderRadius:"50%",background:`radial-gradient(circle at 50% 45%, color-mix(in srgb, ${FUN_YELLOW} 30%, transparent) 0%, transparent 72%)`,animation:"ss-glow-pulse 2.6s ease-in-out infinite"}}/>
           {/* Marquee lights — static ring around the rim (doesn't rotate) */}
@@ -6918,8 +6928,8 @@ function RandomPicker({ roster }){
           </div>
         </div>
 
-        <div style={{marginTop:14,fontSize:14,color:INK_SOFT,fontWeight:600}}>बाँकी यस चक्रमा: {n} / {roster.length}</div>
-        <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:14}}>
+        <div style={{marginTop:10,fontSize:14,color:INK_SOFT,fontWeight:600}}>बाँकी यस चक्रमा: {n} / {roster.length}</div>
+        <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:10}}>
           <Button size="sm" onClick={spin} disabled={spinning}>{spinning?"घुम्दैछ...":"पाङ्ग्रा घुमाउनुहोस्"}</Button>
           <Chip onClick={resetRound} color={INK_SOFT}>नयाँ चक्र</Chip>
         </div>
@@ -6929,7 +6939,7 @@ function RandomPicker({ roster }){
             graphic, so the burst reads as a shower filling the popup/card
             and isn't cropped to a ~300px circle. Anchored at the wheel's
             own center so it still visibly originates from the wheel. */}
-        {revealed&&<ColourShower burstKey={burstKey} top="calc(10px + clamp(230px, 68vw, 300px) / 2)"/>}
+        {revealed&&<ColourShower burstKey={burstKey} top="calc(8px + clamp(190px, min(62vw, 40vh), 380px) / 2)"/>}
       </div>
     </Card>
   );
@@ -9302,12 +9312,14 @@ export default function App() {
           .mobile-bottom-nav{display:none !important;}
           .main-content{margin-left:232px;padding-bottom:24px;}
           .ss-quickpick-fab{bottom:24px;right:28px;}
-          /* FIX — this bar was rendering full-width in normal document
-             flow while the sidebar sits fixed on top of its left 232px,
-             so on desktop its content started underneath the sidebar —
-             that's the "empty patch" under the topbar. Offsetting it to
-             match .main-content fixes both the overlap and the dead space. */
-          .ss-section-bar{margin-left:232px;}
+          /* FIX — ss-section-bar lives INSIDE .main-content (see the JSX
+             below), which already carries margin-left:232px to clear the
+             fixed sidebar. Giving the bar its own extra 232px on top of
+             that pushed it a second sidebar-width to the right, showing
+             up as a large dead strip of blank space before "Annapurna" —
+             the double-offset itself was the bug, not a missing one.
+             .main-content's own margin already clears the sidebar, so
+             this rule is intentionally removed rather than re-added. */
           /* FIX — same vertical padding was used at every width; on a
              wide desktop window that reads as needless extra height. */
           .ss-topbar{padding:9px 22px;}
@@ -9474,17 +9486,17 @@ export default function App() {
       </button>
       <div className="no-print" onClick={()=>setPickerOpen(false)} style={{position:"fixed",inset:0,zIndex:94,display:pickerOpen?"flex":"none",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:20}}>
         <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:24,width:"100%",maxWidth:"min(94vw, 640px)",maxHeight:"92vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative"}}>
-          <div style={{position:"sticky",top:0,zIndex:2,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"14px 14px 0",background:PAPER}}>
+          <div style={{position:"sticky",top:0,zIndex:2,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"10px 14px 0",background:PAPER}}>
             <div style={{display:"flex",gap:7}}>
               <Chip active={quickTool==="picker"} onClick={()=>setQuickTool("picker")} color={FUN_ORANGE}>छनोट</Chip>
               <Chip active={quickTool==="timer"} onClick={()=>setQuickTool("timer")} color={FUN_ORANGE_DARK}>समय</Chip>
             </div>
             <IconButton icon={X} onClick={()=>setPickerOpen(false)} variant="surface"/>
           </div>
-          <div style={{padding:"0 16px 20px",display:quickTool==="picker"?"block":"none"}}>
+          <div style={{padding:"0 16px 14px",display:quickTool==="picker"?"block":"none"}}>
             <RandomPicker roster={currentSection?.roster||[]}/>
           </div>
-          <div style={{padding:"0 16px 20px",display:quickTool==="timer"?"block":"none"}}>
+          <div style={{padding:"0 16px 14px",display:quickTool==="timer"?"block":"none"}}>
             <ActivityTimer onStateChange={setTimerState}/>
           </div>
         </div>
