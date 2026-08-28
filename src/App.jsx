@@ -4419,11 +4419,21 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
           setExportMsg("रुब्रिक्स ढाँचा फोटोको रूपमा राखिएकाले त्यसलाई स्वतः भर्न मिल्दैन — रुब्रिक्सको Word फाइल सेटिङ्समा अपलोड गरे स्वतः भरिनेछ।"); setExportBusy(false); return;
         }
         const rubricBlob = await db.downloadMaterialFile(template.rubric_storage_path);
-        const files = []; let anyUnmatched = 0;
+        const files = []; let anyUnmatched = 0; let headerEverUnmatched = false;
+        // FIX — same "पाठ N - शीर्षक" numbering as the lesson-plan export,
+        // now also passed into fillRubricDocx so the rubric file's own
+        // Unit/Lesson header runs get filled instead of keeping the
+        // reference template's original text (see fillRubricDocx note).
+        let lessonNumber = 0;
         for (const l of draft.lessons) {
           if (!l.lesson_title.trim()) continue;
-          const { blob, unmatchedLevelCells } = await fillRubricDocx(rubricBlob, l.rubric);
+          lessonNumber += 1;
+          const { blob, unmatchedLevelCells, headerFilled } = await fillRubricDocx(rubricBlob, l.rubric, {
+            chapter_title: chapter.title,
+            lesson_header: `पाठ ${lessonNumber} - ${l.lesson_title}`,
+          });
           if (unmatchedLevelCells) anyUnmatched += unmatchedLevelCells;
+          if (headerFilled && !headerFilled.unit && !headerFilled.lesson && !headerFilled.title) headerEverUnmatched = true;
           files.push({ filename: `${l.lesson_title}-रुब्रिक्स.docx`, blob });
         }
         if (!files.length) { setExportMsg("कम्तीमा एउटा आधिकारिक पाठको नाम राख्नुहोस्।"); setExportBusy(false); return; }
@@ -4431,6 +4441,8 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
         else await downloadBlob(await zipFiles(files), `${chapter.title}-रुब्रिक्सहरू.zip`);
         setExportMsg(anyUnmatched
           ? `रुब्रिक्स फाइल तयार भयो, तर ढाँचाका केही स्तम्भ (उत्कृष्ट/राम्रो/सामान्य/सुधार आवश्यक जस्ता) चिन्न सकिएन — ती कक्षमा "—" राखिएको छ, हेरेर आफैं भर्नुपर्ने हुन सक्छ।`
+          : headerEverUnmatched
+          ? "Word फाइल तयार भयो, तर ढाँचाको \"Unit:\"/\"Lesson:\" लेबल चिन्न सकिएन — त्यहाँ पुरानै नमूनाको एकाइ/पाठको नाम यथावत् रहन सक्छ। Word वा Google Docs मा खोली 'PDF मा बचत गर्नुहोस्' गर्नुहोस्।"
           : "Word फाइल तयार भयो। Word वा Google Docs मा खोली 'PDF मा बचत गर्नुहोस्' गर्नुहोस्।");
         setExportBusy(false); return;
       }
