@@ -5,6 +5,7 @@ import * as gemini from "./gemini";
 import { extractTextFromFile } from "./lib/extract";
 import { fillLessonPlanDocx, fillRubricDocx, downloadBlob, zipFiles } from "./lib/docxFill";
 import { DataProvider, useData } from "./context/DataContext";
+import { adToBs, bsToAdIso, formatBs, isBsBirthdayToday, BS_MONTHS_NP, BS_YEAR_MIN, BS_YEAR_MAX, daysInBsMonth, toNpDigits } from "./lib/bsDate";
 
 // SWAPPED — the app used to pull every icon from lucide-react (flat
 // outline glyphs). Replaced with real colourful emoji of the actual
@@ -335,7 +336,7 @@ const EVENT_CATEGORY_META = {
   holiday:  { label: "बिदा",              icon: Palmtree,      color: MARIGOLD_DARK },
   exam:     { label: "परीक्षा",            icon: GraduationCap, color: ROSE },
   deadline: { label: "म्याद (गृहकार्य/काम)", icon: PenSquare,     color: VIOLET },
-  training: { label: "तालिम/गोष्ठी",       icon: Megaphone,     color: "#2C5F9E" },
+  training: { label: "तालिम/गोष्ठी",       icon: Megaphone,     color: BLUE },
   reminder: { label: "सम्झना",            icon: Bell,          color: ACCENT },
 };
 const EVENT_CATEGORY_ORDER = ["event","holiday","exam","deadline","training","reminder"];
@@ -3789,18 +3790,17 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoMaterials, onGoAITools, onG
   // field, added to CSV import) against today's date and surfaces anyone
   // matching right on the daily dashboard — the one screen a teacher
   // already opens every morning — instead of needing a separate check.
-  // Dates are expected as YYYY-MM-DD (what a CSV export or the <input
-  // type="date"> editor in नाम सूची both produce); anything else is
-  // silently skipped rather than guessed at.
+  // FIX — now matches on the बि.सं. (BS) calendar anniversary of the
+  // stored dob, not a fixed AD month/day: a BS birthday's AD-equivalent
+  // date can shift by a day year to year depending on how that BS
+  // month's length falls, so matching by AD month/day alone would drift
+  // out of sync over time. dob itself is still stored as a plain AD ISO
+  // string exactly as before (see src/lib/bsDate.js) — only how "is it
+  // their birthday today" is computed changed.
   const todaysBirthdays=useMemo(()=>{
     const details=section?.student_details||[];
     if(!details.length)return[];
-    const now=new Date();
-    const mm=String(now.getMonth()+1).padStart(2,"0"),dd=String(now.getDate()).padStart(2,"0");
-    return details.filter((d)=>{
-      const m=d.dob&&/^\d{4}-(\d{2})-(\d{2})/.exec(d.dob.trim());
-      return m&&m[1]===mm&&m[2]===dd;
-    });
+    return details.filter((d)=>d.dob&&isBsBirthdayToday(d.dob.trim()));
   },[section]);
   // NEW — tapping a birthday name (or the banner itself, when there's
   // only one) now pops a full-screen on-device celebration instead of
@@ -6510,6 +6510,42 @@ function splitCsvLine(line){
   out.push(cur);
   return out.map((s)=>s.trim());
 }
+// NEW — बि.सं. (BS) date-of-birth picker: three plain <select> dropdowns
+// (गते/महिना/वर्ष) instead of a native <input type="date"> (which is
+// AD-only and has no BS mode on any platform). Kept generic/stateless —
+// takes the current dob as an AD ISO string (unchanged storage format)
+// and calls onChange with a new AD ISO string, converting under the
+// hood — so nothing else that reads `dob` needs to know BS was involved.
+function BsDateSelect({ value, onChange, style }){
+  const bs=adToBs(value);
+  const year=bs?.year??"", month=bs?.month??"", date=bs?.date??"";
+  const selStyle={...(style||{}),width:"auto",minWidth:0,flex:1};
+  const commit=(y,m,d)=>{
+    if(y===""||m===""||d===""){onChange("");return;}
+    const maxDay=daysInBsMonth(y,m);
+    const iso=bsToAdIso(y,m,Math.min(d,maxDay));
+    if(iso)onChange(iso);
+  };
+  const years=[];
+  for(let y=BS_YEAR_MAX;y>=BS_YEAR_MIN;y--)years.push(y);
+  const dayCount=month!==""?daysInBsMonth(year||BS_YEAR_MAX,month):32;
+  return(
+    <div style={{display:"flex",gap:3}}>
+      <select value={date} onChange={(e)=>commit(year,month,e.target.value===""?"":parseInt(e.target.value))} style={selStyle}>
+        <option value="">गते</option>
+        {Array.from({length:dayCount},(_,i)=>i+1).map((d)=><option key={d} value={d}>{d}</option>)}
+      </select>
+      <select value={month} onChange={(e)=>commit(year,e.target.value===""?"":parseInt(e.target.value),date)} style={{...selStyle,flex:1.6}}>
+        <option value="">महिना</option>
+        {BS_MONTHS_NP.map((m,i)=><option key={i} value={i}>{m}</option>)}
+      </select>
+      <select value={year} onChange={(e)=>commit(e.target.value===""?"":parseInt(e.target.value),month,date)} style={selStyle}>
+        <option value="">वर्ष</option>
+        {years.map((y)=><option key={y} value={y}>{y}</option>)}
+      </select>
+    </div>
+  );
+}
 const CSV_HEADER_KEY_MAP={
   section:"section", roll:"roll", name:"name", class:"class",
   gender:"gender", type:"type",
@@ -6744,7 +6780,7 @@ function RosterEditor({ section, onSectionUpdated }){
           </div>
         )}
         <div style={{fontSize:13,color:INK_SOFT,marginTop:8,lineHeight:1.5}}>
-          विद्यालयको student-management प्रणालीबाट export गरिएको CSV (Section, Roll, Name, Gender, Type, Father_Phone, Mother_Phone, Student_Phone, Login_ID, र वैकल्पिक रूपमा DOB/Date_of_Birth स्तम्भसहित) यहाँ छान्नुहोस् — नामहरू र पूरा विवरण एकैचोटि यस सेक्सनमा बचत हुन्छ। DOB (जन्म मिति) थपेमा जन्मदिनको सम्झना आजको पानामा देखिन्छ। नयाँ वर्ष सुरु हुँदा माथिको बटनले हालको सूची सुरक्षित (अभिलेख) गरी खाली गर्नुहोस्, अनि यहाँबाट नयाँ CSV ल्याउनुहोस् — पुरानो वर्षको सूची तल "पुराना वर्षको विद्यार्थी अभिलेख" मा जहिलेसुकै हेर्न मिल्छ।
+          विद्यालयको student-management प्रणालीबाट export गरिएको CSV (Section, Roll, Name, Gender, Type, Father_Phone, Mother_Phone, Student_Phone, Login_ID, र वैकल्पिक रूपमा DOB/Date_of_Birth स्तम्भसहित — AD मिति YYYY-MM-DDढाँचामा) यहाँ छान्नुहोस् — नामहरू र पूरा विवरण एकैचोटि यस सेक्सनमा बचत हुन्छ। DOB (जन्म मिति) थपेमा जन्मदिनको सम्झना आजको पानामा देखिन्छ (बि.सं. अनुसार गणना गरी)। CSV मा नभए पछि तल तालिकामा ✏️ थिचेर बि.सं. मिति छान्न सकिन्छ। नयाँ वर्ष सुरु हुँदा माथिको बटनले हालको सूची सुरक्षित (अभिलेख) गरी खाली गर्नुहोस्, अनि यहाँबाट नयाँ CSV ल्याउनुहोस् — पुरानो वर्षको सूची तल "पुराना वर्षको विद्यार्थी अभिलेख" मा जहिलेसुकै हेर्न मिल्छ।
         </div>
         {importError&&<div style={{fontSize:14,color:DANGER,marginTop:8,fontWeight:600}}>{importError}</div>}
         {importSections.length>1&&(
@@ -6787,7 +6823,7 @@ function RosterEditor({ section, onSectionUpdated }){
                     <td style={{padding:"6px 8px"}}><input style={editInputStyle} value={editDraft.gender||""} onChange={(e)=>setEditDraft({...editDraft,gender:e.target.value})}/></td>
                     <td style={{padding:"6px 8px"}}><input style={editInputStyle} value={editDraft.fatherPhone||""} onChange={(e)=>setEditDraft({...editDraft,fatherPhone:e.target.value})}/></td>
                     <td style={{padding:"6px 8px"}}><input style={editInputStyle} value={editDraft.motherPhone||""} onChange={(e)=>setEditDraft({...editDraft,motherPhone:e.target.value})}/></td>
-                    <td style={{padding:"6px 8px"}}><input type="date" style={editInputStyle} value={editDraft.dob||""} onChange={(e)=>setEditDraft({...editDraft,dob:e.target.value})}/></td>
+                    <td style={{padding:"6px 8px"}}><BsDateSelect value={editDraft.dob||""} onChange={(iso)=>setEditDraft({...editDraft,dob:iso})} style={editInputStyle}/></td>
                     <td style={{padding:"6px 8px"}}><input style={editInputStyle} value={editDraft.loginId||""} onChange={(e)=>setEditDraft({...editDraft,loginId:e.target.value})}/></td>
                     <td style={{padding:"6px 8px",display:"flex",gap:2}}>
                       <IconButton icon={CheckCircle2} size={16} variant="ghost" color={TEAL} title="बचत गर्नुहोस्" disabled={importing} onClick={saveEdit}/>
@@ -6810,7 +6846,7 @@ function RosterEditor({ section, onSectionUpdated }){
                     <td style={{padding:"6px 8px"}}>{d.gender}</td>
                     <td style={{padding:"6px 8px"}}>{d.fatherPhone}</td>
                     <td style={{padding:"6px 8px"}}>{d.motherPhone}</td>
-                    <td style={{padding:"6px 8px"}}>{d.dob}</td>
+                    <td style={{padding:"6px 8px"}}>{formatBs(d.dob)||d.dob}</td>
                     <td style={{padding:"6px 8px"}}>{d.loginId}</td>
                     <td style={{padding:"6px 8px",display:"flex",gap:2,alignItems:"center"}}>
                       {phone&&<a href={ssTelHref(phone)} title={`${d.name} लाई फोन गर्नुहोस्`} style={{display:"flex",padding:5,borderRadius:8,color:TEAL,textDecoration:"none"}}><Phone size={14}/></a>}
@@ -8455,7 +8491,12 @@ function CalendarView({ classLabel, active }) {
               {MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}
             </select>
             <select value={year} onChange={(e)=>setYear(Number(e.target.value))} style={{border:"none",fontWeight:800,fontSize:19,color:INK,cursor:"pointer",background:"transparent",fontFamily:"'SSText','Kalimati','Times New Roman',serif",marginLeft:4}}>
-              {Array.from({length:5},(_,i)=>today.getFullYear()-1+i).map((y)=><option key={y} value={y}>{y}</option>)}
+              {/* FIX — this used to hardcode a narrow 5-year window
+                  (1 year back, 3 forward) with no real reason behind that
+                  specific range — just a leftover placeholder. Widened to
+                  a full century so the calendar isn't stuck near "today"
+                  only. */}
+              {Array.from({length:100},(_,i)=>2000+i).map((y)=><option key={y} value={y}>{y}</option>)}
             </select>
           </div>
           <button className="ss-btn" onClick={()=>{if(month===11){setMonth(0);setYear((y)=>y+1);}else setMonth((m)=>m+1);}} style={{background:`linear-gradient(135deg, ${MARIGOLD} 0%, ${ACCENT} 100%)`,border:"none",borderRadius:999,width:34,height:34,fontWeight:700,cursor:"pointer",color:"#fff",fontSize:18,boxShadow:SHADOW.sm}}>›</button>
