@@ -41,6 +41,104 @@ async function cachedFetch(key, fetcher) {
   }
 }
 
+// ─── OFFLINE WRITE QUEUE ────────────────────────────────────────────────────
+// NEW — reads already degrade gracefully offline (cachedFetch above), but a
+// teacher mid-lesson with no signal who scores a rubric, assigns homework,
+// logs a diary entry, or edits a class activity would previously just get a
+// network error and lose the edit. queuedUpsert makes those specific writes
+// (the ones a teacher plausibly does *during* class, not file uploads) work
+// offline: it tries the real write first, and only falls back to queueing
+// when the failure looks like a connectivity problem (not a real
+// validation/server error, which still surfaces normally). A queued write
+// is immediately merged into any cached list screens are already reading
+// via cachedFetch, so the teacher sees their own edit right away; it syncs
+// for real via flushWriteQueue the next time the browser comes back online.
+const WRITE_QUEUE_KEY = "ss-write-queue";
+
+const isOfflineError = (error) => {
+  if (!error) return false;
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return true;
+  const msg = (error.message || "").toLowerCase();
+  return msg.includes("fetch") || msg.includes("network");
+};
+
+const readQueue = () => {
+  try { return JSON.parse(localStorage.getItem(WRITE_QUEUE_KEY) || "[]"); }
+  catch { return []; }
+};
+const persistQueue = (q) => {
+  try { localStorage.setItem(WRITE_QUEUE_KEY, JSON.stringify(q)); } catch { /* best effort */ }
+};
+
+// Merges an optimistic/synced row into every cachedFetch list whose key
+// starts with `cachePrefix` (e.g. "homework" matches both "homework:all"
+// and any class-scoped variant), so open screens reflect the write without
+// needing a manual refetch.
+function mergeIntoCachedLists(cachePrefix, record) {
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith(CACHE_PREFIX + cachePrefix)) continue;
+      const list = JSON.parse(localStorage.getItem(k));
+      if (!Array.isArray(list)) continue;
+      const idx = list.findIndex((r) => r.id === record.id);
+      const merged = idx >= 0
+        ? [...list.slice(0, idx), record, ...list.slice(idx + 1)]
+        : [record, ...list];
+      localStorage.setItem(k, JSON.stringify(merged));
+    }
+  } catch { /* best effort — worst case the teacher sees it after next real fetch */ }
+}
+
+async function queuedUpsert(table, cachePrefix, payload) {
+  const { data, error } = await supabase.from(table).upsert(payload).select().single();
+  if (!error) {
+    mergeIntoCachedLists(cachePrefix, data);
+    return { data, error: null };
+  }
+  if (!isOfflineError(error)) return { data: null, error };
+
+  // Offline — queue it. A real (not string-hacked) UUID is generated up
+  // front for new rows so the same id is used for the optimistic copy AND
+  // the eventual real insert once synced, instead of a placeholder that
+  // would fail Postgres's uuid column type when it finally goes out.
+  const id = payload.id || (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
+  const withId = { ...payload, id };
+  const optimistic = { ...withId, _pending: true };
+  const queue = readQueue();
+  queue.push({ table, cachePrefix, payload: withId, queuedAt: Date.now() });
+  persistQueue(queue);
+  mergeIntoCachedLists(cachePrefix, optimistic);
+  return { data: optimistic, error: null, queued: true };
+}
+
+// Replays queued offline writes in order once a connection is back. Safe to
+// call repeatedly (wired to the browser's `online` event and once at
+// startup below) — synced entries are removed from the queue; an entry
+// that still fails for a real (non-connectivity) reason is dropped with a
+// console warning rather than retried forever, since an endlessly-retried
+// bad write would otherwise block every write queued after it.
+export async function flushWriteQueue() {
+  const queue = readQueue();
+  if (!queue.length) return;
+  const remaining = [];
+  for (const item of queue) {
+    const { data, error } = await supabase.from(item.table).upsert(item.payload).select().single();
+    if (!error) {
+      mergeIntoCachedLists(item.cachePrefix, data);
+    } else if (isOfflineError(error)) {
+      remaining.push(item);
+    } else {
+      console.warn("शिक्षा साथी: पहिले अफलाइन साचिएको लेखन सिंक गर्दा त्रुटि (छोडियो):", item.table, error);
+    }
+  }
+  persistQueue(remaining);
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("online", flushWriteQueue);
+}
+
 // ─── AUTH ────────────────────────────────────────────────────────────────────
 export const signIn = (email, password) =>
   supabase.auth.signInWithPassword({ email, password });
@@ -413,11 +511,13 @@ export const getMaterials = async (classLabel = null) => cachedFetch(`materials:
 // instead of nothing at all.
 export const getMaterialsByChapter = async (chapterId) => {
   if (!chapterId) return { data: [], error: null };
-  const { data, error } = await supabase
-    .from("materials")
-    .select("*")
-    .eq("chapter_id", chapterId);
-  return { data, error };
+  return cachedFetch(`materials_by_chapter:${chapterId}`, async () => {
+    const { data, error } = await supabase
+      .from("materials")
+      .select("*")
+      .eq("chapter_id", chapterId);
+    return { data, error };
+  });
 };
 
 // NEW — materials scoped to one पाठ (Path), not the whole एकाइ. Used by
@@ -425,11 +525,13 @@ export const getMaterialsByChapter = async (chapterId) => {
 // Path doesn't bleed into another Path's context.
 export const getMaterialsByLesson = async (lessonId) => {
   if (!lessonId) return { data: [], error: null };
-  const { data, error } = await supabase
-    .from("materials")
-    .select("*")
-    .eq("lesson_id", lessonId);
-  return { data, error };
+  return cachedFetch(`materials_by_lesson:${lessonId}`, async () => {
+    const { data, error } = await supabase
+      .from("materials")
+      .select("*")
+      .eq("lesson_id", lessonId);
+    return { data, error };
+  });
 };
 
 export const insertMaterial = async (material) => {
@@ -786,12 +888,7 @@ export const getAssessments = async (classLabel = null) => cachedFetch(`assessme
 
 export const upsertAssessment = async (assessment) => {
   const { data: { user } } = await supabase.auth.getUser();
-  const { data, error } = await supabase
-    .from("assessments")
-    .upsert({ ...assessment, teacher_id: user.id })
-    .select()
-    .single();
-  return { data, error };
+  return queuedUpsert("assessments", "assessments", { ...assessment, teacher_id: user.id });
 };
 
 // NEW — matches the deleteSimulation pattern below: lets LessonMode's
@@ -843,12 +940,7 @@ export const getHomework = async (sectionId = null, classLabel = null) => cached
 
 export const upsertHomework = async (hw) => {
   const { data: { user } } = await supabase.auth.getUser();
-  const { data, error } = await supabase
-    .from("homework")
-    .upsert({ ...hw, teacher_id: user.id })
-    .select()
-    .single();
-  return { data, error };
+  return queuedUpsert("homework", "homework", { ...hw, teacher_id: user.id });
 };
 
 // ─── JOURNAL ─────────────────────────────────────────────────────────────────
@@ -869,12 +961,7 @@ export const getJournalEntries = async (classLabel = null) => cachedFetch(`journ
 
 export const upsertJournalEntry = async (entry) => {
   const { data: { user } } = await supabase.auth.getUser();
-  const { data, error } = await supabase
-    .from("journal_entries")
-    .upsert({ ...entry, teacher_id: user.id })
-    .select()
-    .single();
-  return { data, error };
+  return queuedUpsert("journal_entries", "journal_entries", { ...entry, teacher_id: user.id });
 };
 
 // ─── ACTIVITIES ──────────────────────────────────────────────────────────────
@@ -892,12 +979,7 @@ export const getActivities = async (classLabel = null) => cachedFetch(`activitie
 
 export const upsertActivity = async (activity) => {
   const { data: { user } } = await supabase.auth.getUser();
-  const { data, error } = await supabase
-    .from("activities")
-    .upsert({ ...activity, teacher_id: user.id })
-    .select()
-    .single();
-  return { data, error };
+  return queuedUpsert("activities", "activities", { ...activity, teacher_id: user.id });
 };
 
 // ─── SIMULATIONS (AI-generated interactive lesson exercises) ─────────────────
@@ -905,14 +987,21 @@ export const upsertActivity = async (activity) => {
 // to a lesson, so a teacher can build up several attempts for the same
 // lesson and pick whichever works best in class, instead of only ever
 // having the latest one.
-export const getSimulationsByLesson = async (lessonId) => {
-  const { data, error } = await supabase
-    .from("simulations")
-    .select("*")
-    .eq("lesson_id", lessonId)
-    .order("created_at", { ascending: false });
-  return { data, error };
-};
+// FIX — not wrapped in cachedFetch even though this is the exact list a
+// teacher needs to replay an already-generated simulation in class with no
+// signal (the core "offline" use case) — a plain failed fetch here used to
+// mean the simulation screen showed nothing at all, even though the
+// simulation itself was generated (and its HTML/CSS/JS saved) days earlier
+// with a working connection.
+export const getSimulationsByLesson = async (lessonId) =>
+  cachedFetch(`simulations_by_lesson:${lessonId}`, async () => {
+    const { data, error } = await supabase
+      .from("simulations")
+      .select("*")
+      .eq("lesson_id", lessonId)
+      .order("created_at", { ascending: false });
+    return { data, error };
+  });
 
 // NEW — recent simulation TYPES across ALL of this teacher's lessons, not
 // just one lesson. gemini.pickNextSimulationType() round-robins across
@@ -970,14 +1059,15 @@ export const deleteSimulation = async (id) => {
 };
 
 // ─── AI MESSAGES ─────────────────────────────────────────────────────────────
-export const getAIMessages = async (lessonId) => {
-  const { data, error } = await supabase
-    .from("ai_messages")
-    .select("*")
-    .eq("lesson_id", lessonId)
-    .order("created_at");
-  return { data, error };
-};
+export const getAIMessages = async (lessonId) =>
+  cachedFetch(`ai_messages:${lessonId}`, async () => {
+    const { data, error } = await supabase
+      .from("ai_messages")
+      .select("*")
+      .eq("lesson_id", lessonId)
+      .order("created_at");
+    return { data, error };
+  });
 
 export const saveAIMessage = async (lessonId, role, content) => {
   const { data: { user } } = await supabase.auth.getUser();
