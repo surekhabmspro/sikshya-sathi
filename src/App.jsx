@@ -251,6 +251,22 @@ const SHADOW = {
   marigold: "0 4px 12px color-mix(in srgb, var(--marigold) 18%, transparent)",
 };
 
+// FIX — every popup/modal in the app (कार्यक्रम add/edit, डायरी, गृहकार्य,
+// समग्री preview, सेटिङ, name pickers, the calendar's own event form...)
+// used to build its floating panel from its own one-off style object.
+// Most agreed on the same blurred backdrop, but the panel itself drifted:
+// some used SURFACE (a card-level shade), others PAPER (the page's own
+// base shade); radii ranged 18–24px; some had a border, some didn't. The
+// calendar was the clearest example — its outer shell (ManagerPopup) is
+// PAPER-toned, but its own "+ कार्यक्रम थप्नुहोस्" popup opened on top in
+// SURFACE with no border, so two popups nested on the same screen visibly
+// didn't match. MODAL_PANEL is the one shared look now: every modal panel
+// spreads this first, then only overrides padding/maxWidth/maxHeight/
+// overflow/layout for its own content — background, radius, border, and
+// shadow stay identical everywhere.
+const MODAL_PANEL = { background: PAPER, borderRadius: 20, border: `1px solid ${BORDER}`, boxShadow: SHADOW.lg };
+
+
 // color+"1A" string-concat only works when color is a literal hex string; it
 // silently produces invalid CSS (transparent) when color is one of the
 // var(--x)-based constants above. tint() works for both.
@@ -1370,7 +1386,7 @@ function CenteredSelect({ value, onChange, options, placeholder, style, disabled
       </button>
       {open&&(
         <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:95,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:16}}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,border:`1.5px solid ${BORDER}`,width:"min(94vw, 760px)",maxHeight:"82vh",overflowY:"auto",boxShadow:SHADOW.raised,padding:10}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{...MODAL_PANEL,width:"min(94vw, 760px)",maxHeight:"82vh",overflowY:"auto",padding:10}}>
             <div style={{display:"grid",gridTemplateColumns:options.length>6?"repeat(auto-fill, minmax(260px, 1fr))":"1fr",gap:4}}>
               {options.map((o)=>{
                 const active=String(o.value)===String(value);
@@ -1787,7 +1803,7 @@ function LessonEditModal({ lesson, classContext, classLabel, onClose, onSaved })
 
   return(
     <div className="no-print" onClick={onClose} style={{position:"fixed",inset:0,zIndex:88,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:16}}>
-      <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,padding:"24px 28px",maxWidth:"min(94vw, 820px)",width:"100%",maxHeight:"94vh",overflowY:"auto",boxSizing:"border-box",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,fontSize:"clamp(15px, 1.6vw, 17px)"}}>
+      <div onClick={(e)=>e.stopPropagation()} style={{...MODAL_PANEL,padding:"24px 28px",maxWidth:"min(94vw, 820px)",width:"100%",maxHeight:"94vh",overflowY:"auto",boxSizing:"border-box",fontSize:"clamp(15px, 1.6vw, 17px)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
           <div style={{fontWeight:800,fontSize:18,color:INK}}>पाठ सम्पादन गर्नुहोस्</div>
           <IconButton icon={X} onClick={onClose} size={20}/>
@@ -2709,7 +2725,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
 
       {objPopup&&(
         <div className="no-print" onClick={()=>setObjPopup(false)} style={{position:"fixed",inset:0,zIndex:80,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.5)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:20}}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:"36px 40px",maxWidth:"min(94vw, 900px)",width:"100%",maxHeight:"88vh",overflowY:"auto",boxSizing:"border-box",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{...MODAL_PANEL,padding:"36px 40px",maxWidth:"min(94vw, 900px)",width:"100%",maxHeight:"88vh",overflowY:"auto",boxSizing:"border-box"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
               <div style={{fontSize:"clamp(26px, 3.2vw, 34px)",fontWeight:800,color:INK}}>आजको उद्देश्य</div>
               <IconButton icon={X} onClick={()=>setObjPopup(false)} size={26}/>
@@ -2721,7 +2737,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
 
       {vocabListPopup&&(
         <div className="no-print" onClick={()=>setVocabListPopup(false)} style={{position:"fixed",inset:0,zIndex:80,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.5)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:20}}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:"36px 40px",maxWidth:"min(94vw, 900px)",width:"100%",maxHeight:"88vh",overflowY:"auto",boxSizing:"border-box",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{...MODAL_PANEL,padding:"36px 40px",maxWidth:"min(94vw, 900px)",width:"100%",maxHeight:"88vh",overflowY:"auto",boxSizing:"border-box"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
               <div style={{fontSize:"clamp(26px, 3.2vw, 34px)",fontWeight:800,color:INK}}>कठिन शब्द अर्थ</div>
               <IconButton icon={X} onClick={()=>setVocabListPopup(false)} size={26}/>
@@ -2759,7 +2775,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
 
       {vocabPopup&&(
         <div className="no-print" onClick={()=>setVocabPopup(null)} style={{position:"fixed",inset:0,zIndex:80,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.5)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:20}}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:"30px 32px",maxWidth:"min(92vw, 760px)",width:"100%",maxHeight:"90vh",overflowY:"auto",boxSizing:"border-box",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{...MODAL_PANEL,padding:"30px 32px",maxWidth:"min(92vw, 760px)",width:"100%",maxHeight:"90vh",overflowY:"auto",boxSizing:"border-box"}}>
             <div style={{fontSize:"clamp(22px, 2.6vw, 27px)",fontWeight:800,color:MARIGOLD_DARK,marginBottom:12}}>{vocabPopup.word}</div>
             <div style={{fontSize:"clamp(17px, 2vw, 20px)",color:INK,lineHeight:1.7}}>{vocabPopup.meaning}</div>
             {vocabImageLoading&&(
@@ -4995,7 +5011,7 @@ function ImportTextbookModal({ classLabel, classContext, lessons, onClose }) {
 
   return (
     <div className="no-print" onClick={onClose} style={{position:"fixed",inset:0,zIndex:88,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:16}}>
-      <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:"24px 26px",maxWidth:"min(94vw, 680px)",width:"100%",maxHeight:"88vh",overflowY:"auto",boxSizing:"border-box",boxShadow:SHADOW.lg}}>
+      <div onClick={(e)=>e.stopPropagation()} style={{...MODAL_PANEL,padding:"24px 26px",maxWidth:"min(94vw, 680px)",width:"100%",maxHeight:"88vh",overflowY:"auto",boxSizing:"border-box"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
           <div style={{fontSize:19,fontWeight:800,color:INK,display:"flex",alignItems:"center",gap:8}}><BookMarked size={19} color={TEAL}/>पाठ्यपुस्तकबाट स्वतः एकाइ/पाठ</div>
           <IconButton icon={X} onClick={onClose} size={20}/>
@@ -5774,7 +5790,7 @@ function Materials({ classLabel }) {
 
       {pendingFiles&&(
         <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.55)",backdropFilter:"blur(22px)",WebkitBackdropFilter:"blur(22px)",zIndex:70,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>!uploading&&setPendingFiles(null)}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:"24px 26px",maxWidth:"min(94vw, 880px)",width:"100%",maxHeight:"90vh",overflowY:"auto",boxSizing:"border-box",boxShadow:SHADOW.lg,fontSize:"clamp(15px, 1.6vw, 17px)"}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{...MODAL_PANEL,padding:"24px 26px",maxWidth:"min(94vw, 880px)",width:"100%",maxHeight:"90vh",overflowY:"auto",boxSizing:"border-box",fontSize:"clamp(15px, 1.6vw, 17px)"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
               <div style={{fontSize:19,fontWeight:800,color:INK}}>{pendingFiles.length} फाइल — समीक्षा गर्नुहोस्</div>
               <IconButton icon={X} onClick={()=>!uploading&&setPendingFiles(null)} size={20}/>
@@ -5909,7 +5925,7 @@ function Materials({ classLabel }) {
       )}
       {preview&&(
         <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.6)",backdropFilter:"blur(28px)",WebkitBackdropFilter:"blur(28px)",zIndex:60,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setPreview(null)}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,padding:24,maxWidth:"min(95vw, 1100px)",width:"100%",maxHeight:"95vh",display:"flex",flexDirection:"column",boxSizing:"border-box",boxShadow:SHADOW.lg,fontSize:"clamp(15px, 1.6vw, 17px)"}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{...MODAL_PANEL,padding:24,maxWidth:"min(95vw, 1100px)",width:"100%",maxHeight:"95vh",display:"flex",flexDirection:"column",boxSizing:"border-box",fontSize:"clamp(15px, 1.6vw, 17px)"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
               <div style={{fontSize:18,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",paddingRight:10}}>{preview.name}</div>
               <IconButton icon={X} onClick={()=>setPreview(null)} size={20}/>
@@ -5941,7 +5957,7 @@ function Materials({ classLabel }) {
       )}
       {tagging&&(
         <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.6)",backdropFilter:"blur(28px)",WebkitBackdropFilter:"blur(28px)",zIndex:65,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setTagging(null)}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:18,padding:28,maxWidth:"min(92vw, 620px)",width:"100%",maxHeight:"90vh",overflowY:"auto",WebkitOverflowScrolling:"touch",boxSizing:"border-box",boxShadow:SHADOW.lg,fontSize:"clamp(15px, 1.6vw, 17px)"}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{...MODAL_PANEL,padding:28,maxWidth:"min(92vw, 620px)",width:"100%",maxHeight:"90vh",overflowY:"auto",WebkitOverflowScrolling:"touch",boxSizing:"border-box",fontSize:"clamp(15px, 1.6vw, 17px)"}}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
               <div style={{fontSize:18,fontWeight:700}}>एकाइ र प्रकार तोक्नुहोस्</div>
               <IconButton icon={X} onClick={()=>setTagging(null)} size={20}/>
@@ -6054,7 +6070,7 @@ function HomeworkManager({ section, loading, homework, onRefresh, classLabel, te
       )}
       {smsHw&&(
         <div className="no-print" onClick={()=>setSmsHw(null)} style={{position:"fixed",inset:0,zIndex:96,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:20}}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:24,width:"100%",maxWidth:"min(94vw, 560px)",maxHeight:"88vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative"}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{...MODAL_PANEL,width:"100%",maxWidth:"min(94vw, 560px)",maxHeight:"88vh",overflowY:"auto",position:"relative"}}>
             <div style={{position:"sticky",top:0,zIndex:2,display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,padding:"14px 16px 0",background:PAPER}}>
               <div>
                 <div style={{fontSize:17,fontWeight:700,color:INK}}>SMS सम्झना — {smsHw.title}</div>
@@ -6448,7 +6464,7 @@ function SummaryPanel({ icon:Icon, color, title, subtitle, onOpen }) {
 function ManagerPopup({ title, onClose, children }) {
   return(
     <div className="no-print" onClick={onClose} style={{position:"fixed",inset:0,zIndex:88,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:16}}>
-      <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:18,width:"100%",maxWidth:"min(95vw, 1080px)",maxHeight:"95vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative"}}>
+      <div onClick={(e)=>e.stopPropagation()} style={{...MODAL_PANEL,width:"100%",maxWidth:"min(95vw, 1080px)",maxHeight:"95vh",overflowY:"auto",position:"relative"}}>
         <div style={{position:"sticky",top:0,zIndex:2,display:"flex",justifyContent:"flex-end",padding:"14px 14px 0",background:PAPER}}>
           <IconButton icon={X} onClick={onClose} variant="surface"/>
         </div>
@@ -6519,7 +6535,20 @@ function splitCsvLine(line){
 function BsDateSelect({ value, onChange, style }){
   const bs=adToBs(value);
   const year=bs?.year??"", month=bs?.month??"", date=bs?.date??"";
-  const selStyle={...(style||{}),width:"auto",minWidth:0,flex:1};
+  // FIX — each select previously used flex:1 with minWidth:0, which lets
+  // flexbox shrink it below its own content width whenever the row is
+  // tight for space (e.g. inside this table's narrow, horizontally-
+  // scrollable cell). वर्ष (a 4-digit year like 2083) was the one that
+  // actually got clipped — it showed as "208" with the last digit cut
+  // off, even though the real selected value was correct underneath.
+  // Giving each select its own minimum width sized for its longest
+  // possible value (and no longer allowing it to shrink past that) fixes
+  // the clipping; the row can scroll sideways instead, same as the rest
+  // of this table already does.
+  const baseSelStyle={...(style||{}),width:"auto"};
+  const dateStyle={...baseSelStyle,minWidth:50,flexShrink:0};
+  const monthStyle={...baseSelStyle,minWidth:78,flexShrink:0};
+  const yearStyle={...baseSelStyle,minWidth:66,flexShrink:0};
   const commit=(y,m,d)=>{
     if(y===""||m===""||d===""){onChange("");return;}
     const maxDay=daysInBsMonth(y,m);
@@ -6531,15 +6560,15 @@ function BsDateSelect({ value, onChange, style }){
   const dayCount=month!==""?daysInBsMonth(year||BS_YEAR_MAX,month):32;
   return(
     <div style={{display:"flex",gap:3}}>
-      <select value={date} onChange={(e)=>commit(year,month,e.target.value===""?"":parseInt(e.target.value))} style={selStyle}>
+      <select value={date} onChange={(e)=>commit(year,month,e.target.value===""?"":parseInt(e.target.value))} style={dateStyle}>
         <option value="">गते</option>
         {Array.from({length:dayCount},(_,i)=>i+1).map((d)=><option key={d} value={d}>{d}</option>)}
       </select>
-      <select value={month} onChange={(e)=>commit(year,e.target.value===""?"":parseInt(e.target.value),date)} style={{...selStyle,flex:1.6}}>
+      <select value={month} onChange={(e)=>commit(year,e.target.value===""?"":parseInt(e.target.value),date)} style={monthStyle}>
         <option value="">महिना</option>
         {BS_MONTHS_NP.map((m,i)=><option key={i} value={i}>{m}</option>)}
       </select>
-      <select value={year} onChange={(e)=>commit(e.target.value===""?"":parseInt(e.target.value),month,date)} style={selStyle}>
+      <select value={year} onChange={(e)=>commit(e.target.value===""?"":parseInt(e.target.value),month,date)} style={yearStyle}>
         <option value="">वर्ष</option>
         {years.map((y)=><option key={y} value={y}>{y}</option>)}
       </select>
@@ -8589,7 +8618,7 @@ function CalendarView({ classLabel, active }) {
 
       {showForm&&form&&(
         <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.55)",backdropFilter:"blur(22px)",WebkitBackdropFilter:"blur(22px)",zIndex:70,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowForm(false)}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:SURFACE,borderRadius:20,padding:24,maxWidth:"min(94vw, 720px)",width:"100%",maxHeight:"90vh",overflowX:"hidden",overflowY:"auto",boxSizing:"border-box",boxShadow:SHADOW.lg,fontSize:"clamp(15px, 1.6vw, 17px)"}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{...MODAL_PANEL,padding:24,maxWidth:"min(94vw, 720px)",width:"100%",maxHeight:"90vh",overflowX:"hidden",overflowY:"auto",boxSizing:"border-box",fontSize:"clamp(15px, 1.6vw, 17px)"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
               <div style={{fontSize:19,fontWeight:800,color:INK}}>{editing?"कार्यक्रम सम्पादन":"नयाँ कार्यक्रम"}</div>
               <IconButton icon={X} onClick={()=>setShowForm(false)} size={20}/>
@@ -8641,7 +8670,7 @@ function CalendarView({ classLabel, active }) {
           be perfect. */}
       {reviewEvents&&(
         <div className="no-print" style={{position:"fixed",inset:0,zIndex:85,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:16}}>
-          <div style={{background:SURFACE,borderRadius:18,padding:24,maxWidth:"min(94vw, 880px)",width:"100%",maxHeight:"93vh",display:"flex",flexDirection:"column",boxSizing:"border-box",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,fontSize:"clamp(15px, 1.6vw, 17px)"}}>
+          <div style={{...MODAL_PANEL,padding:24,maxWidth:"min(94vw, 880px)",width:"100%",maxHeight:"93vh",display:"flex",flexDirection:"column",boxSizing:"border-box",fontSize:"clamp(15px, 1.6vw, 17px)"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
               <div style={{fontSize:19,fontWeight:800,color:INK}}>{reviewEvents.length} घटना फेला पर्यो</div>
               <IconButton icon={X} onClick={()=>setReviewEvents(null)} size={20}/>
@@ -10102,7 +10131,7 @@ export default function App() {
           tools) close the popup first so you land on a clean screen. */}
       {searchOpen&&(
         <div className="no-print" onClick={()=>setSearchOpen(false)} style={{position:"fixed",inset:0,zIndex:89,display:"flex",alignItems:"flex-start",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:"8vh 16px 16px"}}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:24,width:"100%",maxWidth:"min(94vw, 900px)",maxHeight:"92vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative",fontSize:"clamp(15px, 1.6vw, 17px)"}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{...MODAL_PANEL,width:"100%",maxWidth:"min(94vw, 900px)",maxHeight:"92vh",overflowY:"auto",position:"relative",fontSize:"clamp(15px, 1.6vw, 17px)"}}>
             <div style={{position:"sticky",top:0,zIndex:2,display:"flex",justifyContent:"flex-end",padding:"10px 10px 0",background:PAPER}}>
               <IconButton icon={X} onClick={()=>setSearchOpen(false)} variant="surface"/>
             </div>
@@ -10120,7 +10149,7 @@ export default function App() {
           of whatever screen you're already on, closes right back to it. */}
       {settingsOpen&&(
         <div className="no-print" onClick={()=>setSettingsOpen(false)} style={{position:"fixed",inset:0,zIndex:90,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:20}}>
-          <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:24,width:"100%",maxWidth:"min(94vw, 980px)",maxHeight:"94vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative",fontSize:"clamp(15px, 1.6vw, 17px)"}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{...MODAL_PANEL,width:"100%",maxWidth:"min(94vw, 980px)",maxHeight:"94vh",overflowY:"auto",position:"relative",fontSize:"clamp(15px, 1.6vw, 17px)"}}>
             <div style={{position:"sticky",top:0,zIndex:2,display:"flex",justifyContent:"flex-end",padding:"14px 14px 0",background:PAPER}}>
               <IconButton icon={X} onClick={()=>setSettingsOpen(false)} variant="surface"/>
             </div>
@@ -10186,7 +10215,7 @@ export default function App() {
         )}
       </button>
       <div className="no-print" onClick={()=>setPickerOpen(false)} style={{position:"fixed",inset:0,zIndex:94,display:pickerOpen?"flex":"none",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:20}}>
-        <div onClick={(e)=>e.stopPropagation()} style={{background:PAPER,borderRadius:24,width:"100%",maxWidth:"min(94vw, 640px)",maxHeight:"92vh",overflowY:"auto",boxShadow:SHADOW.lg,border:`1px solid ${BORDER}`,position:"relative"}}>
+        <div onClick={(e)=>e.stopPropagation()} style={{...MODAL_PANEL,width:"100%",maxWidth:"min(94vw, 640px)",maxHeight:"92vh",overflowY:"auto",position:"relative"}}>
           <div style={{position:"sticky",top:0,zIndex:2,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"10px 14px 0",background:PAPER}}>
             <div style={{display:"flex",gap:7}}>
               <Chip active={quickTool==="picker"} onClick={()=>setQuickTool("picker")} color={FUN_ORANGE}>छनोट</Chip>
