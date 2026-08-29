@@ -1812,7 +1812,10 @@ function LessonEditModal({ lesson, classContext, classLabel, onClose, onSaved })
               <input key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
             ))}
             {[["objectives","उद्देश्यहरू (प्रत्येक नयाँ लाइनमा)"],["vocabulary","शब्दावली — शब्द: अर्थ; अर्को शब्द: अर्थ"],["sequence","पढाउने क्रम (प्रत्येक नयाँ लाइनमा)"],["key_questions","मुख्य प्रश्नहरू (प्रत्येक नयाँ लाइनमा)"],["activities","क्रियाकलापहरू (प्रत्येक नयाँ लाइनमा)"],["homework","गृहकार्य (प्रत्येक नयाँ लाइनमा)"]].map(([f,p])=>(
-              <textarea key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} rows={3} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
+              <div key={f}>
+                <textarea placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} rows={3} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
+                <div style={{marginTop:5,display:"flex"}}><VoiceNoteButton onResult={(t)=>setForm((prevForm)=>({...prevForm,[f]:prevForm[f]?`${prevForm[f]}\n${t}`:t}))}/></div>
+              </div>
             ))}
           </>)}
           <div style={{display:"flex",gap:8}}>
@@ -2689,6 +2692,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                   );})}
                 </div>
                 <textarea placeholder={`मापदण्ड:\n${RUBRIC_LEVELS.map((l)=>`${l}: ...`).join("\n")}`} value={rubricText} onChange={(e)=>setRubricText(e.target.value)} rows={5} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
+                <VoiceNoteButton onResult={(t)=>setRubricText((v)=>v?`${v}\n${t}`:t)}/>
                 <input type="date" value={rubricDueDate} onChange={(e)=>setRubricDueDate(e.target.value)} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
                 <div style={{display:"flex",gap:8}}>
                   <button onClick={()=>setRubricForm(false)} className="ss-btn" style={{flex:1,padding:"10px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer",boxShadow:SHADOW.sm}}>रद्द</button>
@@ -4858,6 +4862,7 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
                         <div key={key}>
                           <SectionLabel icon={Layers} color={PALETTE[0]}>{label}</SectionLabel>
                           <textarea value={lesson[key]} onChange={(e)=>setLessonField(li,key,e.target.value)} rows={3} className="ss-field" style={{width:"100%",borderRadius:10,padding:"10px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
+                          <div style={{marginTop:5,display:"flex"}}><VoiceNoteButton onResult={(t)=>setLessonField(li,key,lesson[key]?`${lesson[key]}\n${t}`:t)}/></div>
                         </div>
                       ))}
                       </>)}
@@ -5427,7 +5432,10 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
                   <input key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
                 ))}
                 {[["objectives","उद्देश्यहरू (प्रत्येक नयाँ लाइनमा)"],["vocabulary","शब्दावली — यसरी लेख्नुहोस्: शब्द: अर्थ; अर्को शब्द: अर्थ"],["sequence","पढाउने क्रम (प्रत्येक नयाँ लाइनमा)"],["key_questions","मुख्य प्रश्नहरू (प्रत्येक नयाँ लाइनमा)"],["activities","क्रियाकलापहरू (प्रत्येक नयाँ लाइनमा)"],["homework","गृहकार्य (प्रत्येक नयाँ लाइनमा)"]].map(([f,p])=>(
-                  <textarea key={f} placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} rows={3} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
+                  <div key={f}>
+                    <textarea placeholder={p} value={form[f]} onChange={(e)=>setForm({...form,[f]:e.target.value})} rows={3} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
+                    <div style={{marginTop:5,display:"flex"}}><VoiceNoteButton onResult={(t)=>setForm((prevForm)=>({...prevForm,[f]:prevForm[f]?`${prevForm[f]}\n${t}`:t}))}/></div>
+                  </div>
                 ))}
                 {/* NEW — "तयार" (ready) status only makes sense once there's
                     something to mark ready; hiding it until a plan exists
@@ -6003,8 +6011,10 @@ function HomeworkManager({ section, loading, homework, onRefresh, classLabel, te
         <Card style={{marginBottom:14}}>
           <div style={{display:"flex",flexDirection:"column",gap:9}}>
             <input placeholder="गृहकार्यको शीर्षक" value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+            <div style={{display:"flex",marginTop:-4}}><VoiceNoteButton onResult={(t)=>setForm((f)=>({...f,title:f.title?`${f.title} ${t}`:t}))}/></div>
             <input type="number" placeholder="कुल विद्यार्थी" value={form.total_students} onChange={(e)=>setForm({...form,total_students:parseInt(e.target.value)||0})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
             <textarea placeholder="टिप्पणी" value={form.remark} onChange={(e)=>setForm({...form,remark:e.target.value})} rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
+            <div style={{display:"flex",marginTop:-4}}><VoiceNoteButton onResult={(t)=>setForm((f)=>({...f,remark:f.remark?`${f.remark} ${t}`:t}))}/></div>
             <div style={{display:"flex",gap:8}}>
               <button onClick={()=>setShowForm(false)} className="ss-btn" style={{flex:1,padding:"10px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer",boxShadow:SHADOW.sm}}>रद्द</button>
               <button className="ss-btn" onClick={save} disabled={saving} style={{flex:1,padding:"10px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}>{saving?"...":"सुरक्षित"}</button>
@@ -6081,7 +6091,7 @@ function HomeworkManager({ section, loading, homework, onRefresh, classLabel, te
 // for डायरी's three textareas, so a teacher can speak an entry after a
 // long day instead of typing it. Self-contained: caller only supplies
 // onResult(text) and gets a small mic button back.
-function VoiceNoteButton({ onResult, disabled }){
+function VoiceNoteButton({ onResult, disabled, compact }){
   const [state,setState]=useState("idle"); // idle | recording | transcribing
   const [error,setError]=useState("");
   const mediaRecorderRef=useRef(null);
@@ -6128,6 +6138,19 @@ function VoiceNoteButton({ onResult, disabled }){
     }
   };
   const stop=()=>{ try{mediaRecorderRef.current?.stop();}catch{} };
+  // NEW — compact renders as a plain round icon button (matching the
+  // send/round-icon buttons already used in chat-style inputs) instead of
+  // the pill-with-label used everywhere else — the label doesn't fit
+  // comfortably next to a text input + send button on a phone-width row.
+  if(compact){
+    if(state==="transcribing")return<div style={{width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Loader size={16} color={INK_SOFT}/></div>;
+    return(
+      <button type="button" disabled={disabled} onClick={state==="recording"?stop:start} title={state==="recording"?"रोक्नुहोस्":"बोलेर लेख्नुहोस्"}
+        className="ss-btn" style={{background:state==="recording"?DANGER:SURFACE_2,color:state==="recording"?"#fff":INK_SOFT,border:state==="recording"?"none":`1px solid ${BORDER}`,borderRadius:"50%",width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center",cursor:disabled?"default":"pointer",flexShrink:0}}>
+        <Mic size={17}/>
+      </button>
+    );
+  }
   if(state==="transcribing")return<span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:13,color:INK_SOFT,padding:"4px 2px",flexShrink:0}}><Loader size={12}/>लेख्दै...</span>;
   return(
     <div style={{display:"inline-flex",alignItems:"center",gap:6,flexShrink:0}}>
@@ -6398,6 +6421,7 @@ function AIAssistant({ lessons, classContext, classLabel }) {
       )}
       <div style={{display:"flex",gap:8,padding:"8px 16px 16px"}}>
         <input value={input} onChange={(e)=>setInput(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&send(input)} placeholder="आफ्नो प्रश्न लेख्नुहोस्..." style={{flex:1,minWidth:0,border:`1px solid ${BORDER}`,borderRadius:999,padding:"12px 16px",fontSize:16.5,outline:"none",background:SURFACE_2,color:INK,caretColor:ACCENT,fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}/>
+        <VoiceNoteButton compact onResult={(t)=>setInput((v)=>v?`${v} ${t}`:t)}/>
         <button className="ss-btn" onClick={()=>send(input)} style={{background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:"50%",width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,boxShadow:SHADOW.accent}}><Send size={17}/></button>
       </div>
     </div>
@@ -8558,7 +8582,8 @@ function CalendarView({ classLabel, active }) {
             <label style={{display:"flex",alignItems:"center",gap:7,marginBottom:10,cursor:"pointer",fontSize:15,color:INK,fontWeight:600}}>
               <input type="checkbox" checked={form.allClasses} onChange={(e)=>setForm({...form,allClasses:e.target.checked})}/> सबै कक्षाका लागि (विद्यालयब्यापी)
             </label>
-            <textarea value={form.notes} onChange={(e)=>setForm({...form,notes:e.target.value})} placeholder="टिप्पणी (वैकल्पिक)" rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical",marginBottom:14}}/>
+            <textarea value={form.notes} onChange={(e)=>setForm({...form,notes:e.target.value})} placeholder="टिप्पणी (वैकल्पिक)" rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
+            <div style={{display:"flex",margin:"5px 0 14px"}}><VoiceNoteButton onResult={(t)=>setForm((f)=>({...f,notes:f.notes?`${f.notes} ${t}`:t}))}/></div>
             {formError&&<div style={{background:DANGER_BG,color:DANGER,borderRadius:10,padding:"9px 12px",fontSize:14.5,fontWeight:600,marginBottom:12}}>{formError}</div>}
             <div style={{display:"flex",gap:8}}>
               {editing&&<button className="ss-btn" onClick={()=>{deleteEvent(editing);setShowForm(false);}} style={{padding:"11px 16px",borderRadius:10,border:`1px solid ${DANGER_BG}`,background:DANGER_BG,color:DANGER,fontWeight:700,cursor:"pointer"}}><Trash2 size={16}/></button>}
