@@ -949,10 +949,15 @@ export const upsertHomework = async (hw) => {
 // out even after moving to a new class. Filtered via the linked lesson's
 // class_label; an entry with no lesson attached (the "आजको पाठ" field is
 // optional) still shows everywhere, same rule as elsewhere in the app.
+// FIX — needed the lesson's एकाइ (chapter) title for the new "फिल्टर by
+// एकाइ" control in डायरी, so the select now embeds chapters(title) through
+// lessons (same nested-embed pattern already used elsewhere, e.g.
+// getMaterials' "chapters(title), lessons(title)") instead of just
+// lessons(title, class_label).
 export const getJournalEntries = async (classLabel = null) => cachedFetch(`journal_entries:${classLabel || "all"}`, async () => {
   const { data, error } = await supabase
     .from("journal_entries")
-    .select("*, lessons(title, class_label)")
+    .select("*, lessons(title, class_label, chapters(title))")
     .order("entry_date", { ascending: false });
   if (error || !classLabel) return { data, error };
   const filtered = (data || []).filter((e) => !e.lessons || e.lessons.class_label === classLabel);
@@ -962,6 +967,14 @@ export const getJournalEntries = async (classLabel = null) => cachedFetch(`journ
 export const upsertJournalEntry = async (entry) => {
   const { data: { user } } = await supabase.auth.getUser();
   return queuedUpsert("journal_entries", "journal_entries", { ...entry, teacher_id: user.id });
+};
+
+// NEW — डायरी entries are now deletable (previously write-only: create,
+// but no way to remove a mistaken/no-longer-needed लिङ्क, टिप्पणी, or
+// reflection). Same plain delete-by-id shape as deleteQuestion etc.
+export const deleteJournalEntry = async (id) => {
+  const { error } = await supabase.from("journal_entries").delete().eq("id", id);
+  return { error };
 };
 
 // ─── ACTIVITIES ──────────────────────────────────────────────────────────────

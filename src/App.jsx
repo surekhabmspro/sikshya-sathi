@@ -109,6 +109,7 @@ const VolumeX=ssMakeEmojiIcon("🔇");
 const Phone=ssMakeEmojiIcon("📞");
 const Cake=ssMakeEmojiIcon("🎂");
 const Mic=ssMakeEmojiIcon("🎤");
+const Link=ssMakeEmojiIcon("🔗");
 
 // NEW — every color below is a CSS custom property, not a hardcoded hex.
 // That's what makes dark/light mode possible without rewriting every
@@ -362,6 +363,20 @@ const MOOD_META = {
   okay: { icon: Meh,   color: "#9A5B12", label: "ठीकै थियो"   },
   hard: { icon: Frown, color: "#A23C2A", label: "गाह्रो थियो" },
 };
+
+// NEW — डायरी multipurpose expansion: it used to only ever hold one kind of
+// entry (the मुड/reflection log below). This gives it three, so a teacher
+// can also stash a reusable link (YouTube video, article, PDF) or a quick
+// free-form note — each tagged to the same एकाइ/पाठ system the reflections
+// already use, and each rendered with its own colour/icon so a mixed list
+// still scans at a glance. "reflection" keeps the exact old mood-log shape;
+// "link" and "note" are the two new ones requested.
+const ENTRY_TYPE_META = {
+  reflection: { icon: Heart,       color: ROSE, label: "मुड/प्रतिबिम्ब" },
+  link:       { icon: Link,        color: BLUE, label: "लिङ्क"          },
+  note:       { icon: NotebookPen, color: TEAL, label: "टिप्पणी"        },
+};
+const ENTRY_TYPE_ORDER = ["reflection","link","note"];
 
 // FIX — this used to hold the entire textbook as a raw base64 string in
 // window.__textbookPDF__, which every single AI call then embedded whole
@@ -6179,18 +6194,50 @@ function VoiceNoteButton({ onResult, disabled, compact }){
   );
 }
 
+const JOURNAL_FORM_DEFAULT = {lesson_id:"",entry_type:"reflection",taught:"",difficulty:"",idea:"",mood:"good",title:"",url:"",content:""};
+
 function TeachingJournal({ lessons, classLabel }) {
   const [entries,setEntries]=useState([]);
   const [loading,setLoading]=useState(true);
   const [showForm,setShowForm]=useState(false);
-  const [form,setForm]=useState({lesson_id:"",taught:"",difficulty:"",idea:"",mood:"good"});
+  const [form,setForm]=useState(JOURNAL_FORM_DEFAULT);
   const [saving,setSaving]=useState(false);
+  const [deletingId,setDeletingId]=useState(null);
+  const [typeFilter,setTypeFilter]=useState("all");
+  const [chapterFilter,setChapterFilter]=useState("");
+  const [query,setQuery]=useState("");
   // FIX — db.getJournalEntries() took no class argument: डायरी entries
   // from every class piled up together forever with no way to separate them.
   const load=useCallback(async()=>{setLoading(true);const{data}=await db.getJournalEntries(classLabel);setEntries(data||[]);setLoading(false);},[classLabel]);
   useEffect(()=>{load();},[load]);
+
+  // FIX — the लेसन picker here used raw `lessons` order (sorted by
+  // scheduled_date, which is null for most lessons until actually taught),
+  // so पाठ appeared in a random order — same fix already applied to AI
+  // सहायक/Planner/प्रश्न रुलेट, now applied here too (this was the "diary
+  // lessons appear randomly" bug reported).
+  const sortedLessons=useMemo(()=>{
+    return [...(lessons||[])].sort((a,b)=>{
+      const an=extractUnitNumber(a.chapters?.title||a.chapter_title||""), bn=extractUnitNumber(b.chapters?.title||b.chapter_title||"");
+      if(an!==bn){ if(an===null)return 1; if(bn===null)return -1; return an-bn; }
+      const aln=extractUnitNumber(a.title), bln=extractUnitNumber(b.title);
+      if(aln!==bln){ if(aln===null)return 1; if(bln===null)return -1; return aln-bln; }
+      return 0;
+    });
+  },[lessons]);
+  const chapterOptions=useMemo(()=>{
+    const seen=new Set();const out=[];
+    for(const l of sortedLessons){const ct=l.chapters?.title||l.chapter_title||"";if(ct&&!seen.has(ct)){seen.add(ct);out.push(ct);}}
+    return out;
+  },[sortedLessons]);
+
   const save=async()=>{
-    if(!form.taught.trim()&&!form.difficulty.trim()&&!form.idea.trim())return;
+    const type=form.entry_type;
+    if(type==="reflection"&&!form.taught.trim()&&!form.difficulty.trim()&&!form.idea.trim())return;
+    if(type==="link"&&!form.url.trim())return;
+    if(type==="note"&&!form.content.trim())return;
+    let url=form.url.trim();
+    if(type==="link"&&url&&!/^https?:\/\//i.test(url))url=`https://${url}`;
     // FIX — the old "आजको पाठ" field was free-typed text that never
     // actually got saved (upsertJournalEntry silently dropped it — the
     // table links to a real lesson via lesson_id, which the form never
@@ -6198,9 +6245,72 @@ function TeachingJournal({ lessons, classLabel }) {
     // unlinked on purpose if there's no matching lesson yet — either way
     // nothing typed here disappears anymore.
     setSaving(true);
-    await db.upsertJournalEntry({lesson_id:form.lesson_id||null,taught:form.taught,difficulty:form.difficulty,idea:form.idea,mood:form.mood});
-    setSaving(false);setShowForm(false);setForm({lesson_id:"",taught:"",difficulty:"",idea:"",mood:"good"});load();
+    await db.upsertJournalEntry({
+      lesson_id:form.lesson_id||null,
+      entry_type:type,
+      mood:type==="reflection"?form.mood:null,
+      taught:type==="reflection"?form.taught:"",
+      difficulty:type==="reflection"?form.difficulty:"",
+      idea:type==="reflection"?form.idea:"",
+      title:type!=="reflection"?form.title:"",
+      url:type==="link"?url:"",
+      content:type!=="reflection"?form.content:"",
+    });
+    setSaving(false);setShowForm(false);setForm(JOURNAL_FORM_DEFAULT);load();
   };
+  const removeEntry=async(id)=>{
+    if(!window.confirm("यो प्रविष्टि मेट्ने हो?"))return;
+    setDeletingId(id);
+    await db.deleteJournalEntry(id);
+    setEntries((prev)=>prev.filter((e)=>e.id!==id));
+    setDeletingId(null);
+  };
+
+  // NEW — डायरी multipurpose expansion: filter by type/एकाइ/text before
+  // grouping, so a teacher can e.g. jump straight to every लिङ्क saved
+  // under एकाइ ३, or search for a word across every entry kind at once.
+  const filteredEntries=useMemo(()=>{
+    const q=query.trim().toLowerCase();
+    return (entries||[]).filter((e)=>{
+      const type=e.entry_type||"reflection";
+      if(typeFilter!=="all"&&type!==typeFilter)return false;
+      if(chapterFilter&&(e.lessons?.chapters?.title||"")!==chapterFilter)return false;
+      if(q){
+        const hay=[e.taught,e.difficulty,e.idea,e.title,e.url,e.content,e.lessons?.title].filter(Boolean).join(" ").toLowerCase();
+        if(!hay.includes(q))return false;
+      }
+      return true;
+    });
+  },[entries,typeFilter,chapterFilter,query]);
+
+  // NEW — "हरेक पाठ/एकाइ अन्तर्गत मिलाएर" (grouped under their own पाठ, in
+  // proper एकाइ→पाठ order), with a trailing "सामान्य" section for entries
+  // not tied to any specific पाठ, instead of one flat randomly-dated list.
+  const groups=useMemo(()=>{
+    const byLesson=new Map();const general=[];
+    for(const e of filteredEntries){
+      if(e.lesson_id){
+        if(!byLesson.has(e.lesson_id))byLesson.set(e.lesson_id,[]);
+        byLesson.get(e.lesson_id).push(e);
+      }else general.push(e);
+    }
+    const ordered=[];
+    for(const l of sortedLessons){
+      if(byLesson.has(l.id)){ordered.push({key:l.id,label:lessonOptionLabel(l),items:byLesson.get(l.id)});byLesson.delete(l.id);}
+    }
+    // any leftover lesson_id not found among current lessons (e.g. lesson
+    // since deleted) — still show its entries, under its own saved title.
+    for(const[lessonId,items]of byLesson){ordered.push({key:lessonId,label:items[0]?.lessons?.title||"अन्य पाठ",items});}
+    if(general.length)ordered.push({key:"__general__",label:"सामान्य / पाठसँग नजोडिएको",items:general});
+    return ordered;
+  },[filteredEntries,sortedLessons]);
+
+  const typeCounts=useMemo(()=>{
+    const c={reflection:0,link:0,note:0};
+    for(const e of entries)c[e.entry_type||"reflection"]=(c[e.entry_type||"reflection"]||0)+1;
+    return c;
+  },[entries]);
+
   return(
     <div className="ss-page" style={{padding:"20px 20px 130px",maxWidth:820,margin:"0 auto"}}>
       <PageHeader icon={Heart} title="डायरी" color={ROSE} action={
@@ -6209,62 +6319,142 @@ function TeachingJournal({ lessons, classLabel }) {
       {showForm&&(
         <Card style={{marginBottom:14}}>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+              {ENTRY_TYPE_ORDER.map((key)=>{const meta=ENTRY_TYPE_META[key];const Icon=meta.icon;const active=form.entry_type===key;return(
+                <Chip key={key} icon={Icon} color={meta.color} active={active} onClick={()=>setForm({...JOURNAL_FORM_DEFAULT,entry_type:key,lesson_id:form.lesson_id})} size="lg">{meta.label}</Chip>
+              );})}
+            </div>
             <div>
-              <div style={{fontSize:14.5,fontWeight:700,color:INK_SOFT,marginBottom:4}}>आजको पाठ (वैकल्पिक)</div>
-              {(lessons||[]).length===0?(
+              <div style={{fontSize:14.5,fontWeight:700,color:INK_SOFT,marginBottom:4}}>पाठ/एकाइसँग जोड्नुहोस् (वैकल्पिक)</div>
+              {sortedLessons.length===0?(
                 <div style={{fontSize:15,color:INK_SOFT,background:SURFACE_2,borderRadius:10,padding:"9px 12px"}}>अझै कुनै पाठ योजना बनाइएको छैन — पाठ योजनामा एउटा थपेपछि यहाँ छान्न सकिन्छ।</div>
               ):(
                 <select value={form.lesson_id} onChange={(e)=>setForm({...form,lesson_id:e.target.value})} style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,color:INK,fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}>
-                  <option value="">— कुनै पाठसँग नजोडी —</option>
-                  {lessons.map((l)=><option key={l.id} value={l.id}>{lessonOptionLabel(l)}</option>)}
+                  <option value="">— कुनै पाठसँग नजोडी (सामान्य) —</option>
+                  {sortedLessons.map((l)=><option key={l.id} value={l.id}>{lessonOptionLabel(l)}</option>)}
                 </select>
               )}
             </div>
-            {/* NEW — each textarea now has its own voice-note mic button.
-                Transcribed text is appended (with a space) if the field
-                already has something typed, rather than overwriting it,
-                so speaking doesn't erase a note already started by hand. */}
-            <div>
-              <textarea placeholder="के पढाइयो?" value={form.taught} onChange={(e)=>setForm({...form,taught:e.target.value})} rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
-              <div style={{marginTop:5,display:"flex"}}><VoiceNoteButton onResult={(t)=>setForm((f)=>({...f,taught:f.taught?`${f.taught} ${t}`:t}))}/></div>
-            </div>
-            <div>
-              <textarea placeholder="के गाह्रो भयो?" value={form.difficulty} onChange={(e)=>setForm({...form,difficulty:e.target.value})} rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
-              <div style={{marginTop:5,display:"flex"}}><VoiceNoteButton onResult={(t)=>setForm((f)=>({...f,difficulty:f.difficulty?`${f.difficulty} ${t}`:t}))}/></div>
-            </div>
-            <div>
-              <textarea placeholder="अर्को पटककालागि सुझाव" value={form.idea} onChange={(e)=>setForm({...form,idea:e.target.value})} rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
-              <div style={{marginTop:5,display:"flex"}}><VoiceNoteButton onResult={(t)=>setForm((f)=>({...f,idea:f.idea?`${f.idea} ${t}`:t}))}/></div>
-            </div>
+
+            {form.entry_type==="reflection"&&(<>
+              {/* NEW — each textarea now has its own voice-note mic button.
+                  Transcribed text is appended (with a space) if the field
+                  already has something typed, rather than overwriting it,
+                  so speaking doesn't erase a note already started by hand. */}
+              <div>
+                <textarea placeholder="के पढाइयो?" value={form.taught} onChange={(e)=>setForm({...form,taught:e.target.value})} rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
+                <div style={{marginTop:5,display:"flex"}}><VoiceNoteButton onResult={(t)=>setForm((f)=>({...f,taught:f.taught?`${f.taught} ${t}`:t}))}/></div>
+              </div>
+              <div>
+                <textarea placeholder="के गाह्रो भयो?" value={form.difficulty} onChange={(e)=>setForm({...form,difficulty:e.target.value})} rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
+                <div style={{marginTop:5,display:"flex"}}><VoiceNoteButton onResult={(t)=>setForm((f)=>({...f,difficulty:f.difficulty?`${f.difficulty} ${t}`:t}))}/></div>
+              </div>
+              <div>
+                <textarea placeholder="अर्को पटककालागि सुझाव" value={form.idea} onChange={(e)=>setForm({...form,idea:e.target.value})} rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
+                <div style={{marginTop:5,display:"flex"}}><VoiceNoteButton onResult={(t)=>setForm((f)=>({...f,idea:f.idea?`${f.idea} ${t}`:t}))}/></div>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                {Object.entries(MOOD_META).map(([key,m])=>{const Icon=m.icon;const active=form.mood===key;return(
+                  <button key={key} onClick={()=>setForm({...form,mood:key})} style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:7,padding:"7px 8px",borderRadius:11,border:`1.5px solid ${active?m.color:`color-mix(in srgb, ${m.color} 25%, ${BORDER})`}`,background:active?`color-mix(in srgb, ${m.color} 14%, ${SURFACE})`:SURFACE,color:active?m.color:INK,fontSize:15,fontWeight:700,cursor:"pointer",boxShadow:active?`0 4px 10px color-mix(in srgb, ${m.color} 30%, transparent)`:"none"}}>
+                    <div style={{width:22,height:22,borderRadius:7,background:`linear-gradient(160deg, ${m.color} 0%, color-mix(in srgb, ${m.color} 70%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={11} color="#fff"/></div>
+                    {m.label}
+                  </button>
+                );})}
+              </div>
+            </>)}
+
+            {form.entry_type==="link"&&(<>
+              <input placeholder="शीर्षक (जस्तै: भिडियो/लेखको नाम)" value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+              <input placeholder="लिङ्क (URL) *" value={form.url} onChange={(e)=>setForm({...form,url:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+              <div>
+                <textarea placeholder="टिप्पणी (वैकल्पिक)" value={form.content} onChange={(e)=>setForm({...form,content:e.target.value})} rows={2} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
+                <div style={{marginTop:5,display:"flex"}}><VoiceNoteButton onResult={(t)=>setForm((f)=>({...f,content:f.content?`${f.content} ${t}`:t}))}/></div>
+              </div>
+            </>)}
+
+            {form.entry_type==="note"&&(<>
+              <input placeholder="शीर्षक (वैकल्पिक)" value={form.title} onChange={(e)=>setForm({...form,title:e.target.value})} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+              <div>
+                <textarea placeholder="टिप्पणी *" value={form.content} onChange={(e)=>setForm({...form,content:e.target.value})} rows={3} className="ss-field" style={{width:"100%",borderRadius:12,padding:"11px 14px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2,resize:"vertical"}}/>
+                <div style={{marginTop:5,display:"flex"}}><VoiceNoteButton onResult={(t)=>setForm((f)=>({...f,content:f.content?`${f.content} ${t}`:t}))}/></div>
+              </div>
+            </>)}
+
             <div style={{display:"flex",gap:8}}>
-              {Object.entries(MOOD_META).map(([key,m])=>{const Icon=m.icon;const active=form.mood===key;return(
-                <button key={key} onClick={()=>setForm({...form,mood:key})} style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:7,padding:"7px 8px",borderRadius:11,border:`1.5px solid ${active?m.color:`color-mix(in srgb, ${m.color} 25%, ${BORDER})`}`,background:active?`color-mix(in srgb, ${m.color} 14%, ${SURFACE})`:SURFACE,color:active?m.color:INK,fontSize:15,fontWeight:700,cursor:"pointer",boxShadow:active?`0 4px 10px color-mix(in srgb, ${m.color} 30%, transparent)`:"none"}}>
-                  <div style={{width:22,height:22,borderRadius:7,background:`linear-gradient(160deg, ${m.color} 0%, color-mix(in srgb, ${m.color} 70%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon size={11} color="#fff"/></div>
-                  {m.label}
-                </button>
-              );})}
-            </div>
-            <div style={{display:"flex",gap:8}}>
-              <button onClick={()=>setShowForm(false)} className="ss-btn" style={{flex:1,padding:"10px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer",boxShadow:SHADOW.sm}}>रद्द</button>
+              <button onClick={()=>{setShowForm(false);setForm(JOURNAL_FORM_DEFAULT);}} className="ss-btn" style={{flex:1,padding:"10px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer",boxShadow:SHADOW.sm}}>रद्द</button>
               <button className="ss-btn" onClick={save} disabled={saving} style={{flex:1,padding:"10px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}>{saving?"...":"सुरक्षित"}</button>
             </div>
           </div>
         </Card>
       )}
-      {loading?<Spinner/>:entries.length===0?<EmptyState icon={Heart} text="कुनै प्रविष्टि छैन।" actionLabel="पहिलो प्रविष्टि थप्नुहोस्" onAction={()=>setShowForm(true)}/>:(
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:10,alignItems:"start"}}>
-          {entries.map((e)=>{const mood=MOOD_META[e.mood]||MOOD_META.okay;const MIcon=mood.icon;return(
-            <Card key={e.id} accentColor={mood.color} style={{paddingTop:20,position:"relative",overflow:"visible"}}>
-              <PinBadge color={mood.color}/>
-              <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-                <div style={{fontSize:16.5,fontWeight:700,color:INK}}>{e.lessons?.title||e.entry_date}</div>
-                <div style={{display:"flex",alignItems:"center",gap:4,background:tint(mood.color,15),color:mood.color,padding:"3px 9px",borderRadius:999,fontSize:14.5,fontWeight:700}}><MIcon size={12}/>{mood.label}</div>
+
+      {entries.length>0&&(
+        <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
+          <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+            <Chip onClick={()=>setTypeFilter("all")} active={typeFilter==="all"} size="sm">सबै ({entries.length})</Chip>
+            {ENTRY_TYPE_ORDER.map((key)=>{const meta=ENTRY_TYPE_META[key];const Icon=meta.icon;return(
+              <Chip key={key} onClick={()=>setTypeFilter(key)} active={typeFilter===key} color={meta.color} icon={Icon} size="sm">{meta.label} ({typeCounts[key]||0})</Chip>
+            );})}
+          </div>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+            <div style={{flex:1,minWidth:160,display:"flex",alignItems:"center",gap:8,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"9px 13px"}}>
+              <Search size={15} color={INK_SOFT}/>
+              <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false" value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="डायरीमा खोज्नुहोस्..." style={{border:"none",outline:"none",boxShadow:"none",WebkitAppearance:"none",appearance:"none",fontSize:15.5,flex:1,minWidth:0,background:"transparent",color:INK,fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}/>
+            </div>
+            {chapterOptions.length>0&&(
+              <select value={chapterFilter} onChange={(e)=>setChapterFilter(e.target.value)} style={{borderRadius:12,padding:"9px 13px",fontSize:15,border:`1px solid ${BORDER}`,background:SURFACE,color:INK,fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}>
+                <option value="">सबै एकाइ</option>
+                {chapterOptions.map((ct)=><option key={ct} value={ct}>{ct}</option>)}
+              </select>
+            )}
+          </div>
+        </div>
+      )}
+
+      {loading?<Spinner/>:entries.length===0?<EmptyState icon={Heart} text="कुनै प्रविष्टि छैन।" actionLabel="पहिलो प्रविष्टि थप्नुहोस्" onAction={()=>setShowForm(true)}/>:groups.length===0?(
+        <EmptyState icon={Search} text="यो खोज/फिल्टरसँग मिल्ने कुनै प्रविष्टि भेटिएन।"/>
+      ):(
+        <div style={{display:"flex",flexDirection:"column",gap:20}}>
+          {groups.map((g)=>(
+            <div key={g.key}>
+              <SectionLabel color={ROSE}>{g.label} ({g.items.length})</SectionLabel>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:10,alignItems:"start"}}>
+                {g.items.map((e)=>{
+                  const type=e.entry_type||"reflection";
+                  const typeMeta=ENTRY_TYPE_META[type]||ENTRY_TYPE_META.reflection;
+                  const mood=MOOD_META[e.mood]||MOOD_META.okay;
+                  const MIcon=mood.icon;const TIcon=typeMeta.icon;
+                  return(
+                    <Card key={e.id} accentColor={type==="reflection"?mood.color:typeMeta.color} style={{paddingTop:16,position:"relative"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:8}}>
+                        <div style={{fontSize:16.5,fontWeight:700,color:INK,minWidth:0,overflow:"hidden",textOverflow:"ellipsis"}}>
+                          {type==="link"?(e.title||e.url):type==="note"?(e.title||"टिप्पणी"):(e.lessons?.title||e.entry_date)}
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                          {type==="reflection"?(
+                            <div style={{display:"flex",alignItems:"center",gap:4,background:tint(mood.color,15),color:mood.color,padding:"3px 9px",borderRadius:999,fontSize:14.5,fontWeight:700}}><MIcon size={12}/>{mood.label}</div>
+                          ):(
+                            <div style={{display:"flex",alignItems:"center",gap:4,background:tint(typeMeta.color,15),color:typeMeta.color,padding:"3px 9px",borderRadius:999,fontSize:14.5,fontWeight:700}}><TIcon size={12}/>{typeMeta.label}</div>
+                          )}
+                          <IconButton icon={Trash2} onClick={()=>removeEntry(e.id)} disabled={deletingId===e.id} color={DANGER} title="मेट्नुहोस्" size={15}/>
+                        </div>
+                      </div>
+                      {type==="reflection"&&(<>
+                        {e.taught&&<div style={{fontSize:16,color:INK,marginBottom:5}}><strong>के पढाइयो:</strong> {e.taught}</div>}
+                        {e.difficulty&&<div style={{fontSize:16,color:INK_SOFT,marginBottom:5}}><strong>गाह्रो:</strong> {e.difficulty}</div>}
+                        {e.idea&&<div style={{background:WARN_BG,borderRadius:8,padding:"7px 10px",fontSize:16,color:MARIGOLD_DARK}}>💡 {e.idea}</div>}
+                      </>)}
+                      {type==="link"&&(<>
+                        <a href={e.url} target="_blank" rel="noopener noreferrer" style={{display:"flex",alignItems:"center",gap:6,fontSize:15,color:BLUE,fontWeight:600,marginBottom:e.content?6:0,wordBreak:"break-all"}}><Link size={12}/>{e.url}</a>
+                        {e.content&&<div style={{fontSize:16,color:INK_SOFT}}>{e.content}</div>}
+                      </>)}
+                      {type==="note"&&e.content&&<div style={{fontSize:16,color:INK,whiteSpace:"pre-wrap"}}>{e.content}</div>}
+                    </Card>
+                  );
+                })}
               </div>
-              {e.taught&&<div style={{fontSize:16,color:INK,marginBottom:5}}><strong>के पढाइयो:</strong> {e.taught}</div>}
-              {e.difficulty&&<div style={{fontSize:16,color:INK_SOFT,marginBottom:5}}><strong>गाह्रो:</strong> {e.difficulty}</div>}
-              {e.idea&&<div style={{background:WARN_BG,borderRadius:8,padding:"7px 10px",fontSize:16,color:MARIGOLD_DARK}}>💡 {e.idea}</div>}
-            </Card>
-          );})}
+            </div>
+          ))}
         </div>
       )}
     </div>
