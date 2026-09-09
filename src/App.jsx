@@ -6427,9 +6427,19 @@ function TeachingJournal({ lessons, classLabel }) {
                   return(
                     <Card key={e.id} accentColor={type==="reflection"?mood.color:typeMeta.color} style={{paddingTop:16,position:"relative"}}>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:8}}>
-                        <div style={{fontSize:16.5,fontWeight:700,color:INK,minWidth:0,overflow:"hidden",textOverflow:"ellipsis"}}>
-                          {type==="link"?(e.title||e.url):type==="note"?(e.title||"टिप्पणी"):(e.lessons?.title||e.entry_date)}
-                        </div>
+                        {/* FIX — the title used to be a plain (non-clickable) div even
+                            for लिङ्क entries, so opening the link meant finding the
+                            smaller raw-URL line below it. The title itself is now the
+                            clickable link when there's a URL to open. */}
+                        {type==="link"?(
+                          <a href={e.url} target="_blank" rel="noopener noreferrer" style={{fontSize:16.5,fontWeight:700,color:BLUE,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",textDecoration:"none",display:"flex",alignItems:"center",gap:6}}>
+                            <Link size={13} style={{flexShrink:0}}/><span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{e.title||e.url}</span>
+                          </a>
+                        ):(
+                          <div style={{fontSize:16.5,fontWeight:700,color:INK,minWidth:0,overflow:"hidden",textOverflow:"ellipsis"}}>
+                            {type==="note"?(e.title||"टिप्पणी"):(e.lessons?.title||e.entry_date)}
+                          </div>
+                        )}
                         <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
                           {type==="reflection"?(
                             <div style={{display:"flex",alignItems:"center",gap:4,background:tint(mood.color,15),color:mood.color,padding:"3px 9px",borderRadius:999,fontSize:14.5,fontWeight:700}}><MIcon size={12}/>{mood.label}</div>
@@ -6445,7 +6455,10 @@ function TeachingJournal({ lessons, classLabel }) {
                         {e.idea&&<div style={{background:WARN_BG,borderRadius:8,padding:"7px 10px",fontSize:16,color:MARIGOLD_DARK}}>💡 {e.idea}</div>}
                       </>)}
                       {type==="link"&&(<>
-                        <a href={e.url} target="_blank" rel="noopener noreferrer" style={{display:"flex",alignItems:"center",gap:6,fontSize:15,color:BLUE,fontWeight:600,marginBottom:e.content?6:0,wordBreak:"break-all"}}><Link size={12}/>{e.url}</a>
+                        {/* Only shown when a distinct title is set (so the raw URL is
+                            still visible/clickable even when the heading above shows
+                            the friendlier title instead of the link itself). */}
+                        {e.title&&<a href={e.url} target="_blank" rel="noopener noreferrer" style={{display:"block",fontSize:14,color:INK_SOFT,fontWeight:500,marginBottom:e.content?6:0,wordBreak:"break-all",textDecoration:"underline"}}>{e.url}</a>}
                         {e.content&&<div style={{fontSize:16,color:INK_SOFT}}>{e.content}</div>}
                       </>)}
                       {type==="note"&&e.content&&<div style={{fontSize:16,color:INK,whiteSpace:"pre-wrap"}}>{e.content}</div>}
