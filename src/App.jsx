@@ -1332,7 +1332,7 @@ function MaterialsHint({ count, chapterTitle, pathTitle }) {
 // widget. Used by Planner, Question Bank, Activities and Assessment so none
 // of them require a separate trip to the Materials tab just to give the AI
 // something to read from.
-function MaterialAttach({ chapterTitle, lessonId, onEnsureLessonId }) {
+function MaterialAttach({ chapterTitle, lessonId, onEnsureLessonId, onAttached }) {
   const { uploadMaterial } = useData();
   const [attaching,setAttaching]=useState(false);
   const [attachedNames,setAttachedNames]=useState([]);
@@ -1357,6 +1357,12 @@ function MaterialAttach({ chapterTitle, lessonId, onEnsureLessonId }) {
     if(error){setAttachError(warning||error.message);setAttaching(false);e.target.value="";return;}
     if(warning)setAttachError(warning);
     setAttachedNames((prev)=>[...prev,file.name]);
+    // NEW — lets a caller (e.g. डायरी's TeachingJournal) capture the real
+    // materials row this just created, so it can link its own record to it
+    // (attachment_ids) — this is what makes a डायरी attachment automatically
+    // show up in सामग्री too: it's a genuine सामग्री row from the start,
+    // uploaded through this exact same door, not a separate copy.
+    if(data)onAttached?.(data);
     setAttaching(false);e.target.value="";
   };
 
@@ -6206,6 +6212,14 @@ function TeachingJournal({ lessons, classLabel }) {
   const [typeFilter,setTypeFilter]=useState("all");
   const [chapterFilter,setChapterFilter]=useState("");
   const [query,setQuery]=useState("");
+  // NEW — files attached to the entry currently being composed. Each item
+  // is a full सामग्री (materials) row — see MaterialAttach's onAttached —
+  // so nothing extra needs to be uploaded again; save() just links these
+  // ids onto the journal entry.
+  const [attachedMaterials,setAttachedMaterials]=useState([]);
+  const [previewMat,setPreviewMat]=useState(null);
+  const [previewUrl,setPreviewUrl]=useState("");
+  const [previewError,setPreviewError]=useState("");
   // FIX — db.getJournalEntries() took no class argument: डायरी entries
   // from every class piled up together forever with no way to separate them.
   const load=useCallback(async()=>{setLoading(true);const{data}=await db.getJournalEntries(classLabel);setEntries(data||[]);setLoading(false);},[classLabel]);
@@ -6231,6 +6245,9 @@ function TeachingJournal({ lessons, classLabel }) {
     return out;
   },[sortedLessons]);
 
+  const selectedLesson=sortedLessons.find((l)=>l.id===form.lesson_id)||null;
+  const selectedChapterTitle=selectedLesson?.chapters?.title||selectedLesson?.chapter_title||"";
+
   const save=async()=>{
     const type=form.entry_type;
     if(type==="reflection"&&!form.taught.trim()&&!form.difficulty.trim()&&!form.idea.trim())return;
@@ -6255,8 +6272,9 @@ function TeachingJournal({ lessons, classLabel }) {
       title:type!=="reflection"?form.title:"",
       url:type==="link"?url:"",
       content:type!=="reflection"?form.content:"",
+      attachment_ids:attachedMaterials.map((m)=>m.id),
     });
-    setSaving(false);setShowForm(false);setForm(JOURNAL_FORM_DEFAULT);load();
+    setSaving(false);setShowForm(false);setForm(JOURNAL_FORM_DEFAULT);setAttachedMaterials([]);load();
   };
   const removeEntry=async(id)=>{
     if(!window.confirm("यो प्रविष्टि मेट्ने हो?"))return;
@@ -6264,6 +6282,31 @@ function TeachingJournal({ lessons, classLabel }) {
     await db.deleteJournalEntry(id);
     setEntries((prev)=>prev.filter((e)=>e.id!==id));
     setDeletingId(null);
+  };
+
+  // NEW — same "open a blank tab synchronously, then point it at the signed
+  // URL once ready" pattern सामग्री itself uses (see Materials' openPreview)
+  // — needed because opening the tab AFTER an await gets treated as an
+  // untrusted popup and blocked on many mobile browsers. pdf/doc/pptx/sheet
+  // go straight to a new tab; image/video/audio open in a small in-place
+  // preview instead (via previewMat/previewUrl below).
+  const openAttachment=(mat)=>{
+    const directOpen=["pdf","doc","pptx","sheet"].includes(mat.file_type);
+    const win=directOpen?window.open("","_blank"):null;
+    if(!directOpen){setPreviewMat(mat);setPreviewUrl("");setPreviewError("");}
+    (async()=>{
+      try{
+        const url=await Promise.race([
+          db.getMaterialUrl(mat.storage_path),
+          new Promise((_,reject)=>setTimeout(()=>reject(new Error("timeout")),12000)),
+        ]);
+        if(!url){win?.close();setPreviewMat(mat);setPreviewUrl("");setPreviewError("यो फाइलको लिङ्क तयार गर्न सकिएन।");return;}
+        if(directOpen){if(win)win.location.href=url;else window.open(url,"_blank");}
+        else setPreviewUrl(url);
+      }catch{
+        win?.close();setPreviewMat(mat);setPreviewUrl("");setPreviewError("यो फाइलको लिङ्क तयार गर्न सकिएन।");
+      }
+    })();
   };
 
   // NEW — डायरी multipurpose expansion: filter by type/एकाइ/text before
@@ -6276,7 +6319,7 @@ function TeachingJournal({ lessons, classLabel }) {
       if(typeFilter!=="all"&&type!==typeFilter)return false;
       if(chapterFilter&&(e.lessons?.chapters?.title||"")!==chapterFilter)return false;
       if(q){
-        const hay=[e.taught,e.difficulty,e.idea,e.title,e.url,e.content,e.lessons?.title].filter(Boolean).join(" ").toLowerCase();
+        const hay=[e.taught,e.difficulty,e.idea,e.title,e.url,e.content,e.lessons?.title,...(e.attachments||[]).map((m)=>m.name)].filter(Boolean).join(" ").toLowerCase();
         if(!hay.includes(q))return false;
       }
       return true;
@@ -6336,6 +6379,31 @@ function TeachingJournal({ lessons, classLabel }) {
               )}
             </div>
 
+            {/* NEW — attaching a file here uploads through the exact same
+                door सामग्री uses (MaterialAttach → uploadMaterial), so it's
+                a real सामग्री row from the start and shows up there too —
+                not a separate copy living only inside डायरी. Needs a
+                पाठ/एकाइ picked above first, since every सामग्री row needs
+                an एकाइ to be filed under. */}
+            <div>
+              <div style={{fontSize:14.5,fontWeight:700,color:INK_SOFT,marginBottom:4}}>फाइल संलग्न गर्नुहोस् (वैकल्पिक)</div>
+              {selectedChapterTitle?(
+                <MaterialAttach chapterTitle={selectedChapterTitle} lessonId={form.lesson_id} onAttached={(mat)=>setAttachedMaterials((prev)=>[...prev,mat])}/>
+              ):(
+                <div style={{fontSize:14,color:INK_SOFT,background:SURFACE_2,borderRadius:10,padding:"9px 12px"}}>फाइल संलग्न गर्न पहिले माथि पाठ/एकाइ छान्नुहोस्।</div>
+              )}
+              {attachedMaterials.length>0&&(
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:6}}>
+                  {attachedMaterials.map((m,i)=>{const meta=FILE_TYPE_META[m.file_type]||FILE_TYPE_META.doc;const Icon=meta.icon;return(
+                    <div key={m.id} style={{display:"flex",alignItems:"center",gap:5,background:tint(meta.color,14),color:meta.color,borderRadius:999,padding:"4px 6px 4px 10px",fontSize:13.5,fontWeight:700}}>
+                      <Icon size={12}/><span style={{maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.name}</span>
+                      <button type="button" onClick={()=>setAttachedMaterials((prev)=>prev.filter((_,idx)=>idx!==i))} style={{background:"none",border:"none",cursor:"pointer",color:meta.color,padding:2,display:"flex"}}><X size={11}/></button>
+                    </div>
+                  );})}
+                </div>
+              )}
+            </div>
+
             {form.entry_type==="reflection"&&(<>
               {/* NEW — each textarea now has its own voice-note mic button.
                   Transcribed text is appended (with a space) if the field
@@ -6381,7 +6449,7 @@ function TeachingJournal({ lessons, classLabel }) {
             </>)}
 
             <div style={{display:"flex",gap:8}}>
-              <button onClick={()=>{setShowForm(false);setForm(JOURNAL_FORM_DEFAULT);}} className="ss-btn" style={{flex:1,padding:"10px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer",boxShadow:SHADOW.sm}}>रद्द</button>
+              <button onClick={()=>{setShowForm(false);setForm(JOURNAL_FORM_DEFAULT);setAttachedMaterials([]);}} className="ss-btn" style={{flex:1,padding:"10px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,cursor:"pointer",boxShadow:SHADOW.sm}}>रद्द</button>
               <button className="ss-btn" onClick={save} disabled={saving} style={{flex:1,padding:"10px",borderRadius:10,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,cursor:"pointer",boxShadow:SHADOW.accent}}>{saving?"...":"सुरक्षित"}</button>
             </div>
           </div>
@@ -6462,12 +6530,55 @@ function TeachingJournal({ lessons, classLabel }) {
                         {e.content&&<div style={{fontSize:16,color:INK_SOFT}}>{e.content}</div>}
                       </>)}
                       {type==="note"&&e.content&&<div style={{fontSize:16,color:INK,whiteSpace:"pre-wrap"}}>{e.content}</div>}
+                      {/* NEW — attachments render on any entry type (a मुड
+                          reflection can carry a photo of student work just
+                          as easily as a टिप्पणी can). Clicking one resolves
+                          a signed URL and opens/previews it, same UX as
+                          सामग्री itself. */}
+                      {e.attachments?.length>0&&(
+                        <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:e.taught||e.difficulty||e.idea||e.content?8:0}}>
+                          {e.attachments.map((m)=>{const meta=FILE_TYPE_META[m.file_type]||FILE_TYPE_META.doc;const Icon=meta.icon;return(
+                            <button key={m.id} type="button" onClick={()=>openAttachment(m)} className="ss-btn" style={{display:"flex",alignItems:"center",gap:5,background:tint(meta.color,14),color:meta.color,border:"none",borderRadius:999,padding:"5px 10px",fontSize:13.5,fontWeight:700,cursor:"pointer"}}>
+                              <Icon size={12}/><span style={{maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.name}</span>
+                            </button>
+                          );})}
+                        </div>
+                      )}
                     </Card>
                   );
                 })}
               </div>
             </div>
           ))}
+        </div>
+      )}
+      {/* NEW — inline preview for image/video/audio attachments, same shape
+          as सामग्री's own preview modal. pdf/doc/pptx/sheet skip this
+          entirely (they open straight into a new tab from openAttachment). */}
+      {previewMat&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(20,18,14,0.6)",backdropFilter:"blur(28px)",WebkitBackdropFilter:"blur(28px)",zIndex:60,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setPreviewMat(null)}>
+          <div onClick={(e)=>e.stopPropagation()} style={{...MODAL_PANEL,padding:24,maxWidth:"min(95vw, 1100px)",width:"100%",maxHeight:"95vh",display:"flex",flexDirection:"column",boxSizing:"border-box",fontSize:"clamp(15px, 1.6vw, 17px)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div style={{fontSize:18,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",paddingRight:10}}>{previewMat.name}</div>
+              <IconButton icon={X} onClick={()=>setPreviewMat(null)} size={20}/>
+            </div>
+            {!previewUrl&&!previewError?(
+              <div style={{textAlign:"center",padding:20,color:INK_SOFT,display:"flex",flexDirection:"column",alignItems:"center",gap:10}}><Spinner small/>लिङ्क तयार गर्दै...</div>
+            ):previewError?(
+              <div style={{textAlign:"center",padding:20,display:"flex",flexDirection:"column",alignItems:"center",gap:10}}>
+                <AlertCircle size={28} color={DANGER}/>
+                <div style={{color:DANGER,fontSize:16,fontWeight:600}}>{previewError}</div>
+                <button className="ss-btn" onClick={()=>openAttachment(previewMat)} style={{display:"flex",alignItems:"center",gap:6,background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",border:"none",borderRadius:10,padding:"9px 16px",fontWeight:700,fontSize:15,cursor:"pointer",boxShadow:SHADOW.accent}}><RotateCw size={14}/>फेरि प्रयास गर्नुहोस्</button>
+              </div>
+            ):(
+              <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:12}}>
+                {previewMat.file_type==="image"&&<img src={previewUrl} alt={previewMat.name} style={{width:"100%",borderRadius:12}}/>}
+                {previewMat.file_type==="video"&&<video src={previewUrl} controls style={{width:"100%",borderRadius:12}}/>}
+                {previewMat.file_type==="audio"&&<audio src={previewUrl} controls style={{width:"100%"}}/>}
+                <Button variant="primary" onClick={()=>window.open(previewUrl,"_blank")} style={{width:"100%"}}>नयाँ ट्याबमा खोल्नुहोस् / डाउनलोड गर्नुहोस्</Button>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

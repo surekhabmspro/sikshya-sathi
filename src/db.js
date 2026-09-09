@@ -954,14 +954,35 @@ export const upsertHomework = async (hw) => {
 // lessons (same nested-embed pattern already used elsewhere, e.g.
 // getMaterials' "chapters(title), lessons(title)") instead of just
 // lessons(title, class_label).
+// NEW — entries can now carry file attachments (attachment_ids uuid[]),
+// each pointing at a REAL materials row (uploaded through the same
+// uploadMaterial door सामग्री itself uses — see MaterialAttach's onAttached),
+// so the same file already shows up in सामग्री with no separate copy. There
+// is no PostgREST foreign-key relationship for a plain uuid[] column, so
+// the matching materials rows are resolved here with one extra batch query
+// (all ids across every entry, in one `.in()` call) rather than one query
+// per entry, and attached to each entry as `.attachments`.
 export const getJournalEntries = async (classLabel = null) => cachedFetch(`journal_entries:${classLabel || "all"}`, async () => {
   const { data, error } = await supabase
     .from("journal_entries")
     .select("*, lessons(title, class_label, chapters(title))")
     .order("entry_date", { ascending: false });
-  if (error || !classLabel) return { data, error };
-  const filtered = (data || []).filter((e) => !e.lessons || e.lessons.class_label === classLabel);
-  return { data: filtered, error: null };
+  if (error) return { data, error };
+  const filtered = classLabel ? (data || []).filter((e) => !e.lessons || e.lessons.class_label === classLabel) : (data || []);
+  const allIds = [...new Set(filtered.flatMap((e) => e.attachment_ids || []))];
+  let materialsById = {};
+  if (allIds.length) {
+    const { data: mats } = await supabase
+      .from("materials")
+      .select("id, name, file_type, storage_path, size_bytes, category")
+      .in("id", allIds);
+    materialsById = Object.fromEntries((mats || []).map((m) => [m.id, m]));
+  }
+  const withAttachments = filtered.map((e) => ({
+    ...e,
+    attachments: (e.attachment_ids || []).map((id) => materialsById[id]).filter(Boolean),
+  }));
+  return { data: withAttachments, error: null };
 });
 
 export const upsertJournalEntry = async (entry) => {
@@ -971,7 +992,10 @@ export const upsertJournalEntry = async (entry) => {
 
 // NEW — डायरी entries are now deletable (previously write-only: create,
 // but no way to remove a mistaken/no-longer-needed लिङ्क, टिप्पणी, or
-// reflection). Same plain delete-by-id shape as deleteQuestion etc.
+// reflection). Same plain delete-by-id shape as deleteQuestion etc. Only
+// removes the journal_entries row itself — any attached सामग्री file stays
+// in Materials untouched (deleting a डायरी entry shouldn't delete a file
+// the teacher may still be using elsewhere).
 export const deleteJournalEntry = async (id) => {
   const { error } = await supabase.from("journal_entries").delete().eq("id", id);
   return { error };
