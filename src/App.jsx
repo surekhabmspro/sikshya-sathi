@@ -1962,7 +1962,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
     fetchWordImage(vocabPopup.word).then((img)=>{if(!cancelled){setVocabImage(img);setVocabImageLoading(false);}});
     return ()=>{cancelled=true;};
   },[vocabPopup]);
-  const tabs=[{id:"sequence",label:"पढाउने",icon:ClipboardList},{id:"questions",label:"पाठ अभ्यास समाधान",icon:HelpCircle},{id:"activities",label:"क्रियाकलाप",icon:Users},{id:"simulation",label:"सिमुलेसन",icon:Gamepad2},{id:"rubric",label:"मूल्याङ्कन",icon:Layers},{id:"homework",label:"गृहकार्य",icon:PenSquare}];
+  const tabs=[{id:"sequence",label:"पढाउने",icon:ClipboardList},{id:"questions",label:"पाठ अभ्यास समाधान",icon:HelpCircle},{id:"roulette",label:"प्रश्न रुलेट",icon:Shuffle},{id:"activities",label:"क्रियाकलाप",icon:Users},{id:"simulation",label:"सिमुलेसन",icon:Gamepad2},{id:"rubric",label:"मूल्याङ्कन",icon:Layers},{id:"homework",label:"गृहकार्य",icon:PenSquare}];
   const objectives=lesson.objectives||[];
   const vocabulary=lesson.vocabulary||[];
   // NEW — पढाउने क्रम used to be read straight off lesson.sequence with no
@@ -2634,6 +2634,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
             })()}</div>
           )}
         </div>}
+        {tab==="roulette"&&<QuestionRoulette lessons={[lesson]} classLabel={classLabel} embedded/>}
         {tab==="activities"&&<div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginBottom:10}}>
             <SectionLabel icon={Users} color={TEAL}>क्रियाकलापहरू</SectionLabel>
@@ -8075,7 +8076,7 @@ function GroupSplitter({ roster }){
 // burst on landing, a card shake while spinning, and a per-component
 // mute toggle matching the Timer's — instead of the old plain 12×70ms
 // flicker + single beep().
-function QuestionRoulette({ lessons, classLabel }){
+function QuestionRoulette({ lessons, classLabel, embedded }){
   // FIX — this dropdown listed lessons in whatever order db.getLessons
   // returned them (sorted by scheduled_date, which is null for most
   // lessons until actually taught), so एकाइ/पाठ entries appeared in a
@@ -8175,11 +8176,19 @@ function QuestionRoulette({ lessons, classLabel }){
         <div style={{fontSize:15,color:INK_SOFT}}>पहिले योजना (Yojana) मा पाठ बनाउनुहोस्।</div>
       ):(
         <>
-          <div style={{marginBottom:16}}>
-            <select value={lessonId} onChange={(e)=>setLessonId(e.target.value)} className="ss-field" style={{width:"100%",borderRadius:14,padding:"12px 14px",fontSize:16,fontWeight:600,border:`2px solid color-mix(in srgb, ${FUN_PINK} 40%, ${BORDER})`,background:`linear-gradient(165deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 90%, ${FUN_PINK} 7%) 100%)`,color:INK,fontFamily:"inherit",boxShadow:SHADOW.raised}}>
-              {scopedLessons.map((l)=>(<option key={l.id} value={l.id}>{l.chapters?.title||l.chapter_title?`${l.chapters?.title||l.chapter_title} — `:""}{l.title}</option>))}
-            </select>
-          </div>
+          {/* NEW — embedded mode (used from आजको पाठ सुरु/LessonMode) is
+              always scoped to the one लेसन already open, so picking a
+              different पाठ from a dropdown here would be redundant/
+              confusing — the picker only shows in the standalone कक्षा
+              उपकरण context, where a teacher hasn't already opened a
+              specific lesson. */}
+          {!embedded&&(
+            <div style={{marginBottom:16}}>
+              <select value={lessonId} onChange={(e)=>setLessonId(e.target.value)} className="ss-field" style={{width:"100%",borderRadius:14,padding:"12px 14px",fontSize:16,fontWeight:600,border:`2px solid color-mix(in srgb, ${FUN_PINK} 40%, ${BORDER})`,background:`linear-gradient(165deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 90%, ${FUN_PINK} 7%) 100%)`,color:INK,fontFamily:"inherit",boxShadow:SHADOW.raised}}>
+                {scopedLessons.map((l)=>(<option key={l.id} value={l.id}>{l.chapters?.title||l.chapter_title?`${l.chapters?.title||l.chapter_title} — `:""}{l.title}</option>))}
+              </select>
+            </div>
+          )}
           {loading?(
             <div style={{fontSize:15,color:INK_SOFT}}>लोड हुँदैछ...</div>
           ):!questions.length?(
@@ -8267,9 +8276,12 @@ function ClassroomTools({ section, onSectionUpdated, lessons, classLabel, initia
     onInitialTabConsumed?.();
   },[initialTab,onInitialTabConsumed]);
   const roster=section?.roster||[];
+  // FIX — प्रश्न रुलेट moved into आजको पाठ सुरु (LessonMode) as its own
+  // tab, right next to पाठ अभ्यास समाधान (same question bank it draws
+  // from) — a teacher already has the specific लेसन open there, so it no
+  // longer needs its own separate lesson-picker copy living here too.
   const TABS=[
     {id:"picker",label:"छनोट",icon:Dices,color:FUN_ORANGE},
-    {id:"roulette",label:"प्रश्न रुलेट",icon:HelpCircle,color:FUN_PINK},
     {id:"timer",label:"समय",icon:Clock,color:FUN_ORANGE_DARK},
     {id:"groups",label:"समूह",icon:Users,color:VIOLET},
     {id:"roster",label:"नाम सूची",icon:UsersRound,color:TEAL},
@@ -8288,7 +8300,6 @@ function ClassroomTools({ section, onSectionUpdated, lessons, classLabel, initia
       </div>
       <div style={{padding:16}}>
         {tab==="picker"&&<RandomPicker roster={roster}/>}
-        {tab==="roulette"&&<QuestionRoulette lessons={lessons} classLabel={classLabel}/>}
         {tab==="timer"&&<ActivityTimer/>}
         {tab==="groups"&&<GroupSplitter roster={roster}/>}
         {tab==="roster"&&<RosterEditor section={section} onSectionUpdated={onSectionUpdated}/>}
