@@ -1897,6 +1897,11 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
   // get to the word list. Split into its own popup/trigger so each can be
   // opened independently and given its own full-size, large-font display.
   const [vocabListPopup,setVocabListPopup]=useState(false);
+  // NEW — प्रश्न रुलेट moved here as its own popup (triggered from the
+  // header, next to Print/Edit) instead of living as a tab — a teacher
+  // reaches for it mid-class as a quick pop-in/pop-out tool, not as a
+  // section of the lesson plan they'd sit inside for a while.
+  const [rouletteOpen,setRouletteOpen]=useState(false);
   // NEW — pictorial vocabulary: when a hard word's meaning popup opens,
   // try to fetch a relevant illustrative image for it (best-effort, see
   // fetchWordImage). Resets whenever a different word (or none) is open.
@@ -1962,7 +1967,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
     fetchWordImage(vocabPopup.word).then((img)=>{if(!cancelled){setVocabImage(img);setVocabImageLoading(false);}});
     return ()=>{cancelled=true;};
   },[vocabPopup]);
-  const tabs=[{id:"sequence",label:"पढाउने",icon:ClipboardList},{id:"questions",label:"पाठ अभ्यास समाधान",icon:HelpCircle},{id:"roulette",label:"प्रश्न रुलेट",icon:Shuffle},{id:"activities",label:"क्रियाकलाप",icon:Users},{id:"simulation",label:"सिमुलेसन",icon:Gamepad2},{id:"rubric",label:"मूल्याङ्कन",icon:Layers},{id:"homework",label:"गृहकार्य",icon:PenSquare}];
+  const tabs=[{id:"sequence",label:"पढाउने",icon:ClipboardList},{id:"questions",label:"पाठ अभ्यास समाधान",icon:HelpCircle},{id:"activities",label:"क्रियाकलाप",icon:Users},{id:"simulation",label:"सिमुलेसन",icon:Gamepad2},{id:"rubric",label:"मूल्याङ्कन",icon:Layers},{id:"homework",label:"गृहकार्य",icon:PenSquare}];
   const objectives=lesson.objectives||[];
   const vocabulary=lesson.vocabulary||[];
   // NEW — पढाउने क्रम used to be read straight off lesson.sequence with no
@@ -2368,6 +2373,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
           <div style={{fontSize:18,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{lesson.title}</div>
         </div>
         {onEdit&&<IconButton icon={PenSquare} onClick={()=>onEdit(lesson)} title="सम्पादन गर्नुहोस्" variant="hero" size={19}/>}
+        <IconButton icon={Shuffle} onClick={()=>setRouletteOpen(true)} title="प्रश्न रुलेट" variant="hero" size={19}/>
         <IconButton icon={Printer} onClick={()=>window.print()} title="पूरा पाठ योजना प्रिन्ट गर्नुहोस्" variant="hero" size={19}/>
       </div>
 
@@ -2634,7 +2640,6 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
             })()}</div>
           )}
         </div>}
-        {tab==="roulette"&&<QuestionRoulette lessons={[lesson]} classLabel={classLabel} embedded/>}
         {tab==="activities"&&<div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginBottom:10}}>
             <SectionLabel icon={Users} color={TEAL}>क्रियाकलापहरू</SectionLabel>
@@ -2744,6 +2749,17 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
         </div>
       </div>
 
+
+      {rouletteOpen&&(
+        <div className="no-print" onClick={()=>setRouletteOpen(false)} style={{position:"fixed",inset:0,zIndex:80,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.5)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:20}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{...MODAL_PANEL,padding:"26px 28px",maxWidth:"min(94vw, 680px)",width:"100%",maxHeight:"90vh",overflowY:"auto",boxSizing:"border-box"}}>
+            <div style={{display:"flex",justifyContent:"flex-end",marginBottom:4}}>
+              <IconButton icon={X} onClick={()=>setRouletteOpen(false)} size={22}/>
+            </div>
+            <QuestionRoulette lessons={[lesson]} classLabel={classLabel} embedded/>
+          </div>
+        </div>
+      )}
 
       {objPopup&&(
         <div className="no-print" onClick={()=>setObjPopup(false)} style={{position:"fixed",inset:0,zIndex:80,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.5)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:20}}>
