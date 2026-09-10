@@ -6487,7 +6487,7 @@ function TeachingJournal({ lessons, classLabel }) {
               <input autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false" value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="डायरीमा खोज्नुहोस्..." style={{border:"none",outline:"none",boxShadow:"none",WebkitAppearance:"none",appearance:"none",fontSize:15.5,flex:1,minWidth:0,background:"transparent",color:INK,fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}/>
             </div>
             {chapterOptions.length>0&&(
-              <select value={chapterFilter} onChange={(e)=>setChapterFilter(e.target.value)} style={{borderRadius:12,padding:"9px 13px",fontSize:15,border:`1px solid ${BORDER}`,background:SURFACE,color:INK,fontFamily:"'SSText','Kalimati','Times New Roman',serif"}}>
+              <select value={chapterFilter} onChange={(e)=>setChapterFilter(e.target.value)} style={{borderRadius:12,padding:"9px 13px",fontSize:15,border:`1px solid ${BORDER}`,background:SURFACE,color:INK,fontFamily:"'SSText','Kalimati','Times New Roman',serif",minWidth:0,maxWidth:"100%",flex:"1 1 150px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                 <option value="">सबै एकाइ</option>
                 {chapterOptions.map((ct)=><option key={ct} value={ct}>{ct}</option>)}
               </select>
