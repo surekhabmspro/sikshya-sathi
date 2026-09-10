@@ -1902,6 +1902,26 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
   // reaches for it mid-class as a quick pop-in/pop-out tool, not as a
   // section of the lesson plan they'd sit inside for a while.
   const [rouletteOpen,setRouletteOpen]=useState(false);
+  // NEW — विद्यार्थी कार्यपत्र (student worksheet): the print-only DOM has
+  // two alternate layouts (full lesson plan w/ answers vs. worksheet w/o
+  // answers, name/class/date header, and writing space) and printMode picks
+  // which one is actually mounted when window.print() fires. Resets back to
+  // "full" on the browser's own afterprint event so a stray leftover
+  // worksheet-mode state can't silently affect the next normal print.
+  const [printMode,setPrintMode]=useState("full");
+  useEffect(()=>{
+    const reset=()=>setPrintMode("full");
+    window.addEventListener("afterprint",reset);
+    return()=>window.removeEventListener("afterprint",reset);
+  },[]);
+  // Sets the print layout, waits two animation frames for React to actually
+  // commit the DOM swap, then opens the print dialog — a single setState
+  // right before window.print() isn't safe, since window.print() can run
+  // before the browser has painted the new print-only content.
+  const printAs=(mode)=>{
+    setPrintMode(mode);
+    requestAnimationFrame(()=>requestAnimationFrame(()=>window.print()));
+  };
   // NEW — pictorial vocabulary: when a hard word's meaning popup opens,
   // try to fetch a relevant illustrative image for it (best-effort, see
   // fetchWordImage). Resets whenever a different word (or none) is open.
@@ -2374,7 +2394,14 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
         </div>
         {onEdit&&<IconButton icon={PenSquare} onClick={()=>onEdit(lesson)} title="सम्पादन गर्नुहोस्" variant="hero" size={19}/>}
         <IconButton icon={Shuffle} onClick={()=>setRouletteOpen(true)} title="प्रश्न रुलेट" variant="hero" size={19}/>
-        <IconButton icon={Printer} onClick={()=>window.print()} title="पूरा पाठ योजना प्रिन्ट गर्नुहोस्" variant="hero" size={19}/>
+        {/* NEW — विद्यार्थी कार्यपत्र: a separate printable layout (no
+            answers, name/class/date header, blank writing space per
+            question type) for photocopying — distinct from the Printer
+            button, which still prints the teacher's full plan with
+            answers. Only shown once there's actually something to put on
+            it. */}
+        {exercises.length>0&&<IconButton icon={ListChecks} onClick={()=>printAs("worksheet")} title="विद्यार्थी कार्यपत्र प्रिन्ट गर्नुहोस्" variant="hero" size={19}/>}
+        <IconButton icon={Printer} onClick={()=>printAs("full")} title="पूरा पाठ योजना प्रिन्ट गर्नुहोस्" variant="hero" size={19}/>
       </div>
 
       <div className="no-print lesson-shell">
@@ -2960,7 +2987,10 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
           regardless of which tab was open on screen. Styled as a proper
           printable handout: bordered header block, a byline row (class/
           teacher/date), and consistent section rules — not just a plain
-          dump of text. */}
+          dump of text. Only mounted when printMode==="full" — see
+          printAs() — so it's what actually renders when the Printer
+          button fires window.print(). */}
+      {printMode==="full"&&(
       <div className="print-only" style={{fontFamily:"'SSText','Kalimati','Times New Roman',serif",color:"#111",maxWidth:"18cm",margin:"0 auto"}}>
         <div style={{border:"1.5px solid #111",borderRadius:6,padding:"14px 18px",marginBottom:16}}>
           {chapterTitle&&<div style={{fontSize:12.5,letterSpacing:"0.06em",textTransform:"uppercase",color:"#444",fontWeight:700,marginBottom:3}}>{chapterTitle}</div>}
@@ -3017,8 +3047,6 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
             on-screen card view above (which stays interactive with badges/
             edit/delete) — print gets the clean document format instead. */}
         {exercises.length>0&&(()=>{
-          const DEV_LETTERS=["क","ख","ग","घ","ङ","च","छ","ज","झ","ञ","ट","ठ","ड","ढ","ण","त","थ","द","ध","न","प","फ","ब","भ","म","य","र","ल","व","श","ष","स","ह"];
-          const DEV_NUM=["१","२","३","४","५","६","७","८","९","१०"];
           // Group order follows the order types actually appear in `exercises`
           // (Gemini extracts these in textbook order), not a fixed type list —
           // this lets chapters with a different exercise order, or an extra
@@ -3075,6 +3103,111 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
           )}
         </div>
       </div>
+      )}
+
+      {/* NEW — print-only — विद्यार्थी कार्यपत्र (student worksheet): same
+          अभ्यासका प्रश्नोत्तर question set as the teacher print above, but
+          with the answers stripped out, a name/class/date header for the
+          student to fill in, and actual writing space per question type
+          (blank ruled lines for short/long answer, tick-boxes for सत्य/
+          असत्य, a shuffled word-bank for मिलान गर्नुहोस्). Only mounted
+          when printMode==="worksheet" — see the ListChecks header button
+          and printAs(). */}
+      {printMode==="worksheet"&&(()=>{
+        const seenTypes=[];
+        exercises.forEach((it)=>{const t=it.type||"छोटो उत्तर";if(!seenTypes.includes(t))seenTypes.push(t);});
+        const groups=seenTypes.map((t)=>({type:t,items:exercises.filter((it)=>(it.type||"छोटो उत्तर")===t)})).filter((g)=>g.items.length>0);
+        const blankLines=(n)=>(
+          <div style={{marginTop:6,display:"flex",flexDirection:"column",gap:14}}>
+            {Array.from({length:n}).map((_,li)=><div key={li} style={{borderBottom:"1px solid #999"}}/>)}
+          </div>
+        );
+        return(
+          <div className="print-only" style={{fontFamily:"'SSText','Kalimati','Times New Roman',serif",color:"#111",maxWidth:"18cm",margin:"0 auto"}}>
+            <div style={{border:"1.5px solid #111",borderRadius:6,padding:"14px 18px",marginBottom:18}}>
+              {chapterTitle&&<div style={{fontSize:12.5,letterSpacing:"0.06em",textTransform:"uppercase",color:"#444",fontWeight:700,marginBottom:3}}>{chapterTitle}</div>}
+              <div style={{fontSize:22,fontWeight:800,marginBottom:10,lineHeight:1.25}}>{lesson.title} — कार्यपत्र</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:"10px 26px",fontSize:13,color:"#333",borderTop:"1px solid #ccc",paddingTop:9}}>
+                <span style={{flex:"1 1 220px"}}><strong>नाम:</strong> <span style={{display:"inline-block",minWidth:150,borderBottom:"1px solid #333"}}>&nbsp;</span></span>
+                <span><strong>कक्षा:</strong> {classLabel||<span style={{display:"inline-block",minWidth:60,borderBottom:"1px solid #333"}}>&nbsp;</span>}</span>
+                <span><strong>मिति:</strong> <span style={{display:"inline-block",minWidth:90,borderBottom:"1px solid #333"}}>&nbsp;</span></span>
+              </div>
+            </div>
+
+            {groups.length===0?(
+              <div style={{color:"#555"}}>यो पाठको लागि अझै अभ्यास प्रश्न बनाइएको छैन।</div>
+            ):groups.map((g,gi)=>(
+              <div key={g.type} style={{marginBottom:20,breakInside:"avoid"}}>
+                <div style={{fontWeight:700,fontSize:14,marginBottom:10,borderBottom:"1.5px solid #111",paddingBottom:4}}>{DEV_NUM[gi]||gi+1}. {EXERCISE_TYPE_HEADER[g.type]||`${g.type} :`}</div>
+                {g.type==="मिलान गर्नुहोस्"?(
+                  // NEW — matching on paper: left column keeps its own order
+                  // (so questions read the same as always), right column is
+                  // a shuffled word-bank with its own lettering, and each
+                  // left item gets a blank bracket to write the matching
+                  // letter into — this is what actually makes it a task on
+                  // paper instead of a pre-solved answer key.
+                  (()=>{
+                    const allPairs=g.items.flatMap((it)=>Array.isArray(it.match_pairs)?it.match_pairs:[]);
+                    const bank=shuffled(allPairs.map((p)=>p.right));
+                    return(
+                      <div style={{display:"flex",gap:24,flexWrap:"wrap"}}>
+                        <div style={{flex:"1 1 240px"}}>
+                          {allPairs.map((p,pi)=>(
+                            <div key={pi} style={{display:"flex",alignItems:"center",gap:8,marginBottom:9}}>
+                              <span style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:22,height:22,border:"1px solid #333",borderRadius:4,fontSize:12.5,fontWeight:700,flexShrink:0}}>&nbsp;</span>
+                              <span>{DEV_NUM[pi]||pi+1}. {p.left}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{flex:"1 1 200px",borderLeft:"1px dashed #999",paddingLeft:18}}>
+                          <div style={{fontSize:12.5,fontWeight:700,color:"#555",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.04em"}}>विकल्पहरू</div>
+                          {bank.map((v,vi)=>(
+                            <div key={vi} style={{marginBottom:9}}>{DEV_LETTERS[vi]||vi+1}. {v}</div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()
+                ):(
+                  <div style={{display:"flex",flexDirection:"column",gap:18}}>
+                    {g.items.map((it,ii)=>{
+                      const isMCQ=g.type==="बहुविकल्पीय"&&Array.isArray(it.options)&&it.options.length>0;
+                      const isTF=g.type==="सत्य/असत्य";
+                      const lineCount=g.type==="लामो उत्तर"?6:g.type==="छोटो उत्तर"?3:2;
+                      return(
+                        <div key={it.id} style={{breakInside:"avoid"}}>
+                          <div style={{fontWeight:600,marginBottom:isMCQ||isTF?8:0}}>{DEV_LETTERS[ii]||ii+1}. {isMCQ?stripEmbeddedOptions(it.text):it.text}</div>
+                          {isMCQ&&(
+                            <div style={{display:"flex",flexDirection:"column",gap:6,paddingLeft:18}}>
+                              {it.options.map((opt,oi)=>(
+                                <div key={oi} style={{display:"flex",alignItems:"center",gap:8}}>
+                                  <span style={{display:"inline-block",width:12,height:12,border:"1px solid #333",borderRadius:"50%",flexShrink:0}}/>
+                                  <span>{opt}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {isTF&&(
+                            <div style={{paddingLeft:18}}>
+                              <div style={{display:"flex",gap:22,marginBottom:8}}>
+                                <span style={{display:"flex",alignItems:"center",gap:7}}><span style={{display:"inline-block",width:13,height:13,border:"1px solid #333"}}/>सत्य</span>
+                                <span style={{display:"flex",alignItems:"center",gap:7}}><span style={{display:"inline-block",width:13,height:13,border:"1px solid #333"}}/>असत्य</span>
+                              </div>
+                              <div style={{fontSize:12.5,color:"#555",marginBottom:3}}>बेठिक भए सही उत्तर लेख्नुहोस् :</div>
+                              <div style={{borderBottom:"1px solid #999",height:22}}/>
+                            </div>
+                          )}
+                          {!isMCQ&&!isTF&&<div style={{paddingLeft:18}}>{blankLines(lineCount)}</div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -3094,7 +3227,21 @@ function useOnlineStatus() {
   return online;
 }
 
-const simTypeLabel=(typeId)=>gemini.SIMULATION_TYPES.find((t)=>t.id===typeId)?.label||typeId;
+// NEW — shared Devanagari numbering/lettering for printable layouts (the
+// full lesson-plan print's अभ्यासका प्रश्नोत्तर section AND the नयाँ
+// विद्यार्थी कार्यपत्र/student-worksheet print both need the exact same
+// १,२,३.../क,ख,ग... sequence, so this lives once at module scope instead
+// of being redefined inside each print block's IIFE.
+const DEV_LETTERS=["क","ख","ग","घ","ङ","च","छ","ज","झ","ञ","ट","ठ","ड","ढ","ण","त","थ","द","ध","न","प","फ","ब","भ","म","य","र","ल","व","श","ष","स","ह"];
+const DEV_NUM=["१","२","३","४","५","६","७","८","९","१०"];
+// NEW — Fisher-Yates shuffle, used to scramble the मिलान गर्नुहोस् (matching)
+// word-bank on the printed student worksheet so the answers aren't just
+// sitting in left-to-right order next to their questions.
+function shuffled(arr){
+  const a=[...arr];
+  for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}
+  return a;
+}
 
 // NEW — loads the given HTML into a hidden, disconnected iframe and waits
 // briefly for the safety-net's window.onerror→postMessage report (see
