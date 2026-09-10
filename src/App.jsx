@@ -2849,7 +2849,7 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                     onChange={(e)=>setVocabManualQuery(e.target.value)}
                     onKeyDown={(e)=>{if(e.key==="Enter")e.currentTarget.blur();}}
                     placeholder="जस्तै: CCTV वा Closed-circuit television"
-                    style={{flex:1,padding:"9px 12px",borderRadius:9,border:`1px solid ${BORDER}`,background:SURFACE,color:INK,fontSize:14}}
+                    style={{flex:1,minWidth:0,padding:"9px 12px",borderRadius:9,border:`1px solid ${BORDER}`,background:SURFACE,color:INK,fontSize:14}}
                   />
                   <button className="ss-btn" disabled={vocabManualSearching||!vocabManualQuery.trim()} onClick={async()=>{
                     setVocabManualSearching(true);
@@ -4894,7 +4894,7 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
                         <SectionLabel icon={ClipboardList} color={VIOLET}>प्रमुख सिकाइ उपलब्धि</SectionLabel>
                         {lesson.major_learning_outcomes.map((v,i)=>(
                           <div key={i} style={{display:"flex",gap:6,marginBottom:6}}>
-                            <input value={v} onChange={(e)=>setLessonListItem(li,"major_learning_outcomes",i,e.target.value)} className="ss-field" style={{flex:1,borderRadius:10,padding:"9px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+                            <input value={v} onChange={(e)=>setLessonListItem(li,"major_learning_outcomes",i,e.target.value)} className="ss-field" style={{flex:1,minWidth:0,borderRadius:10,padding:"9px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
                             <IconButton icon={X} onClick={()=>removeLessonListItem(li,"major_learning_outcomes",i)} size={16}/>
                           </div>
                         ))}
@@ -4905,7 +4905,7 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
                         <SectionLabel icon={FolderKanban} color={TEAL}>आवश्यक सामग्री</SectionLabel>
                         {lesson.materials_required.map((v,i)=>(
                           <div key={i} style={{display:"flex",gap:6,marginBottom:6}}>
-                            <input value={v} onChange={(e)=>setLessonListItem(li,"materials_required",i,e.target.value)} className="ss-field" style={{flex:1,borderRadius:10,padding:"9px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+                            <input value={v} onChange={(e)=>setLessonListItem(li,"materials_required",i,e.target.value)} className="ss-field" style={{flex:1,minWidth:0,borderRadius:10,padding:"9px 12px",fontSize:15.5,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
                             <IconButton icon={X} onClick={()=>removeLessonListItem(li,"materials_required",i)} size={16}/>
                           </div>
                         ))}
@@ -4939,13 +4939,13 @@ function PlanGroupModal({ chapter, allChapters, lessons, classLabel, classContex
                         {lesson.rubric.map((row,ri)=>(
                           <div key={ri} style={{border:`1.5px solid ${BORDER}`,borderRadius:12,padding:10,marginBottom:8}}>
                             <div style={{display:"flex",gap:6,marginBottom:8}}>
-                              <input value={row.criteria} onChange={(e)=>setLessonRubricCriteria(li,ri,e.target.value)} placeholder="मूल्याङ्कनको क्षेत्र (जस्तै: विषयवस्तु बुझाइ)" className="ss-field" style={{flex:1,borderRadius:10,padding:"9px 12px",fontSize:15.5,fontWeight:700,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
+                              <input value={row.criteria} onChange={(e)=>setLessonRubricCriteria(li,ri,e.target.value)} placeholder="मूल्याङ्कनको क्षेत्र (जस्तै: विषयवस्तु बुझाइ)" className="ss-field" style={{flex:1,minWidth:0,borderRadius:10,padding:"9px 12px",fontSize:15.5,fontWeight:700,border:`1.5px solid ${BORDER}`,background:SURFACE_2}}/>
                               <IconButton icon={Trash2} onClick={()=>removeLessonRubricRow(li,ri)} size={16}/>
                             </div>
                             {row.levels.map((lvl,lvi)=>(
                               <div key={lvi} style={{display:"flex",gap:8,alignItems:"center",marginBottom:5}}>
                                 <div style={{fontSize:13.5,fontWeight:700,color:INK_SOFT,width:100,flexShrink:0}}>{lvl.level}</div>
-                                <input value={lvl.desc} onChange={(e)=>setLessonRubricDesc(li,ri,lvi,e.target.value)} className="ss-field" style={{flex:1,borderRadius:8,padding:"7px 10px",fontSize:14.5,border:`1.5px solid ${BORDER}`,background:SURFACE}}/>
+                                <input value={lvl.desc} onChange={(e)=>setLessonRubricDesc(li,ri,lvi,e.target.value)} className="ss-field" style={{flex:1,minWidth:0,borderRadius:8,padding:"7px 10px",fontSize:14.5,border:`1.5px solid ${BORDER}`,background:SURFACE}}/>
                               </div>
                             ))}
                           </div>
