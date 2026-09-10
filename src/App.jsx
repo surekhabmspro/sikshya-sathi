@@ -1408,7 +1408,7 @@ function CenteredSelect({ value, onChange, options, placeholder, style, disabled
       {open&&(
         <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:95,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(20,18,14,0.55)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",padding:16}}>
           <div onClick={(e)=>e.stopPropagation()} style={{...MODAL_PANEL,width:"min(94vw, 760px)",maxHeight:"82vh",overflowY:"auto",padding:10}}>
-            <div style={{display:"grid",gridTemplateColumns:options.length>6?"repeat(auto-fill, minmax(260px, 1fr))":"1fr",gap:4}}>
+            <div style={{display:"grid",gridTemplateColumns:options.length>6?"repeat(auto-fill, minmax(min(260px,100%),1fr))":"1fr",gap:4}}>
               {options.map((o)=>{
                 const active=String(o.value)===String(value);
                 return(
@@ -3983,7 +3983,7 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoMaterials, onGoAITools, onG
       </Card>
 
       <SectionLabel icon={Zap} color={ACCENT}>एक नजरमा</SectionLabel>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:12,marginBottom:18}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(min(130px,100%),1fr))",gap:12,marginBottom:18}}>
         <StatCard icon={BookOpen} value={chapters?.length||0} label="एकाइहरू" color={ACCENT} accent onClick={onGoMaterials}/>
         <StatCard icon={FileText} value={materialsCount} label="सामग्री फाइल" color={ROSE} accent onClick={onGoMaterials}/>
         <StatCard icon={CheckCircle2} value={lessons.filter((l)=>l.status==="ready").length} label="तयार पाठ" color={TEAL} accent onClick={onGoPlanner}/>
@@ -3992,7 +3992,7 @@ function HomeScreen({ onOpenLesson, onGoPlanner, onGoMaterials, onGoAITools, onG
 
       <GetStartedCard chapters={chapters||[]} materialsCount={materialsCount} lessons={lessons} onGoMaterials={onGoMaterials} onGoPlanner={onGoPlanner}/>
 
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:12,marginTop:18,marginBottom:18}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(min(260px,100%),1fr))",gap:12,marginTop:18,marginBottom:18}}>
         <SummaryPanel icon={ListChecks} color={BLUE} title="गृहकार्य" onOpen={()=>setOpenPanel("homework")}
           subtitle={hwLoading?"लोड हुँदै...":homework.length===0?"कुनै गृहकार्य छैन":`${homework.length} जम्मा · ${pendingHomework} जाँच बाँकी`}/>
         <SummaryPanel icon={Heart} color={ROSE} title="डायरी" onOpen={()=>setOpenPanel("journal")}
@@ -5574,7 +5574,7 @@ function Planner({ onOpenLesson, section, loading, onRefresh, classContext, clas
 
 function CategoryPicker({ value, onChange }) {
   return(
-    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(110px,1fr))",gap:7}}>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(min(110px,100%),1fr))",gap:7}}>
       {CATEGORY_ORDER.map((key)=>{
         const meta=CATEGORY_META[key];const Icon=meta.icon;const active=value===key;
         return(
@@ -5915,7 +5915,7 @@ function Materials({ classLabel }) {
       {loading?<Spinner/>:filtered.length===0?(
         <EmptyState icon={FileText} text={query?`"${query}" फेला परेन।`:chapterFilter!=="all"?"यो फिल्टरमा कुनै फाइल छैन।":"यो श्रेणीमा फाइल थपिएको छैन।"}/>
       ):(
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:12}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(min(180px,100%),1fr))",gap:12}}>
           {filtered.map((f)=>{
             const meta=FILE_TYPE_META[f.file_type]||FILE_TYPE_META.doc;const Icon=meta.icon;
             const catMeta=CATEGORY_META[f.category||"other"];const CatIcon=catMeta.icon;
@@ -6077,7 +6077,7 @@ function HomeworkManager({ section, loading, homework, onRefresh, classLabel, te
         </Card>
       )}
       {loading?<Spinner/>:homework.length===0?<EmptyState icon={ListChecks} text="कुनै गृहकार्य छैन।" actionLabel="पहिलो गृहकार्य थप्नुहोस्" onAction={()=>setShowForm(true)}/>:(
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(340px,1fr))",gap:12,alignItems:"start"}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(min(340px,100%),1fr))",gap:12,alignItems:"start"}}>
           {homework.map((h)=>{
             const pct=h.total_students>0?Math.round((h.checked_count/h.total_students)*100):0;
             const done=h.checked_count>=h.total_students;
@@ -6503,7 +6503,7 @@ function TeachingJournal({ lessons, classLabel }) {
           {groups.map((g)=>(
             <div key={g.key}>
               <SectionLabel color={ROSE}>{g.label} ({g.items.length})</SectionLabel>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:10,alignItems:"start"}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(min(320px,100%),1fr))",gap:10,alignItems:"start"}}>
                 {g.items.map((e)=>{
                   const type=e.entry_type||"reflection";
                   const typeMeta=ENTRY_TYPE_META[type]||ENTRY_TYPE_META.reflection;
@@ -6735,7 +6735,7 @@ function AIAssistant({ lessons, classContext, classLabel }) {
             <div style={{maxWidth:"88%",background:SURFACE,color:INK,border:`1px solid ${BORDER}`,borderRadius:14,padding:"11px 14px",fontSize:16.5,lineHeight:1.6,boxShadow:SHADOW.raised}}>{messages[0]?.text}</div>
             <div>
               <SectionLabel icon={Zap} color={MARIGOLD_DARK}>छिटो सुरुवात</SectionLabel>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(155px,1fr))",gap:9}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(min(155px,100%),1fr))",gap:9}}>
                 {QUICK.map((q,i)=>{const c=PALETTE[i%PALETTE.length];return(
                   <button key={q} onClick={()=>send(q)} className="ss-btn ss-card-hover" style={{textAlign:"left",background:SURFACE,border:`1px solid ${BORDER}`,borderLeft:`4px solid ${c}`,borderRadius:13,padding:"12px 13px",fontSize:15,fontWeight:600,color:INK,cursor:"pointer",boxShadow:SHADOW.raised,display:"flex",alignItems:"center",gap:8}}>
                     <Zap size={14} color={c} style={{flexShrink:0}}/>{q}
@@ -8069,7 +8069,7 @@ function GroupSplitter({ roster }){
         {groups&&<Chip dashed onClick={build} color={INK_SOFT}>फेरि मिलाउनुहोस्</Chip>}
       </div>
       {groups&&(
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:14}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(min(160px,100%),1fr))",gap:14}}>
           {groups.map((g,i)=>{const c=GROUP_COLORS[i%GROUP_COLORS.length];return(
             <div key={i} style={{borderRadius:18,padding:"14px 16px",background:`linear-gradient(160deg, color-mix(in srgb, ${c} 16%, var(--surface)) 0%, color-mix(in srgb, ${c} 6%, var(--surface)) 100%)`,border:`1.5px solid color-mix(in srgb, ${c} 35%, ${BORDER})`,boxShadow:SHADOW.raised}}>
               <div style={{display:"inline-flex",alignItems:"center",gap:6,fontWeight:800,color:"#fff",fontSize:13.5,marginBottom:8,padding:"3px 10px",borderRadius:999,background:c,boxShadow:`0 3px 8px color-mix(in srgb, ${c} 45%, transparent)`}}>समूह {i+1} · {g.length}</div>
@@ -8445,7 +8445,7 @@ function ResourceCreator({ lessons, classContext, classLabel }) {
       <div className="no-print" style={{marginBottom:4}}><PageHeader icon={Wand2} title="स्रोत निर्माता" color={MARIGOLD_DARK}/></div>
       <div className="no-print" style={{fontSize:16,color:INK_SOFT,marginBottom:16}}>{lesson?`"${lesson.title}" — AI बाट स्वतः बनाइन्छ।`:"पहिले पाठ योजनामा पाठ थप्नुहोस्।"}</div>
       <div className="no-print"><MaterialsHint count={matchedCount} chapterTitle={chapterTitle}/></div>
-      <div className="no-print" style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:20}}>
+      <div className="no-print" style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(min(150px,100%),1fr))",gap:10,marginBottom:20}}>
         {RESOURCE_TEMPLATES.map((t)=>{const Icon=t.icon;return<Card key={t.id} onClick={()=>generate(t)} accentColor={t.color} style={{padding:14,paddingTop:24,position:"relative",overflow:"visible",border:active?.id===t.id?`2px solid ${t.color}`:`1px solid ${BORDER}`}}><PinBadge color={t.color}/><div style={{width:36,height:36,borderRadius:8,background:`linear-gradient(160deg, ${t.color} 0%, color-mix(in srgb, ${t.color} 70%, black) 100%)`,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:8,boxShadow:`inset 0 1px 0 rgba(255,255,255,0.35), 0 3px 8px color-mix(in srgb, ${t.color} 40%, transparent)`}}><Icon size={18} color="#fff"/></div><div style={{fontWeight:700,fontSize:16,color:INK}}>{t.title}</div></Card>;})}
       </div>
       {active&&(
@@ -8522,7 +8522,7 @@ function SavedResources({ classLabel, embedded, refreshKey }) {
       {loading?<Spinner/>:items.length===0?(
         <EmptyState icon={BookMarked} text="अझै कुनै स्रोत सुरक्षित गरिएको छैन। माथिबाट बनाएर 'सुरक्षित गर्नुहोस्' थिच्नुहोस्।"/>
       ):(
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:12}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(min(180px,100%),1fr))",gap:12}}>
           {items.map((r)=>{
             const meta=resourceTemplateMeta(r.template_id);const Icon=meta.icon;
             return(
