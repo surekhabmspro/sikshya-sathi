@@ -1597,7 +1597,22 @@ function LoginScreen({ onLogin }) {
       ?await db.signIn(email.trim(),password)
       :await db.signUp(email.trim(),password,{data:{full_name:name.trim()}});
     setLoading(false);
-    if(err){setError(err.message);return;}
+    // FIX — this used to show Supabase's raw English error message
+    // (e.g. "Invalid login credentials", "Email not confirmed", "Failed
+    // to fetch") verbatim, which a Nepali-only reader can't act on and
+    // which looks identical for very different problems. Translate the
+    // handful of cases that actually happen here into something a
+    // teacher can tell apart and do something about.
+    if(err){
+      const m=String(err.message||"");
+      let friendly=err.message;
+      if(/invalid login credentials/i.test(m))friendly="इमेल वा पासवर्ड मिलेन। दुवै जाँचेर फेरि प्रयास गर्नुहोस्।";
+      else if(/email not confirmed/i.test(m))friendly="इमेल अझै प्रमाणित भएको छैन। इमेलमा आएको लिंकमा थिचेर पहिले प्रमाणित गर्नुहोस्।";
+      else if(/failed to fetch|network/i.test(m))friendly="इन्टरनेट जडान भेटिएन। जडान जाँचेर फेरि प्रयास गर्नुहोस्।";
+      else if(/user already registered/i.test(m))friendly="यो इमेलमा पहिल्यै खाता छ। लगइन गर्नुहोस्।";
+      setError(friendly);
+      return;
+    }
     if(mode==="signup"){
       // NEW — the teacher's name is saved right away so it's already there
       // the first time they log in, instead of a separate Settings step.
@@ -1641,18 +1656,33 @@ function LoginScreen({ onLogin }) {
               )}
               <div style={{position:"relative"}}>
                 <User size={17} color={INK_SOFT} style={{position:"absolute",left:15,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}/>
-                <input type="email" autoCapitalize="none" placeholder="इमेल" value={email} onChange={(e)=>setEmail(e.target.value)} style={{...fieldStyle,paddingRight:15}}/>
+                {/* FIX — this only blocked auto-capitalization; autocorrect
+                    and spellcheck were still on, so some mobile keyboards
+                    (Samsung/Gboard) could silently "correct" characters in
+                    the email as it was typed, making a correctly-typed
+                    email fail login with no visible sign anything changed.
+                    autoComplete="email" also lets the keyboard/browser offer
+                    the right saved value instead of a generic one. */}
+                <input type="email" autoCapitalize="none" autoCorrect="off" spellCheck="false" autoComplete="email" placeholder="इमेल" value={email} onChange={(e)=>setEmail(e.target.value)} style={{...fieldStyle,paddingRight:15}}/>
               </div>
               <div style={{position:"relative"}}>
                 <Lock size={17} color={INK_SOFT} style={{position:"absolute",left:15,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}/>
-                <input type={showPassword?"text":"password"} placeholder="पासवर्ड" value={password} onChange={(e)=>setPassword(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&mode==="login"&&handle()} style={fieldStyle}/>
+                {/* FIX — password field had none of autoCapitalize/
+                    autoCorrect/spellCheck/autoComplete set at all. On some
+                    Android keyboards that means the first letter gets
+                    auto-capitalized as it's typed into what LOOKS like a
+                    masked password field, so a teacher typing their real
+                    password correctly ends up submitting a different
+                    string — rejected as wrong credentials no matter how
+                    many times they carefully re-type the same thing. */}
+                <input type={showPassword?"text":"password"} autoCapitalize="none" autoCorrect="off" spellCheck="false" autoComplete="current-password" placeholder="पासवर्ड" value={password} onChange={(e)=>setPassword(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&mode==="login"&&handle()} style={fieldStyle}/>
                 <button className="ss-icon-btn" type="button" onClick={()=>setShowPassword(!showPassword)} style={{position:"absolute",right:9,top:"50%",transform:"translateY(-50%)",cursor:"pointer",color:INK_SOFT,display:"flex",padding:5}}>{showPassword?<EyeOff size={17}/>:<Eye size={17}/>}</button>
               </div>
               {mode==="signup"&&(
                 <>
                   <div style={{position:"relative"}}>
                     <Lock size={17} color={INK_SOFT} style={{position:"absolute",left:15,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}/>
-                    <input type={showPassword?"text":"password"} placeholder="पासवर्ड फेरि लेख्नुहोस्" value={confirmPassword} onChange={(e)=>setConfirmPassword(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&handle()} style={{...fieldStyle,paddingRight:15}}/>
+                    <input type={showPassword?"text":"password"} autoCapitalize="none" autoCorrect="off" spellCheck="false" autoComplete="new-password" placeholder="पासवर्ड फेरि लेख्नुहोस्" value={confirmPassword} onChange={(e)=>setConfirmPassword(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&handle()} style={{...fieldStyle,paddingRight:15}}/>
                   </div>
                   <div style={{fontSize:14,color:INK_SOFT,marginTop:-6}}>पासवर्ड कम्तिमा ६ अक्षरको हुनुपर्छ।</div>
                 </>
@@ -3343,6 +3373,15 @@ function selfTestSimulation(html, timeoutMs=1500){
     },timeoutMs);
   });
 }
+
+// FIX — simTypeLabel was called (below, and in SimulationViewerOverlay)
+// but never defined anywhere, so ReferenceError: simTypeLabel is not
+// defined crashed the whole app to the ErrorBoundary screen any time a
+// lesson's simulation list rendered a saved simulation. Looks the type's
+// display label up from gemini.SIMULATION_TYPES the same way the picker
+// dropdown above already does, falling back to the raw id if a
+// simulation's type somehow isn't in that list.
+const simTypeLabel=(id)=>gemini.SIMULATION_TYPES.find((t)=>t.id===id)?.label||id;
 
 // NEW — per-lesson library of AI-generated interactive simulations. Each
 // generation is saved as its own row (see db.saveSimulation) so a teacher
