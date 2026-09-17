@@ -10066,7 +10066,14 @@ export default function App() {
   },[]);
 
   useEffect(()=>{
-    supabase.auth.getSession().then(({data:{session:s}})=>{setSession(s);setAuthLoading(false);});
+    // FIX — offline login: this had no .catch. If getSession() rejects
+    // (a known supabase-js behavior when it tries a background token
+    // refresh while offline), authLoading never became false and the
+    // teacher was stuck on the loading spinner forever instead of
+    // entering the app with their already-saved session.
+    supabase.auth.getSession()
+      .then(({data:{session:s}})=>{setSession(s);setAuthLoading(false);})
+      .catch(()=>{setAuthLoading(false);});
     const{data:{subscription}}=supabase.auth.onAuthStateChange((_e,s)=>setSession(s));
     return()=>subscription.unsubscribe();
   },[]);

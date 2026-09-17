@@ -52,6 +52,24 @@ ReactDOM.createRoot(document.getElementById("root")).render(
   </React.StrictMode>
 );
 
+// NEW — "once logged in, always logged in" (unless the teacher explicitly
+// logs out): the app itself never signs anyone out — the saved session
+// lives in the browser's localStorage indefinitely until db.signOut() is
+// called. When a laptop still asks to log in again, it's the browser
+// evicting that storage on its own (common for a plain browser tab —
+// especially under low disk space — since Chrome/Edge treat "installed"
+// apps and often-visited sites as safe to keep, but a regular tab's
+// storage as safe to clear first if it needs space). Asking for
+// persistent storage tells the browser this origin's data should not be
+// auto-evicted, which removes the most common invisible cause of this on
+// a laptop. It can't override an explicit "clear cookies/site data on
+// exit" browser setting or private/incognito browsing — those clear
+// storage on purpose, and only the teacher's own browser settings control
+// that.
+if (navigator.storage && navigator.storage.persist) {
+  navigator.storage.persist().catch(() => {});
+}
+
 // Register the service worker so the app can be installed and opens offline.
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
