@@ -10066,17 +10066,58 @@ export default function App() {
   },[]);
 
   useEffect(()=>{
-    // FIX — offline login: this had no .catch. If getSession() rejects
-    // (a known supabase-js behavior when it tries a background token
-    // refresh while offline), authLoading never became false and the
-    // teacher was stuck on the loading spinner forever instead of
-    // entering the app with their already-saved session.
+    // FIX — the real offline-login bug: getSession() doesn't just hang
+    // offline, it can actively RESOLVE with an empty session. Under the
+    // hood it tries to refresh the access token on startup, that refresh
+    // request fails with no network, and the library treats that failure
+    // as "logged out" — even though a perfectly good saved session is
+    // still sitting in the browser's own storage. That's what the
+    // screenshot showed: LoginScreen appearing offline instead of the
+    // app opening with the saved session.
+    //
+    // Fix: read the session Supabase already saved to localStorage
+    // directly, first. If it's there, use it right away so the app opens
+    // immediately — this is the "contents already in the app" this
+    // whole thing was about. Only then ask getSession() to reconcile
+    // (refresh the token) in the background; a real "logged out"
+    // (session genuinely null/invalid) only clears the screen once that
+    // check has actually reached the server, never just because the
+    // network request itself failed.
+    let sawRealSession=false;
+    try{
+      for(let i=0;i<localStorage.length;i++){
+        const k=localStorage.key(i);
+        if(!k||!/^sb-.*-auth-token$/.test(k))continue;
+        const raw=JSON.parse(localStorage.getItem(k));
+        const stored=raw?.currentSession||raw; // supabase-js storage shape
+        if(stored?.access_token&&stored?.user){
+          setSession(stored);
+          setAuthLoading(false);
+          sawRealSession=true;
+        }
+        break;
+      }
+    }catch{ /* corrupted/blocked storage — fall through to getSession() */ }
+
     supabase.auth.getSession()
-      .then(({data:{session:s}})=>{setSession(s);setAuthLoading(false);})
+      .then(({data:{session:s},error})=>{
+        // A network-level failure (offline) resolves with session:null
+        // too, same as a real logout — the two are indistinguishable
+        // here, so if we already have a locally-saved session, don't let
+        // an offline attempt wipe it out. navigator.onLine is only a
+        // best-effort signal (it means the network interface is up, not
+        // that Supabase was actually reachable), but it's what's
+        // available without another round trip, so a null result only
+        // overrides the locally-saved session when we have nothing
+        // better to show, or the device believes it's online.
+        if(s||!sawRealSession||navigator.onLine){setSession(s);}
+        setAuthLoading(false);
+      })
       .catch(()=>{setAuthLoading(false);});
     const{data:{subscription}}=supabase.auth.onAuthStateChange((_e,s)=>setSession(s));
     return()=>subscription.unsubscribe();
   },[]);
+
 
   // NEW — reloads whenever classLabel changes (not just once on mount), so
   // switching from "कक्षा ५" to "कक्षा ६" in Settings swaps in that class's
