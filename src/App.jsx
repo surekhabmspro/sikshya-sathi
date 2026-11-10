@@ -2019,7 +2019,99 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
   },[vocabPopup]);
   const tabs=[{id:"sequence",label:"पढाउने",icon:ClipboardList},{id:"questions",label:"पाठ अभ्यास समाधान",icon:HelpCircle},{id:"activities",label:"क्रियाकलाप",icon:Users},{id:"simulation",label:"सिमुलेसन",icon:Gamepad2},{id:"rubric",label:"मूल्याङ्कन",icon:Layers},{id:"homework",label:"गृहकार्य",icon:PenSquare}];
   const objectives=lesson.objectives||[];
-  const vocabulary=lesson.vocabulary||[];
+  // NEW — कठिन शब्द used to be read straight off lesson.vocabulary with no
+  // way to change a single word. Now stateful (same pattern as
+  // activitiesState) so a word can be edited, deleted, or added (with an
+  // AI-written meaning) and is saved immediately.
+  const [vocabularyState,setVocabularyState]=useState(()=>lesson.vocabulary||[]);
+  const [vocabError,setVocabError]=useState("");
+  const [vocabAddWord,setVocabAddWord]=useState("");
+  const [vocabAddMeaning,setVocabAddMeaning]=useState("");
+  const [vocabAdding,setVocabAdding]=useState(false);
+  const [vocabEditingIdx,setVocabEditingIdx]=useState(null);
+  const [vocabEditWord,setVocabEditWord]=useState("");
+  const [vocabEditMeaning,setVocabEditMeaning]=useState("");
+  const [vocabEditGenerating,setVocabEditGenerating]=useState(false);
+  const vocabSourceKey=JSON.stringify(lesson.vocabulary||[]);
+  useEffect(()=>{setVocabularyState(lesson.vocabulary||[]);setVocabError("");setVocabEditingIdx(null);},[lesson.id,vocabSourceKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const vocabulary=vocabularyState;
+  const splitVocab=(v)=>{const i=v.indexOf(":");return{word:i>-1?v.slice(0,i).trim():v.trim(),meaning:i>-1?v.slice(i+1).trim():""};};
+  const cleanVocabWord=(w)=>String(w||"").replace(/[;:\n\r]+/g," ").replace(/\s+/g," ").trim();
+  const cleanVocabMeaning=(m)=>String(m||"").replace(/[;\n\r]+/g," ").replace(/\s+/g," ").trim();
+  const joinVocab=(word,meaning)=>meaning?`${word}: ${meaning}`:word;
+  const persistVocabulary=async(next)=>{
+    setVocabularyState(next);
+    const{error}=await db.updateLesson(lesson.id,{vocabulary:next});
+    if(error){setVocabError("सुरक्षित हुन सकेन: "+(error.message||""));return false;}
+    return true;
+  };
+  // Add one or more words. Separate several with a comma / new line.
+  // "शब्द: अर्थ" typed directly is used as-is; a single word with a manual
+  // meaning typed in the second box is used as-is; everything else gets
+  // its meaning written by AI.
+  const addVocabWords=async()=>{
+    setVocabError("");
+    const manualMeaning=cleanVocabMeaning(vocabAddMeaning);
+    const pieces=vocabAddWord.split(/[,;\n]+/).map((x)=>x.trim()).filter(Boolean);
+    if(!pieces.length){setVocabError("पहिले शब्द लेख्नुहोस्।");return;}
+    const seen=new Set(vocabularyState.map((v)=>splitVocab(v).word));
+    const entries=[];const skipped=[];
+    pieces.forEach((pc)=>{
+      const ci=pc.indexOf(":");
+      const word=cleanVocabWord(ci>-1?pc.slice(0,ci):pc);
+      if(!word)return;
+      if(seen.has(word)){skipped.push(word);return;}
+      seen.add(word);
+      let meaning=ci>-1?cleanVocabMeaning(pc.slice(ci+1)):"";
+      if(!meaning&&pieces.length===1&&manualMeaning)meaning=manualMeaning;
+      entries.push({word,meaning});
+    });
+    if(!entries.length){setVocabError(skipped.length?"यो शब्द पहिल्यै सूचीमा छ: "+skipped.join(", "):"पहिले शब्द लेख्नुहोस्।");return;}
+    setVocabAdding(true);
+    let note="";
+    try{
+      const need=entries.filter((e)=>!e.meaning).map((e)=>e.word);
+      if(need.length){
+        const got=await gemini.generateWordMeanings(need,chapterTitle,classContext,lesson.title);
+        const map=new Map(got.map((g)=>[g.word,cleanVocabMeaning(g.meaning)]));
+        entries.forEach((e)=>{if(!e.meaning)e.meaning=map.get(e.word)||"";});
+        const missing=entries.filter((e)=>!e.meaning).map((e)=>e.word);
+        if(missing.length)note="यी शब्दको अर्थ AI ले बनाउन सकेन — सम्पादन गरेर आफैं लेख्नुहोस्: "+missing.join(", ");
+      }
+    }catch(e){
+      // AI failed — still keep the words the teacher typed (without a
+      // meaning) so nothing they typed is lost; they can edit later.
+      note="AI त्रुटि: "+e.message+" — शब्द थपियो तर अर्थ बनेन, सम्पादन गरेर लेख्नुहोस्।";
+    }
+    const ok=await persistVocabulary([...vocabularyState,...entries.map((e)=>joinVocab(e.word,e.meaning))]);
+    if(ok){setVocabAddWord("");setVocabAddMeaning("");}
+    if(note||skipped.length)setVocabError([note,skipped.length?"पहिल्यै भएकाले छोडियो: "+skipped.join(", "):""].filter(Boolean).join(" • "));
+    setVocabAdding(false);
+  };
+  const startEditVocab=(i)=>{const{word,meaning}=splitVocab(vocabularyState[i]);setVocabEditingIdx(i);setVocabEditWord(word);setVocabEditMeaning(meaning);setVocabError("");};
+  const saveEditedVocab=async(i)=>{
+    const word=cleanVocabWord(vocabEditWord);
+    if(!word){setVocabError("शब्द खाली राख्न मिल्दैन।");return;}
+    if(vocabularyState.some((v,idx)=>idx!==i&&splitVocab(v).word===word)){setVocabError("यो शब्द पहिल्यै सूचीमा छ।");return;}
+    await persistVocabulary(vocabularyState.map((v,idx)=>idx===i?joinVocab(word,cleanVocabMeaning(vocabEditMeaning)):v));
+    setVocabEditingIdx(null);setVocabError("");
+  };
+  const regenerateEditMeaning=async()=>{
+    const word=cleanVocabWord(vocabEditWord);
+    if(!word){setVocabError("पहिले शब्द लेख्नुहोस्।");return;}
+    setVocabEditGenerating(true);setVocabError("");
+    try{
+      const got=await gemini.generateWordMeanings([word],chapterTitle,classContext,lesson.title);
+      const m=cleanVocabMeaning(got[0]?.meaning);
+      if(m)setVocabEditMeaning(m);else setVocabError("AI ले अर्थ बनाउन सकेन — आफैं लेख्नुहोस्।");
+    }catch(e){setVocabError("AI त्रुटि: "+e.message);}
+    setVocabEditGenerating(false);
+  };
+  const deleteVocab=(i)=>{
+    if(!window.confirm("यो शब्द हटाउने?"))return;
+    persistVocabulary(vocabularyState.filter((_,idx)=>idx!==i));
+    setVocabEditingIdx(null);
+  };
   // NEW — पढाउने क्रम used to be read straight off lesson.sequence with no
   // way to change a single step without regenerating the whole plan. This
   // makes it stateful (same pattern as activitiesState below) so a single
@@ -2456,28 +2548,27 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
                 section from the start, with its own toggle, so closing
                 one never hides the other and there's no "popup inside a
                 popup" feel. */}
-            {vocabulary.length>0&&(
-              <div className="lesson-obj-mobile" style={{padding:"10px 16px 12px",borderBottom:`1px solid ${BORDER}`}}>
-                <button className="ss-btn" onClick={()=>setVocabOpen((v)=>!v)} style={{display:"flex",alignItems:"center",gap:5,width:"100%",background:"none",border:"none",cursor:"pointer",padding:0,marginBottom:vocabOpen?5:0,color:INK_SOFT,fontSize:14.5,fontWeight:600}}>
+            <div className="lesson-obj-mobile" style={{padding:"10px 16px 12px",borderBottom:`1px solid ${BORDER}`}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:vocabOpen?5:0}}>
+                <button className="ss-btn" onClick={()=>setVocabOpen((v)=>!v)} style={{display:"flex",alignItems:"center",gap:5,flex:1,background:"none",border:"none",cursor:"pointer",padding:0,color:INK_SOFT,fontSize:14.5,fontWeight:600}}>
                   <ArrowDown size={14} style={{transform:vocabOpen?"rotate(0deg)":"rotate(-90deg)",transition:"transform .15s ease",flexShrink:0}}/>
                   कठिन शब्द अर्थ
                 </button>
-                {vocabOpen&&(
-                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                    {vocabulary.map((v)=>{
-                      const idx=v.indexOf(":");
-                      const word=idx>-1?v.slice(0,idx).trim():v.trim();
-                      const meaning=idx>-1?v.slice(idx+1).trim():"";
-                      return(
-                        <button className="ss-btn" key={v} onClick={()=>meaning&&setVocabPopup({word,meaning})} style={{background:WARN_BG,color:MARIGOLD_DARK,fontSize:15,fontWeight:600,padding:"3px 8px",borderRadius:6,border:"none",display:"flex",alignItems:"center",gap:3,cursor:meaning?"pointer":"default"}}>
-                          {word}{meaning&&<HelpCircle size={11}/>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+                <button className="ss-icon-btn" onClick={()=>setVocabListPopup(true)} title="कठिन शब्द सम्पादन / थप्नुहोस्" style={{cursor:"pointer",padding:4,color:ACCENT,display:"flex",alignItems:"center",gap:3,fontSize:13.5,fontWeight:700,background:"none",border:"none"}}><PenSquare size={14}/>सम्पादन / थप्नुहोस्</button>
               </div>
-            )}
+              {vocabOpen&&(vocabulary.length===0?<div style={{color:INK_SOFT,fontSize:14.5}}>कठिन शब्द थपिएको छैन।</div>:(
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {vocabulary.map((v,vi)=>{
+                    const{word,meaning}=splitVocab(v);
+                    return(
+                      <button className="ss-btn" key={vi+"-"+v} onClick={()=>meaning&&setVocabPopup({word,meaning})} style={{background:WARN_BG,color:MARIGOLD_DARK,fontSize:15,fontWeight:600,padding:"3px 8px",borderRadius:6,border:"none",display:"flex",alignItems:"center",gap:3,cursor:meaning?"pointer":"default"}}>
+                        {word}{meaning&&<HelpCircle size={11}/>}
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
             {/* NEW — desktop: instead of objectives permanently taking up
                 rail space, a slim trigger opens them in a popup. Sits
                 above the tab list now (see it first, then teach) rather
@@ -2485,11 +2576,19 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
             <button className="lesson-obj-trigger ss-btn" onClick={()=>setObjPopup(true)} style={{alignItems:"center",gap:8,margin:"10px 10px 4px",padding:"11px 13px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE_2,cursor:"pointer",color:INK,fontWeight:700,fontSize:15}}>
               <ClipboardList size={15} color={ACCENT}/>आजको उद्देश्य हेर्नुहोस्
             </button>
-            {vocabulary.length>0&&(
-              <button className="lesson-obj-trigger ss-btn" onClick={()=>setVocabListPopup(true)} style={{alignItems:"center",gap:8,margin:"0 10px 4px",padding:"11px 13px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE_2,cursor:"pointer",color:INK,fontWeight:700,fontSize:15}}>
-                <HelpCircle size={15} color={MARIGOLD_DARK}/>कठिन शब्द अर्थ हेर्नुहोस्
-              </button>
-            )}
+            <button className="lesson-obj-trigger ss-btn" onClick={()=>setVocabListPopup(true)} style={{alignItems:"center",gap:8,margin:"0 10px 4px",padding:"11px 13px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE_2,cursor:"pointer",color:INK,fontWeight:700,fontSize:15}}>
+              <HelpCircle size={15} color={MARIGOLD_DARK}/>{vocabulary.length>0?"कठिन शब्द अर्थ हेर्नुहोस्":"कठिन शब्द थप्नुहोस्"}
+            </button>
+          </>)}
+          {/* No objectives AND no words yet: the block above is hidden, but a
+              teacher still needs a way to add the first कठिन शब्द. */}
+          {objectives.length===0&&vocabulary.length===0&&(<>
+            <div className="lesson-obj-mobile" style={{padding:"10px 16px 12px",borderBottom:`1px solid ${BORDER}`}}>
+              <button className="ss-btn" onClick={()=>setVocabListPopup(true)} style={{display:"flex",alignItems:"center",gap:6,background:"none",border:"none",cursor:"pointer",padding:0,color:ACCENT,fontSize:14.5,fontWeight:700}}><Plus size={14}/>कठिन शब्द थप्नुहोस्</button>
+            </div>
+            <button className="lesson-obj-trigger ss-btn" onClick={()=>setVocabListPopup(true)} style={{alignItems:"center",gap:8,margin:"10px 10px 4px",padding:"11px 13px",borderRadius:10,border:`1px solid ${BORDER}`,background:SURFACE_2,cursor:"pointer",color:INK,fontWeight:700,fontSize:15}}>
+              <HelpCircle size={15} color={MARIGOLD_DARK}/>कठिन शब्द थप्नुहोस्
+            </button>
           </>)}
           <div className="lesson-tabs">
             {tabs.map((t)=>{const Icon=t.icon;const active=tab===t.id;return<button key={t.id} onClick={()=>setTab(t.id)} className={`lesson-tab-btn${active?" active":""}`} style={{color:active?ACCENT:INK_SOFT,borderBottomColor:active?ACCENT:"transparent"}}><Icon size={15}/>{t.label}</button>;})}
@@ -2837,29 +2936,45 @@ function LessonMode({ lesson, onClose, onEdit, autoPrint, classLabel, classConte
               <div style={{fontSize:"clamp(26px, 3.2vw, 34px)",fontWeight:800,color:INK}}>कठिन शब्द अर्थ</div>
               <IconButton icon={X} onClick={()=>setVocabListPopup(false)} size={26}/>
             </div>
+            {/* NEW — add your own कठिन शब्द. Meaning is written by AI unless
+                you type one yourself. Several words: separate with comma. */}
+            <div style={{padding:"14px 16px",border:`1.5px dashed ${BORDER}`,borderRadius:12,marginBottom:16,background:SURFACE_2}}>
+              <div style={{fontSize:14,fontWeight:700,color:INK_SOFT,marginBottom:8}}>नयाँ कठिन शब्द थप्नुहोस् — अर्थ AI ले आफैं बनाउँछ</div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                <input value={vocabAddWord} onChange={(e)=>setVocabAddWord(e.target.value)} onKeyDown={(e)=>{if(e.key==="Enter"&&!vocabAdding)addVocabWords();}} placeholder="शब्द (धेरै भए अल्पविराम , ले छुट्याउनुहोस्)" className="ss-field" style={{flex:"2 1 220px",borderRadius:10,padding:"10px 12px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE,color:INK}}/>
+                <input value={vocabAddMeaning} onChange={(e)=>setVocabAddMeaning(e.target.value)} onKeyDown={(e)=>{if(e.key==="Enter"&&!vocabAdding)addVocabWords();}} placeholder="अर्थ (वैकल्पिक — खाली राख्दा AI ले बनाउँछ)" className="ss-field" style={{flex:"3 1 260px",borderRadius:10,padding:"10px 12px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE,color:INK}}/>
+                <AIButton label={vocabAdding?"बनाउँदै...":"थप्नुहोस्"} onClick={addVocabWords} loading={vocabAdding}/>
+              </div>
+            </div>
+            {vocabError&&<ErrorMsg msg={vocabError}/>}
             <div style={{display:"flex",flexDirection:"column",gap:14}}>
-              {vocabulary.map((v)=>{
-                const idx=v.indexOf(":");
-                const word=idx>-1?v.slice(0,idx).trim():v.trim();
-                const meaning=idx>-1?v.slice(idx+1).trim():"";
+              {vocabulary.length===0&&<div style={{color:INK_SOFT,fontSize:17}}>कठिन शब्द थपिएको छैन।</div>}
+              {vocabulary.map((v,vi)=>{
+                const{word,meaning}=splitVocab(v);
+                const isEditing=vocabEditingIdx===vi;
                 return(
-                  // FIX — the whole card was already clickable (opens the
-                  // word's detail popup, which auto-runs the picture
-                  // lookup), but nothing on the card itself signalled
-                  // that a picture search was available — a teacher had
-                  // to already know that and tap the card text. Added an
-                  // explicit picture-icon button per card so it's visibly
-                  // its own action, and it now works even for a word with
-                  // no meaning line (previously the whole card, including
-                  // any picture lookup, was disabled for those).
-                  <div key={v} style={{display:"flex",alignItems:"center",gap:14,padding:"14px 18px",background:WARN_BG,borderRadius:12}}>
-                    <div onClick={()=>meaning&&setVocabPopup({word,meaning})} style={{flex:1,minWidth:0,display:"flex",alignItems:"baseline",gap:14,cursor:meaning?"pointer":"default"}}>
-                      <div style={{fontSize:"clamp(20px, 2.4vw, 24px)",fontWeight:800,color:MARIGOLD_DARK,flexShrink:0}}>{word}</div>
-                      {meaning&&<div style={{fontSize:"clamp(17px, 2vw, 20px)",color:INK,lineHeight:1.6}}>{meaning}</div>}
-                    </div>
-                    <button className="ss-btn" onClick={()=>setVocabPopup({word,meaning})} title="यो शब्दको तस्बिर खोज्नुहोस्" style={{flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",width:38,height:38,borderRadius:10,border:`1.5px solid ${MARIGOLD_DARK}`,background:SURFACE,color:MARIGOLD_DARK,cursor:"pointer"}}>
-                      <ImageIcon size={17}/>
-                    </button>
+                  <div key={vi+"-"+v} style={{display:"flex",alignItems:isEditing?"stretch":"center",gap:14,padding:"14px 18px",background:WARN_BG,borderRadius:12}}>
+                    {isEditing?(
+                      <div style={{flex:1,minWidth:0}}>
+                        <input autoFocus value={vocabEditWord} onChange={(e)=>setVocabEditWord(e.target.value)} placeholder="शब्द" className="ss-field" style={{width:"100%",borderRadius:10,padding:"9px 11px",fontSize:17,fontWeight:700,border:`1.5px solid ${BORDER}`,background:SURFACE,color:INK,marginBottom:8,boxSizing:"border-box"}}/>
+                        <textarea value={vocabEditMeaning} onChange={(e)=>setVocabEditMeaning(e.target.value)} rows={2} placeholder="अर्थ" className="ss-field" style={{width:"100%",borderRadius:10,padding:"9px 11px",fontSize:16.5,border:`1.5px solid ${BORDER}`,background:SURFACE,color:INK,resize:"vertical",marginBottom:8,boxSizing:"border-box"}}/>
+                        <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+                          <button className="ss-btn" onClick={()=>{setVocabEditingIdx(null);setVocabError("");}} style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${BORDER}`,background:SURFACE,fontWeight:600,fontSize:14,cursor:"pointer"}}>रद्द</button>
+                          <button className="ss-btn" onClick={()=>saveEditedVocab(vi)} style={{padding:"6px 12px",borderRadius:8,border:"none",background:`linear-gradient(180deg, ${ACCENT} 0%, ${ACCENT_DARK} 100%)`,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer"}}>सुरक्षित गर्नुहोस्</button>
+                          <button className="ss-btn" disabled={vocabEditGenerating} onClick={regenerateEditMeaning} style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${BORDER}`,background:SURFACE,color:INK,fontWeight:600,fontSize:14,cursor:vocabEditGenerating?"wait":"pointer",opacity:vocabEditGenerating?0.7:1}}>{vocabEditGenerating?"बनाउँदै...":"✨ AI बाट अर्थ बनाउनुहोस्"}</button>
+                        </div>
+                      </div>
+                    ):(<>
+                      <div onClick={()=>meaning&&setVocabPopup({word,meaning})} style={{flex:1,minWidth:0,display:"flex",alignItems:"baseline",gap:14,cursor:meaning?"pointer":"default"}}>
+                        <div style={{fontSize:"clamp(20px, 2.4vw, 24px)",fontWeight:800,color:MARIGOLD_DARK,flexShrink:0}}>{word}</div>
+                        {meaning?<div style={{fontSize:"clamp(17px, 2vw, 20px)",color:INK,lineHeight:1.6}}>{meaning}</div>:<div style={{fontSize:15,color:INK_SOFT,fontStyle:"italic"}}>अर्थ थपिएको छैन — सम्पादन गर्नुहोस्</div>}
+                      </div>
+                      <button className="ss-btn" onClick={()=>setVocabPopup({word,meaning})} title="यो शब्दको तस्बिर खोज्नुहोस्" style={{flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",width:38,height:38,borderRadius:10,border:`1.5px solid ${MARIGOLD_DARK}`,background:SURFACE,color:MARIGOLD_DARK,cursor:"pointer"}}>
+                        <ImageIcon size={17}/>
+                      </button>
+                      <button className="ss-icon-btn" onClick={()=>startEditVocab(vi)} title="सम्पादन" style={{cursor:"pointer",padding:6,color:ACCENT,display:"flex",flexShrink:0}}><PenSquare size={17}/></button>
+                      <button className="ss-icon-btn" onClick={()=>deleteVocab(vi)} title="हटाउनुहोस्" style={{cursor:"pointer",padding:6,color:DANGER,display:"flex",flexShrink:0}}><Trash2 size={17}/></button>
+                    </>)}
                   </div>
                 );
               })}

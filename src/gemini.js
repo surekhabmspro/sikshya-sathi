@@ -874,6 +874,49 @@ ${focusLine}
   });
 };
 
+// NEW — teacher-typed कठिन शब्द → AI-written meanings. The lesson screen's
+// कठिन शब्द list used to be read-only (words and meanings were only ever
+// picked by generateLessonPlan/generateVocabulary above). This lets a
+// teacher type their OWN extra word(s) and get a short, simple meaning
+// written automatically. Deliberately plain-prompt (no textbook/materials
+// context): a one-word lookup in the middle of a class must be fast, and
+// a simple meaning of a word doesn't need the whole book re-attached.
+// Returns [{ word, meaning }] in the same order as `words`; `word` is
+// always exactly what the teacher typed (never AI-reworded), so the
+// caller can store "word: meaning" without the word silently changing.
+// A word the AI couldn't explain comes back with meaning "" — the caller
+// keeps the word so the teacher can fill the meaning in by hand.
+export const generateWordMeanings = async (words = [], chapterTitle = "", classContext = "कक्षा ५ सामाजिक अध्ययन", lessonTitle = null) => {
+  const list = (words || []).map((w) => String(w || "").trim()).filter(Boolean);
+  if (!list.length) return [];
+  const focus = lessonTitle && lessonTitle.trim() && lessonTitle.trim() !== (chapterTitle || "").trim()
+    ? `"${lessonTitle}" पाठ (एकाइ: "${chapterTitle}")`
+    : (chapterTitle ? `"${chapterTitle}"` : "यो पाठ");
+  const prompt = `तपाईं नेपालको ${classContext}का विद्यार्थीका लागि ${focus} मा आउने कठिन शब्दहरूको अर्थ लेख्दै हुनुहुन्छ।
+यी शब्दहरूको अर्थ दिनुहोस् (शब्द जस्ताको त्यस्तै, कुनै परिवर्तन नगरी): ${JSON.stringify(list)}
+
+ठ्याक्कै यो JSON array मात्र जवाफ दिनुहोस्, माथिको सूचीमा जति शब्द छन् ठ्याक्कै त्यति वटा, त्यही क्रममा:
+[{"word":"शब्द","meaning":"छोटो र सरल अर्थ"}]
+नियम: अर्थ ${classContext}का विद्यार्थीले सजिलै बुझ्ने सरल नेपाली शब्दमा, बढीमा एउटा छोटो वाक्य/वाक्यांशमा लेख्नुहोस्। अर्थमा अर्धविराम (;) वा नयाँ लाइन कहिल्यै नराख्नुहोस्। शब्द अंग्रेजी भए पनि अर्थ नेपालीमै लेख्नुहोस्। शब्द ${focus} को सन्दर्भमा जे अर्थ बढी मिल्छ त्यही दिनुहोस्। अर्थ थाहा नभएमा अनुमान नगरी meaning खाली "" राख्नुहोस्।`;
+  return withStrayScriptRetry(async () => {
+    const text = await runPromptJSON(prompt, null);
+    const result = parseJSON(text);
+    if (!Array.isArray(result)) {
+      const preview = (text && text.trim()) ? text.trim().slice(0, 300) : "(खाली प्रतिक्रिया — Gemini बाट केही फर्केन)";
+      throw new Error("Gemini ले सही ढाँचामा जवाफ दिएन। जवाफको सुरुवात: " + preview);
+    }
+    const clean = (m) => String(m || "").replace(/[;\n\r]+/g, " ").replace(/\s+/g, " ").trim();
+    const byWord = new Map(result.filter((r) => r && typeof r.word === "string").map((r) => [r.word.trim(), clean(r.meaning)]));
+    // Match by the word itself first (robust if the AI reorders or skips
+    // one); fall back to position if it returned the same count but
+    // slightly reworded a word.
+    return list.map((w, i) => ({
+      word: w,
+      meaning: byWord.has(w) ? byWord.get(w) : (result.length === list.length ? clean(result[i]?.meaning) : ""),
+    }));
+  });
+};
+
 export const generateQuestions = async (chapterTitle, ctx = null, classContext = "कक्षा ५ सामाजिक अध्ययन", pathTitle = null) => {
   const isWholeChapter = !pathTitle || !pathTitle.trim() || pathTitle.trim() === chapterTitle.trim();
   // FIX — root cause of "exercise not found" for a lesson whose exercise
