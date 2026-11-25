@@ -400,6 +400,7 @@ async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, tim
   let res;
   let lastError;
   let usedFallback = false;
+  const tried = [];
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       res = await fetchGeminiOnce(body, model, timeoutMs);
@@ -421,6 +422,7 @@ async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, tim
     }
     break;
   }
+  if (res) tried.push(model + ":" + res.status);
   // NEW — the primary model used up its own retries and is still
   // rate-limited (429): one last attempt on the fallback model, which has
   // its own separate free-tier daily allowance, before giving up entirely.
@@ -444,8 +446,9 @@ async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, tim
     for (const m of chain) {
       try {
         const alt = await fetchGeminiOnce(body, m, timeoutMs);
+        tried.push(m + ":" + alt.status);
         if (alt.ok) { res = alt; usedFallback = true; break; }
-      } catch { /* try the next model */ }
+      } catch { tried.push(m + ":net"); }
     }
   }
   if (!res) throw lastError || new Error("Gemini सर्भरसम्म पुग्न सकिएन।");
@@ -464,9 +467,10 @@ async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, tim
     // issue rather than something broken. Now says so explicitly, since
     // that's actionable ("try again shortly") in a way a raw error code
     // isn't for a teacher mid-class.
-    if (res.status === 429) throw new Error("Gemini अहिले धेरै व्यस्त छ (rate limit) — केही मिनेट पछि फेरि प्रयास गर्नुहोस्। धेरैचोटि यस्तै आउँछ भने, दिनको सीमा सकिएको हुन सक्छ — भोलि फेरि प्रयास गर्नुहोस्।");
-    if (res.status === 503) throw new Error("Gemini अहिले अस्थायी रूपमा उपलब्ध छैन — केही सेकेन्ड पछि फेरि प्रयास गर्नुहोस्।");
-    throw new Error(`Gemini API त्रुटि (${data.error.code || res.status}): ${data.error.message}`);
+    const diag = ` [v3 | ${tried.join(", ")} | ${String(data.error.message || "").slice(0, 120)}]`;
+    if (res.status === 429) throw new Error("Gemini अहिले धेरै व्यस्त छ (rate limit) — केही मिनेट पछि फेरि प्रयास गर्नुहोस्। धेरैचोटि यस्तै आउँछ भने, दिनको सीमा सकिएको हुन सक्छ — भोलि फेरि प्रयास गर्नुहोस्।" + diag);
+    if (res.status === 503) throw new Error("Gemini अहिले अस्थायी रूपमा उपलब्ध छैन — केही सेकेन्ड पछि फेरि प्रयास गर्नुहोस्।" + diag);
+    throw new Error(`Gemini API त्रुटि (${data.error.code || res.status}): ${data.error.message}` + diag);
   }
   if (data.promptFeedback?.blockReason) throw new Error("Gemini ले यो अनुरोध रोक्यो: " + data.promptFeedback.blockReason);
 
