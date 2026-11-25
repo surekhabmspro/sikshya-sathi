@@ -392,7 +392,7 @@ async function fetchGeminiOnce(body, model, timeoutMs = CALL_TIMEOUT_MS) {
 // advantage. Letting a caller request it directly (see generateSimulation
 // below) is the first change in this whole effort that addresses the
 // real bottleneck instead of the retry/review bookkeeping around it.
-async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, timeoutMs = CALL_TIMEOUT_MS, retries = 2, model = PRIMARY_MODEL } = {}) {
+async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, timeoutMs = CALL_TIMEOUT_MS, retries = 3, model = PRIMARY_MODEL } = {}) {
   const generationConfig = { temperature: 0.7, maxOutputTokens };
   if (jsonMode) generationConfig.response_mime_type = "application/json";
   const body = { contents: [{ parts }], generationConfig };
@@ -414,7 +414,9 @@ async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, tim
       // Gemini's rate-limit/overload responses are usually short-lived —
       // wait a bit longer each retry (1s, then 2s) rather than hammering
       // it again immediately.
-      await sleep(1000 * (attempt + 1));
+      // 503 = Google-side overload; give it longer to recover (2s, 4s, 6s)
+      // plus a little jitter so repeated taps don't all land together.
+      await sleep(2000 * (attempt + 1) + Math.random() * 500);
       continue;
     }
     break;
@@ -432,7 +434,7 @@ async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, tim
   // (छिटो mode's first attempt): retrying the exact same model on the
   // exact same request is pointless, there's no lighter tier left to
   // fall back to.
-  if (res && res.status === 429 && model !== FALLBACK_MODEL) {
+  if (res && (res.status === 429 || res.status === 503) && model !== FALLBACK_MODEL) {
     try {
       const fallbackRes = await fetchGeminiOnce(body, FALLBACK_MODEL, timeoutMs);
       if (fallbackRes.ok) { res = fallbackRes; usedFallback = true; }
