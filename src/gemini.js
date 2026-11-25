@@ -1425,7 +1425,7 @@ ${html}`;
   // should never be allowed to burn as much of the teacher's wait as the
   // main generation call. The fast-mode prompt above is also much
   // shorter/narrower, so it needs less time regardless.
-  const raw = await callGemini([{ text: prompt }], { maxOutputTokens: 16000, timeoutMs: fast ? 60000 : 90000, retries: 1 });
+  const raw = await callGemini([{ text: prompt }], { maxOutputTokens: 32000, timeoutMs: fast ? 60000 : 90000, retries: 1 });
   const reviewed = extractHtmlDoc(raw);
   return applySimulationSafetyNets(reviewed);
 }
@@ -1609,9 +1609,13 @@ export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, 
   let html;
   let lastErr = null;
   const plan = [
-    { p: prompt, wait: 0, tokens: 16000 },
-    { p: compactPrompt, wait: 15000, tokens: 10000 },
-    { p: compactPrompt, wait: 30000, tokens: 10000 },
+    // FIX — the newer Gemini 3.x models spend part of this output budget on
+    // internal "thinking", so a 16000 (and then a SMALLER 10000 on the retries)
+    // ceiling ran out mid-HTML and every attempt ended in MAX_TOKENS. Raised,
+    // and the retries are no longer smaller than the first attempt.
+    { p: prompt, wait: 0, tokens: 32000 },
+    { p: compactPrompt, wait: 15000, tokens: 32000 },
+    { p: compactPrompt, wait: 30000, tokens: 32000 },
   ];
   for (let i = 0; i < plan.length; i++) {
     if (plan[i].wait) await sleep(plan[i].wait);
