@@ -434,11 +434,19 @@ async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, tim
   // (छिटो mode's first attempt): retrying the exact same model on the
   // exact same request is pointless, there's no lighter tier left to
   // fall back to.
-  if (res && (res.status === 429 || res.status === 503) && model !== FALLBACK_MODEL) {
-    try {
-      const fallbackRes = await fetchGeminiOnce(body, FALLBACK_MODEL, timeoutMs);
-      if (fallbackRes.ok) { res = fallbackRes; usedFallback = true; }
-    } catch { /* keep the original 429 response/error below */ }
+  // Walk down a chain of models: each has its own quota and its own load,
+  // so one being overloaded (503) or rate-limited (429) rarely means all are.
+  // The "-latest" aliases are maintained by Google and never go stale.
+  // Unknown/404 models are simply skipped; only a 2xx response is accepted.
+  if (res && (res.status === 429 || res.status === 503)) {
+    const chain = [PRIMARY_MODEL, FALLBACK_MODEL, "gemini-flash-latest", "gemini-flash-lite-latest"]
+      .filter((m, i, a) => m !== model && a.indexOf(m) === i);
+    for (const m of chain) {
+      try {
+        const alt = await fetchGeminiOnce(body, m, timeoutMs);
+        if (alt.ok) { res = alt; usedFallback = true; break; }
+      } catch { /* try the next model */ }
+    }
   }
   if (!res) throw lastError || new Error("Gemini सर्भरसम्म पुग्न सकिएन।");
 
