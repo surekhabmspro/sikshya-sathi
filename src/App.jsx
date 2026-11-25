@@ -758,7 +758,7 @@ async function buildGuidePart(guideRow) {
   }
 }
 
-async function getMaterialContext(chapterTitle, classLabel = null, lessonId = null) {
+async function getMaterialContext(chapterTitle, classLabel = null, lessonId = null, opts = {}) {
   if (!chapterTitle || !chapterTitle.trim()) {
     return { pdfBase64: await getTextbookPDF(classLabel), materialParts: [], textbookText: null, matchedCount: 0, chapterId: null, sourceKind: "no-title" };
   }
@@ -793,7 +793,9 @@ async function getMaterialContext(chapterTitle, classLabel = null, lessonId = nu
   // "fallback-pdf" means isolation failed and the whole book was handed
   // over instead (a real title/upload problem is more likely here).
   let sourceKind = "cached";
-  if (!textbookText) {
+  // v4 — simulation passes noExtract: skip the whole-book extraction call (heavy, burns quota, and failed 503 -> whole PDF attached)
+  if (!textbookText && opts.noExtract) { sourceKind = "none"; }
+  else if (!textbookText) {
     try {
       const extracted = await gemini.extractChapterText(chapterTitle.trim(), classLabel);
       if (extracted) { textbookText = extracted; sourceKind = "extracted"; db.saveTextbookChapterText(chapterId, extracted); }
@@ -3563,7 +3565,7 @@ function SimulationPanel({ lesson, chapterTitle, classLabel, classContext }) {
   // icon on an already-open item should do regardless of any mode.
   const generate=async(targetLesson=lesson,opts={})=>{
     if(!online){setError("अफलाइन छ — इन्टरनेट फर्केपछि पुनः प्रयास गर्नुहोस्।");return null;}
-    const ctx=await getMaterialContext(chapterTitle,classLabel);
+    const ctx=await getMaterialContext(chapterTitle,classLabel,null,{noExtract:true});
     let nextType=opts.forceTypeId?gemini.SIMULATION_TYPES.find((t)=>t.id===opts.forceTypeId):null;
     if(!nextType){
       // Which formats were used recently — combine BOTH signals so variety

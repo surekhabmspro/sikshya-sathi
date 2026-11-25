@@ -467,9 +467,10 @@ async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, tim
     // issue rather than something broken. Now says so explicitly, since
     // that's actionable ("try again shortly") in a way a raw error code
     // isn't for a teacher mid-class.
-    const diag = ` [v3 | ${tried.join(", ")} | ${String(data.error.message || "").slice(0, 120)}]`;
-    if (res.status === 429) throw new Error("Gemini अहिले धेरै व्यस्त छ (rate limit) — केही मिनेट पछि फेरि प्रयास गर्नुहोस्। धेरैचोटि यस्तै आउँछ भने, दिनको सीमा सकिएको हुन सक्छ — भोलि फेरि प्रयास गर्नुहोस्।" + diag);
-    if (res.status === 503) throw new Error("Gemini अहिले अस्थायी रूपमा उपलब्ध छैन — केही सेकेन्ड पछि फेरि प्रयास गर्नुहोस्।" + diag);
+    const mk = (m) => Object.assign(new Error(m), { transient: true });
+    const diag = ` [v4 | ${tried.join(", ")} | ${String(data.error.message || "").slice(0, 120)}]`;
+    if (res.status === 429) throw mk("Gemini अहिले धेरै व्यस्त छ (rate limit) — केही मिनेट पछि फेरि प्रयास गर्नुहोस्। धेरैचोटि यस्तै आउँछ भने, दिनको सीमा सकिएको हुन सक्छ — भोलि फेरि प्रयास गर्नुहोस्।" + diag);
+    if (res.status === 503) throw mk("Gemini अहिले अस्थायी रूपमा उपलब्ध छैन — केही सेकेन्ड पछि फेरि प्रयास गर्नुहोस्।" + diag);
     throw new Error(`Gemini API त्रुटि (${data.error.code || res.status}): ${data.error.message}` + diag);
   }
   if (data.promptFeedback?.blockReason) throw new Error("Gemini ले यो अनुरोध रोक्यो: " + data.promptFeedback.blockReason);
@@ -1580,17 +1581,44 @@ export const generateSimulation = async (chapterTitle, lessonTitle, ctx = null, 
   // if it fails the self-test, the retry in App.jsx's generate() steps
   // back up to PRIMARY_MODEL + the fast review, trading speed for
   // reliability on that one retry.
+  // v4 — never attach the whole textbook PDF or PDF/image materials to a
+  // simulation request: that made every call huge (and Google answers huge
+  // requests with 503 "high demand" far more often). Only the cached chapter
+  // text (capped) and text materials go in.
+  const lean = (!ctx || typeof ctx === "string") ? null : {
+    pdfBase64: null,
+    materialParts: (ctx.materialParts || []).filter((p) => typeof p.text === "string"),
+    textbookText: ctx.textbookText ? String(ctx.textbookText).slice(0, 12000) : null,
+  };
+  // v4 — short version of the prompt (~10x smaller) for retries after a 503/429.
+  const compactPrompt = `नेपालको ${classContext}का लागि एउटा इन्टरएक्टिभ सिमुलेसन/खेल बनाउनुहोस्। एकाइ: "${chapterTitle}" । पाठ: "${lessonTitle || chapterTitle}" ।
+ढाँचा: ${type.instruction}
+नियम:
+- एउटै फाइलमा पूरा HTML+CSS+JS (बाहिरी लाइब्रेरी/<img>/फाइल होइन; इमोजी वा inline SVG मात्र)। <meta name="viewport" content="width=device-width, initial-scale=1"> राख्नुहोस्।
+- प्रोजेक्टरका लागि landscape (1280×720 मा स्क्रोल बिना अटाउने), html/body overflow:hidden, flex/grid लेआउट। ठूलो फन्ट: पाठ ≥22px, शीर्षक ≥34px। उच्च कन्ट्रास्ट रङ।
+- ८ देखि १४ वटा फरक वस्तु/जोडी/चरण; सबै एउटै JS array मा परिभाषित गरी UI र सही/गलत जाँच दुवै त्यही array बाट बनाउनुहोस्। तथ्य पाठ्यसामग्री/पाठ्यपुस्तकअनुसार शुद्ध हुनुपर्छ; अड्कल नगर्नुहोस्।
+- एउटै मेकानिज्म मात्र। MCQ quiz होइन। सुरुमा १५ शब्दभित्रको निर्देशन माथि सधैं देखिने गरी। सुरुमा कुनै पनि उत्तर पहिल्यै छानिएको/सही देखिनु हुँदैन।
+- सही/गलत हुँदा ✅/❌ र छोटो कारण (३.५ सेकेन्ड रहने) देखाउनुहोस्। प्रगति (जस्तै ३/१०) देखाउनुहोस्।
+- window.playCorrectSound(), window.playWrongSound() पहिल्यै उपलब्ध छन्; अन्त्यमा कन्फेटी-उत्सव र window.playCelebrationSound() कल गर्नुहोस्।
+- "फेरि खेल्नुहोस्" बटन राख्नुहोस् जसले सबै रिसेट र Fisher-Yates ले क्रम शफल गर्छ। तल्लो-देब्रे (70×70px) र तल्लो-दायाँ (150×40px) कुना खाली छोड्नुहोस्।
+सिधै HTML कागजात मात्र सुरु गर्नुहोस्, कुनै व्याख्या बिना।`;
   let html;
-  let lastErr;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  let lastErr = null;
+  const plan = [
+    { p: prompt, wait: 0, tokens: 16000 },
+    { p: compactPrompt, wait: 15000, tokens: 10000 },
+    { p: compactPrompt, wait: 30000, tokens: 10000 },
+  ];
+  for (let i = 0; i < plan.length; i++) {
+    if (plan[i].wait) await sleep(plan[i].wait);
     try {
-      const raw = await runPrompt(prompt, ctx, { maxOutputTokens: 16000, timeoutMs: 150000, retries: 1, model: reviewMode === "none" ? FALLBACK_MODEL : PRIMARY_MODEL });
+      const raw = await runPrompt(plan[i].p, lean, { maxOutputTokens: plan[i].tokens, timeoutMs: 150000, retries: 1, model: reviewMode === "none" ? FALLBACK_MODEL : PRIMARY_MODEL });
       html = extractHtmlDoc(raw);
       lastErr = null;
       break;
     } catch (e) {
       lastErr = e;
-      if (!e.truncated) break;
+      if (!e.truncated && !e.transient) break;
     }
   }
   if (lastErr) throw lastErr;
