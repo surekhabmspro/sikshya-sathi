@@ -1,6 +1,9 @@
 // gemini.js — Google Gemini AI integration (free tier)
 import { supabase } from "./lib/supabase";
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+// FIX — trim stray spaces/newlines from a pasted key. The key is now sent in
+// the x-goog-api-key header (Google's documented method, required for the
+// newer "AQ." auth keys) instead of the ?key= URL query.
+const GEMINI_API_KEY = (import.meta.env.VITE_GEMINI_API_KEY || "").trim();
 // FIX — switched from gemini-3-flash-preview, a PREVIEW model, to
 // gemini-3.6-flash, a stable (GA) release. Google's own rate-limits page
 // states plainly: "Rate limits are more restricted for experimental and
@@ -25,7 +28,7 @@ const PRIMARY_MODEL = "gemini-3.6-flash";
 // as the error, masking the original rate-limit message entirely. Updated
 // to the model Google's own error told us to use.
 const FALLBACK_MODEL = "gemini-3.5-flash-lite";
-const geminiUrl = (model) => `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+const geminiUrl = (model) => `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
 // ─── IndexedDB storage for large PDF files (no size limit issues) ─────────────
 const DB_NAME = "sikshya_sathi";
@@ -235,9 +238,10 @@ async function uploadPdfToGeminiFiles(base64, displayName) {
   for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
   const blob = new Blob([bytes], { type: "application/pdf" });
 
-  const startRes = await fetch(`https://generativelanguage.googleapis.com/upload/v1beta/files?key=${GEMINI_API_KEY}`, {
+  const startRes = await fetch(`https://generativelanguage.googleapis.com/upload/v1beta/files`, {
     method: "POST",
     headers: {
+      "x-goog-api-key": GEMINI_API_KEY,
       "X-Goog-Upload-Protocol": "resumable",
       "X-Goog-Upload-Command": "start",
       "X-Goog-Upload-Header-Content-Length": String(blob.size),
@@ -353,7 +357,7 @@ async function fetchGeminiOnce(body, model, timeoutMs = CALL_TIMEOUT_MS) {
   try {
     return await fetch(geminiUrl(model), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
