@@ -1,6 +1,22 @@
 // db.js — all Supabase database calls in one place
 import { supabase } from "./lib/supabase";
 
+// FIX — `supabase.auth.getUser()` returns { user: null } whenever its
+// network check fails or the stored token is stale, and every caller below
+// then crashed with "Cannot read properties of null (reading 'id')" (seen
+// when generating a simulation). Fall back to the locally stored session
+// (no network needed), and if there is truly no session throw a readable
+// message instead of a raw TypeError.
+const getAuthUser = async () => {
+  let user = null;
+  try { user = (await supabase.auth.getUser()).data?.user || null; } catch { /* fall through */ }
+  if (!user) {
+    try { user = (await supabase.auth.getSession()).data?.session?.user || null; } catch { /* fall through */ }
+  }
+  if (!user) throw new Error("लगइन सत्र फेला परेन — एपबाट logout गरेर फेरि login गर्नुहोस्।");
+  return user;
+};
+
 // ─── OFFLINE CACHE ──────────────────────────────────────────────────────────
 // NEW — the app shell (JS/CSS/icons) was already precached by sw.js, so it
 // opened offline, but every screen was still empty: चयाट history aside,
@@ -163,7 +179,7 @@ export const getSections = async () => cachedFetch("sections", async () => {
 // class is active when it's created), so switching to it can also switch
 // the app's class — see App.jsx's switchToSection.
 export const createSection = async (name, classLabel = null) => {
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   const { data, error } = await supabase
     .from("sections")
     .insert({ name, teacher_id: user.id, class_label: classLabel })
@@ -228,7 +244,7 @@ export const setSectionStudentDetails = async (id, studentDetails) => {
 // correctly even if the section is later renamed or deleted. Requires the
 // `roster_archives` table added by roster_archives.sql.
 export const archiveSectionRoster = async (section, academicYear) => {
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   const { data, error } = await supabase
     .from("roster_archives")
     .insert({
@@ -315,7 +331,7 @@ export const getChapters = async (classLabel = null) => cachedFetch(`chapters:${
 });
 
 export const upsertChapter = async (chapter) => {
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   const { data, error } = await supabase
     .from("chapters")
     .upsert({ ...chapter, teacher_id: user.id })
@@ -358,7 +374,7 @@ export const getOrCreateChapterId = async (title, classLabel = null) => {
   if (!clean) return null;
   const existingId = await getChapterIdByTitle(clean, classLabel);
   if (existingId) return existingId;
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   const { data, error } = await supabase
     .from("chapters")
     .insert({ title: clean, teacher_id: user.id, class_label: classLabel })
@@ -407,7 +423,7 @@ export const getTextbookChapterText = async (chapterId) => {
 };
 export const saveTextbookChapterText = async (chapterId, text) => {
   if (!chapterId || !text) return;
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   await supabase.from("textbook_chapter_text").upsert({ chapter_id: chapterId, teacher_id: user.id, extracted_text: text }, { onConflict: "chapter_id" });
 };
 // NEW — clears just ONE chapter's cached extract (unlike the class-wide
@@ -426,7 +442,7 @@ export const clearTextbookChapterTextForChapter = async (chapterId) => {
 // or removed, since cached text extracted from the OLD book would silently
 // keep being served as if it were still accurate otherwise.
 export const clearTextbookChapterTextCache = async (classLabel = null) => {
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   if (!user) return;
   if (!classLabel) { await supabase.from("textbook_chapter_text").delete().eq("teacher_id", user.id); return; }
   const { data: chaps } = await supabase.from("chapters").select("id").eq("class_label", classLabel).eq("teacher_id", user.id);
@@ -457,7 +473,7 @@ export const getLessons = async (sectionId = null, classLabel = null) => cachedF
 });
 
 export const upsertLesson = async (lesson) => {
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   // FIX — this used to .select() with no join, so the returned row only
   // ever had chapter_id, never the chapter's actual title. Every caller
   // that turns this response into form state (see lessonToForm in
@@ -535,7 +551,7 @@ export const getMaterialsByLesson = async (lessonId) => {
 };
 
 export const insertMaterial = async (material) => {
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   const { data, error } = await supabase
     .from("materials")
     .insert({ ...material, teacher_id: user.id })
@@ -698,7 +714,7 @@ export const getCalendarEvents = async (classLabel = null) => cachedFetch(`calen
 });
 
 export const upsertCalendarEvent = async (event) => {
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   const { data, error } = await supabase
     .from("calendar_events")
     .upsert({ source: "manual", ...event, teacher_id: user.id })
@@ -717,7 +733,7 @@ export const deleteCalendarEvent = async (id) => {
 // Each row gets source:"imported" unless the caller already set one.
 export const bulkInsertCalendarEvents = async (events) => {
   if (!events?.length) return { data: [], error: null };
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   const rows = events.map((e) => ({ source: "imported", ...e, teacher_id: user.id }));
   const { data, error } = await supabase.from("calendar_events").insert(rows).select();
   return { data, error };
@@ -812,7 +828,7 @@ export const getQuestionsByLesson = async (lessonId) => {
 };
 
 export const upsertQuestion = async (question) => {
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   const { data, error } = await supabase
     .from("questions")
     .upsert({ ...question, teacher_id: user.id })
@@ -848,7 +864,7 @@ export const getQuestionSets = async () => {
 };
 
 export const upsertQuestionSet = async (set) => {
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   const { data, error } = await supabase
     .from("question_sets")
     .upsert({ ...set, teacher_id: user.id })
@@ -887,7 +903,7 @@ export const getAssessments = async (classLabel = null) => cachedFetch(`assessme
 });
 
 export const upsertAssessment = async (assessment) => {
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   return queuedUpsert("assessments", "assessments", { ...assessment, teacher_id: user.id });
 };
 
@@ -939,7 +955,7 @@ export const getHomework = async (sectionId = null, classLabel = null) => cached
 });
 
 export const upsertHomework = async (hw) => {
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   return queuedUpsert("homework", "homework", { ...hw, teacher_id: user.id });
 };
 
@@ -986,7 +1002,7 @@ export const getJournalEntries = async (classLabel = null) => cachedFetch(`journ
 });
 
 export const upsertJournalEntry = async (entry) => {
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   return queuedUpsert("journal_entries", "journal_entries", { ...entry, teacher_id: user.id });
 };
 
@@ -1015,7 +1031,7 @@ export const getActivities = async (classLabel = null) => cachedFetch(`activitie
 });
 
 export const upsertActivity = async (activity) => {
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   return queuedUpsert("activities", "activities", { ...activity, teacher_id: user.id });
 };
 
@@ -1052,7 +1068,7 @@ export const getSimulationsByLesson = async (lessonId) =>
 // lesson-to-lesson rather than only within repeated generations on the
 // same lesson.
 export const getRecentSimulationTypes = async (limit = 12) => {
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   const { data, error } = await supabase
     .from("simulations")
     .select("type")
@@ -1063,7 +1079,7 @@ export const getRecentSimulationTypes = async (limit = 12) => {
 };
 
 export const saveSimulation = async (simulation) => {
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   const { data, error } = await supabase
     .from("simulations")
     .insert({ ...simulation, teacher_id: user.id })
@@ -1107,7 +1123,7 @@ export const getAIMessages = async (lessonId) =>
   });
 
 export const saveAIMessage = async (lessonId, role, content) => {
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   const { error } = await supabase
     .from("ai_messages")
     .insert({ lesson_id: lessonId, role, content, teacher_id: user.id });
@@ -1130,7 +1146,7 @@ export const getSavedResources = async (classLabel = null) => cachedFetch(`saved
 });
 
 export const saveResource = async (resource) => {
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   const { data, error } = await supabase
     .from("saved_resources")
     .insert({ ...resource, teacher_id: user.id })
@@ -1188,7 +1204,7 @@ export const getVocabImageUrl = async (storagePath) => {
 // picture as not appropriate (also removes its old file from storage, if
 // any, so the bucket doesn't accumulate rejected images).
 export const upsertVocabImage = async (word, patch, oldStoragePath) => {
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   if (oldStoragePath) {
     await supabase.storage.from("vocab-images").remove([oldStoragePath]);
   }
@@ -1251,7 +1267,7 @@ export const uploadTeacherGuideFile = async (file, teacherId) => {
 // active guide only, leaving कक्षा ५'s active guide untouched (previously
 // this deactivated every guide for the teacher regardless of class).
 export const insertTeacherGuide = async (guide) => {
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   let deactivateQuery = supabase.from("teacher_guides").update({ is_active: false }).eq("teacher_id", user.id);
   if (guide.class_label) deactivateQuery = deactivateQuery.eq("class_label", guide.class_label);
   await deactivateQuery;
@@ -1264,7 +1280,7 @@ export const insertTeacherGuide = async (guide) => {
 };
 
 export const setActiveTeacherGuide = async (id, classLabel = null) => {
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   let deactivateQuery = supabase.from("teacher_guides").update({ is_active: false }).eq("teacher_id", user.id);
   if (classLabel) deactivateQuery = deactivateQuery.eq("class_label", classLabel);
   await deactivateQuery;
@@ -1329,7 +1345,7 @@ export const uploadFormatTemplateFile = async (file, teacherId, classLabel, kind
 // Replaces the active template for this class_label (deactivates the old
 // one, inserts the new one active) — mirrors setActiveTeacherGuide's pattern.
 export const insertFormatTemplate = async (template) => {
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   await supabase.from("format_templates")
     .update({ is_active: false })
     .eq("teacher_id", user.id)
@@ -1368,7 +1384,7 @@ export const getPlanGroupForChapter = async (chapterId) => {
 };
 
 export const insertPlanGroup = async (group) => {
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   const { data, error } = await supabase
     .from("plan_groups")
     .insert({ ...group, teacher_id: user.id })
