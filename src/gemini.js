@@ -212,7 +212,15 @@ export const clearTextbook = async (classLabel = null) => {
 // instead of the whole book.
 const textbookPartCache = new Map(); // classLabel -> Promise<part|null>, cleared on invalidateTextbookCache
 
-const fileRefStorageKey = (classLabel) => `ss-gemini-fileref::${classLabel || "default"}`;
+// FIX — Gemini Files API uploads belong to the API key's project. The cache key
+// now includes the key's last 8 chars, so switching to a new key/project (e.g.
+// a new Google AI Studio account) never reuses a file_uri the new key can't
+// access (that caused "403: You do not have permission to access the File ...").
+const keyFingerprint = () => GEMINI_API_KEY.slice(-8) || "nokey";
+const fileRefStorageKey = (classLabel) => `ss-gemini-fileref::${keyFingerprint()}::${classLabel || "default"}`;
+
+// file_uri -> classLabel, so a 403/404 on a stale file can be self-healed.
+const fileUriOwner = new Map();
 
 function readCachedFileRef(classLabel) {
   try {
@@ -275,7 +283,7 @@ export function getTextbookPart(classLabel = null) {
 
   const promise = (async () => {
     const cachedUri = readCachedFileRef(classLabel);
-    if (cachedUri) return { file_data: { mime_type: "application/pdf", file_uri: cachedUri } };
+    if (cachedUri) { fileUriOwner.set(cachedUri, { classLabel }); return { file_data: { mime_type: "application/pdf", file_uri: cachedUri } }; }
 
     const base64 = await loadTextbook(classLabel);
     if (!base64) return null;
@@ -283,6 +291,7 @@ export function getTextbookPart(classLabel = null) {
     try {
       const uri = await uploadPdfToGeminiFiles(base64, `textbook-${key}`);
       writeCachedFileRef(classLabel, uri);
+      fileUriOwner.set(uri, { classLabel });
       return { file_data: { mime_type: "application/pdf", file_uri: uri } };
     } catch {
       // Files API upload failed (offline, quota, etc.) — fall back to the
@@ -396,7 +405,26 @@ async function fetchGeminiOnce(body, model, timeoutMs = CALL_TIMEOUT_MS) {
 // advantage. Letting a caller request it directly (see generateSimulation
 // below) is the first change in this whole effort that addresses the
 // real bottleneck instead of the retry/review bookkeeping around it.
-async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, timeoutMs = CALL_TIMEOUT_MS, retries = 3, model = PRIMARY_MODEL } = {}) {
+// Replaces any stale cached textbook file reference in `parts` with a freshly
+// uploaded one. Returns the new parts array, or null if nothing was replaceable.
+async function healStaleFileParts(parts) {
+  let changed = false;
+  const out = [];
+  for (const p of parts) {
+    const uri = p?.file_data?.file_uri;
+    const owner = uri && fileUriOwner.get(uri);
+    if (owner) {
+      fileUriOwner.delete(uri);
+      invalidateTextbookCache(owner.classLabel);
+      const fresh = await getTextbookPart(owner.classLabel);
+      out.push(fresh || p);
+      changed = changed || !!fresh;
+    } else out.push(p);
+  }
+  return changed ? out : null;
+}
+
+async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, timeoutMs = CALL_TIMEOUT_MS, retries = 3, model = PRIMARY_MODEL, _healed = false } = {}) {
   const generationConfig = { temperature: 0.7, maxOutputTokens };
   if (jsonMode) generationConfig.response_mime_type = "application/json";
   const body = { contents: [{ parts }], generationConfig };
@@ -471,6 +499,12 @@ async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, tim
     // issue rather than something broken. Now says so explicitly, since
     // that's actionable ("try again shortly") in a way a raw error code
     // isn't for a teacher mid-class.
+    // Stale/foreign file reference (expired after 48h, or uploaded under an old
+    // API key): re-upload the textbook with the current key and retry once.
+    if (!_healed && (res.status === 403 || res.status === 404) && /file/i.test(String(data.error.message || ""))) {
+      const healed = await healStaleFileParts(parts);
+      if (healed) return callGemini(healed, { jsonMode, maxOutputTokens, timeoutMs, retries, model, _healed: true });
+    }
     const mk = (m) => Object.assign(new Error(m), { transient: true });
     const diag = ` [v4 | ${tried.join(", ")} | ${String(data.error.message || "").slice(0, 120)}]`;
     if (res.status === 429) throw mk("Gemini अहिले धेरै व्यस्त छ (rate limit) — केही मिनेट पछि फेरि प्रयास गर्नुहोस्। धेरैचोटि यस्तै आउँछ भने, दिनको सीमा सकिएको हुन सक्छ — भोलि फेरि प्रयास गर्नुहोस्।" + diag);
