@@ -506,7 +506,16 @@ async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, tim
       if (healed) return callGemini(healed, { jsonMode, maxOutputTokens, timeoutMs, retries, model, _healed: true });
     }
     const mk = (m) => Object.assign(new Error(m), { transient: true });
-    const diag = ` [v4 | ${tried.join(", ")} | ${String(data.error.message || "").slice(0, 120)}]`;
+    // Pull the exact quota that was hit (per-minute vs per-day, requests vs tokens)
+    // and Google's suggested wait out of the error details, so a 429 is diagnosable.
+    let quotaInfo = "";
+    try {
+      for (const d of data.error.details || []) {
+        if (d.violations) quotaInfo += " " + d.violations.map((v) => v.quotaId || v.quotaMetric).filter(Boolean).join(",");
+        if (d.retryDelay) quotaInfo += " retry:" + d.retryDelay;
+      }
+    } catch { /* details are best-effort */ }
+    const diag = ` [v5 | ${tried.join(", ")} |${quotaInfo} | ${String(data.error.message || "").slice(0, 60)}]`;
     if (res.status === 429) throw Object.assign(mk("Gemini अहिले धेरै व्यस्त छ (rate limit) — केही मिनेट पछि फेरि प्रयास गर्नुहोस्। धेरैचोटि यस्तै आउँछ भने, दिनको सीमा सकिएको हुन सक्छ — भोलि फेरि प्रयास गर्नुहोस्।" + diag), { quota: true });
     if (res.status === 503) throw mk("Gemini अहिले अस्थायी रूपमा उपलब्ध छैन — केही सेकेन्ड पछि फेरि प्रयास गर्नुहोस्।" + diag);
     throw new Error(`Gemini API त्रुटि (${data.error.code || res.status}): ${data.error.message}` + diag);
