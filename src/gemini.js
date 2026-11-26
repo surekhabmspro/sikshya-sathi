@@ -515,7 +515,14 @@ async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, tim
         if (d.retryDelay) quotaInfo += " retry:" + d.retryDelay;
       }
     } catch { /* details are best-effort */ }
+    // Daily free-tier request cap: say so plainly, with the wait Google reports.
+    const perDay = /PerDay/i.test(quotaInfo);
+    const delayMatch = /retry:(\d+(?:\.\d+)?)s/.exec(quotaInfo);
+    const dailyMsg = perDay && res.status === 429
+      ? `Gemini को आजको निःशुल्क दैनिक सीमा (अनुरोध संख्या) सकियो${delayMatch ? ` — करिब ${Math.ceil(Number(delayMatch[1]) / 3600)} घण्टा पछि खुल्छ` : ""}। पर्खनुहोस्, वा Google AI Studio मा यो project मा billing खोल्नुहोस्।`
+      : null;
     const diag = ` [v5 | ${tried.join(", ")} |${quotaInfo} | ${String(data.error.message || "").slice(0, 60)}]`;
+    if (dailyMsg) throw Object.assign(mk(dailyMsg + diag), { quota: true });
     if (res.status === 429) throw Object.assign(mk("Gemini अहिले धेरै व्यस्त छ (rate limit) — केही मिनेट पछि फेरि प्रयास गर्नुहोस्। धेरैचोटि यस्तै आउँछ भने, दिनको सीमा सकिएको हुन सक्छ — भोलि फेरि प्रयास गर्नुहोस्।" + diag), { quota: true });
     if (res.status === 503) throw mk("Gemini अहिले अस्थायी रूपमा उपलब्ध छैन — केही सेकेन्ड पछि फेरि प्रयास गर्नुहोस्।" + diag);
     throw new Error(`Gemini API त्रुटि (${data.error.code || res.status}): ${data.error.message}` + diag);
