@@ -507,7 +507,7 @@ async function callGemini(parts, { jsonMode = false, maxOutputTokens = 4096, tim
     }
     const mk = (m) => Object.assign(new Error(m), { transient: true });
     const diag = ` [v4 | ${tried.join(", ")} | ${String(data.error.message || "").slice(0, 120)}]`;
-    if (res.status === 429) throw mk("Gemini अहिले धेरै व्यस्त छ (rate limit) — केही मिनेट पछि फेरि प्रयास गर्नुहोस्। धेरैचोटि यस्तै आउँछ भने, दिनको सीमा सकिएको हुन सक्छ — भोलि फेरि प्रयास गर्नुहोस्।" + diag);
+    if (res.status === 429) throw Object.assign(mk("Gemini अहिले धेरै व्यस्त छ (rate limit) — केही मिनेट पछि फेरि प्रयास गर्नुहोस्। धेरैचोटि यस्तै आउँछ भने, दिनको सीमा सकिएको हुन सक्छ — भोलि फेरि प्रयास गर्नुहोस्।" + diag), { quota: true });
     if (res.status === 503) throw mk("Gemini अहिले अस्थायी रूपमा उपलब्ध छैन — केही सेकेन्ड पछि फेरि प्रयास गर्नुहोस्।" + diag);
     throw new Error(`Gemini API त्रुटि (${data.error.code || res.status}): ${data.error.message}` + diag);
   }
@@ -769,7 +769,7 @@ export async function extractChapterText(chapterTitle, classLabel) {
   // first place. Matches the 16000 cap already used elsewhere for
   // similarly long single-call generations.
   try { text = await callGemini([part, { text: prompt }], { maxOutputTokens: 16000 }); }
-  catch { return null; } // extraction failures fall back silently — the caller re-tries with the whole book for this one call
+  catch (e) { if (e && e.transient) throw e; return null; } // quota/overload errors must surface (falling back to the whole book would burn even more quota); other failures fall back silently — the caller re-tries with the whole book for this one call
   const trimmed = (text || "").trim();
   if (!trimmed || trimmed === "NOT_FOUND" || trimmed.length < 40) return null;
   if (looksCorrupted(trimmed)) return null; // never cache a corrupted extraction — caller falls back to the raw PDF for this call instead

@@ -800,7 +800,7 @@ async function getMaterialContext(chapterTitle, classLabel = null, lessonId = nu
       const extracted = await gemini.extractChapterText(chapterTitle.trim(), classLabel);
       if (extracted) { textbookText = extracted; sourceKind = "extracted"; db.saveTextbookChapterText(chapterId, extracted); }
       else { pdfBase64 = await getTextbookPDF(classLabel); sourceKind = "fallback-pdf"; } // couldn't isolate this chapter (e.g. title doesn't match the book's wording) — fall back to the whole book for this call only, don't cache a miss
-    } catch { pdfBase64 = await getTextbookPDF(classLabel); sourceKind = "fallback-pdf"; }
+    } catch (e) { if (e && e.transient) throw e; pdfBase64 = await getTextbookPDF(classLabel); sourceKind = "fallback-pdf"; } // quota/overload: stop here instead of re-sending the whole book
   }
   return { pdfBase64, materialParts, textbookText, matchedCount: materials.length, chapterId, sourceKind };
 }
@@ -967,16 +967,20 @@ async function preparePath({ chapterTitle, chapterId, pathTitle, lessonId, secti
   // bursting them, and (2) gets one extra automatic retry with a longer
   // pause if the first attempt fails, before finally giving up and
   // showing the real error message under that step.
+  let quotaHit = false;
   async function runStep(step, fn) {
+    if (quotaHit) { emit(step, "error", "Gemini को सीमा सकिएकाले यो चरण रोकियो — केही मिनेटपछि फेरि प्रयास गर्नुहोस्।"); return null; }
     emit(step, "loading");
     await sleep(1200);
     try {
       return await fn();
     } catch (e1) {
+      if (e1 && e1.quota) { quotaHit = true; emit(step, "error", e1.message); return null; } // retrying a quota error 4s later only burns more quota
       await sleep(4000);
       try {
         return await fn();
       } catch (e2) {
+        if (e2 && e2.quota) quotaHit = true;
         emit(step, "error", e2.message);
         return null;
       }
